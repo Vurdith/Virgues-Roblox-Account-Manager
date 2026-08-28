@@ -1,0 +1,4 @@
+interface:
+  display_name: "Compile & Release"
+  short_description: "Validate and package app releases"
+  default_prompt: "Use $compile-release to validate and package this app for release."

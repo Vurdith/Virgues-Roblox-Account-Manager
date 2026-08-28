@@ -1,0 +1,4 @@
+interface:
+  display_name: "Safe Editing"
+  short_description: "Coordinate safe multi-agent edits"
+  default_prompt: "Use $safe-editing to coordinate safe changes across this app."

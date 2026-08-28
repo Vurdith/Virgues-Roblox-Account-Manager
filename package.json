@@ -1,0 +1,83 @@
+{
+  "name": "virgues-roblox-account-manager",
+  "version": "1.0.0",
+  "description": "A focused Windows desktop account workspace for Roblox profiles.",
+  "productName": "Virgue's Roblox Account Manager",
+  "author": "Virgue",
+  "license": "MIT",
+  "type": "module",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "package": "npm run build && electron-builder --win nsis --x64",
+    "dist": "npm run package"
+  },
+  "dependencies": {
+    "@fontsource/outfit": "5.3.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "26.3.0",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.2",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "5.2.0",
+    "electron": "43.4.1",
+    "electron-builder": "26.15.3",
+    "electron-vite": "5.0.0",
+    "typescript": "7.0.2",
+    "vite": "7.3.6"
+  },
+  "build": {
+    "appId": "com.virgue.robloxaccountmanager",
+    "productName": "Virgue's Roblox Account Manager",
+    "artifactName": "Virgues-Roblox-Account-Manager-Setup-${version}.${ext}",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "native/bin/nvidia-fps-helper.exe",
+        "to": "native/nvidia-fps-helper.exe"
+      },
+      {
+        "from": "native/NVIDIA-NVAPI-LICENSE.txt",
+        "to": "native/NVIDIA-NVAPI-LICENSE.txt"
+      },
+      {
+        "from": "native/bin/process-memory-helper.exe",
+        "to": "native/process-memory-helper.exe"
+      }
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/virgue-icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Virgue's Roblox Account Manager",
+      "runAfterFinish": true
+    }
+  }
+}
