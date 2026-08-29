@@ -1,21 +1,73 @@
-MIT License
+Virgue Source-Available Inspection License v1.0
 
-Copyright (c) 2026 Virgue
+Copyright (c) 2026 Reece Leneveu (Virgue)
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This is a proprietary source-available license. It is not an open-source
+license and it does not grant the rights normally granted by the MIT, Apache,
+GPL, or other open-source licenses.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. Definitions
+
+"Software" means the original source code and other original materials in
+this repository that are owned by the copyright holder. Third-party software,
+fonts, libraries, media, native components, and other materials that include
+their own license or notice are excluded from this grant and remain subject
+to their respective licenses.
+
+"Licensor" means Reece Leneveu, operating under the Virgue name.
+
+2. Limited inspection permission
+
+Subject to this license, the Licensor grants you a limited, non-exclusive,
+non-transferable, royalty-free permission to view the Software and to make
+temporary local copies strictly for personal security, privacy, and code
+inspection. You may use static-analysis tools and may compile or test a local
+copy only when reasonably necessary for that inspection.
+
+You may report security findings, bugs, and factual observations about the
+Software without disclosing passwords, cookies, private user data, or large
+portions of the source code.
+
+3. Restrictions
+
+You may not, without separate written permission from the Licensor:
+
+- use the Software as an end-user application or production system;
+- run or distribute a compiled, packaged, or modified version for ordinary use;
+- modify, adapt, translate, or create derivative works for distribution;
+- copy, publish, mirror, sublicense, sell, rent, or otherwise redistribute the
+  Software or any derivative of it;
+- remove, bypass, or disable subscription, licensing, security, or access
+  controls;
+- use the Software or any derivative for a competing product or service; or
+- use the Virgue name, logos, icons, product names, or other branding to imply
+  official sponsorship or affiliation.
+
+4. Ownership
+
+The Software is licensed, not sold. The Licensor retains all rights, title,
+and interest in the Software and its original intellectual property. No rights
+are granted except the limited inspection permission in Section 2.
+
+5. Third-party materials
+
+Nothing in this license changes the license for a third-party component. You
+must follow the applicable license and notice for each such component.
+
+6. No warranty
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM,
+OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+7. Termination
+
+This permission ends automatically if you breach this license. On termination,
+you must stop using the Software and delete copies in your possession or
+control, except where retention is required by law.
+
+For permissions outside this license, contact the Licensor before using the
+Software.

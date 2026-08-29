@@ -4,7 +4,7 @@
   "description": "A focused Windows desktop account workspace for Roblox profiles.",
   "productName": "Virgue's Roblox Account Manager",
   "author": "Virgue",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {

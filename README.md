@@ -45,4 +45,15 @@ The renderer has no Node.js or raw `ipcRenderer` access. Profile metadata is per
 
 The supported build target is the Electron app at the repository root.
 
-The source is released under the MIT License; see [LICENSE](LICENSE).
+## Source inspection and license
+
+The source is publicly available for security and privacy inspection under the
+[Virgue Source-Available Inspection License](LICENSE). This is not an
+open-source license. Repository access does not grant permission to use the
+app as an end user, remove subscription or licensing controls, modify it for
+distribution, package it, sell it, or publish a competing version.
+
+The license permits temporary local copies, static analysis, and build/test
+steps only when reasonably necessary to inspect the source. Third-party
+dependencies and native components remain subject to their own licenses and
+notices.
