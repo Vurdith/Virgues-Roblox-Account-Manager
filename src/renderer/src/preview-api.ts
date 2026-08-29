@@ -18,6 +18,7 @@ import type {
   SessionSnapshot,
   UpdateAccountInput,
   VirgueApi,
+  VirgueAuthSession,
   WebApiSettings,
   WatcherSettings,
 } from '@shared/types'
@@ -157,6 +158,7 @@ function createPreviewApi(): VirgueApi {
   let serverHistory: ServerHistoryRecord[] = []
   let serverPreferences: ServerPreference[] = []
   let sessionSnapshot: SessionSnapshot = { active: [], history: [], events: [], recoveryJobs: [], checkedAt: now() }
+  let authSession: VirgueAuthSession | null = null
   const sessionListeners = new Set<(event: SessionEvent) => void>()
 
   const snapshot = (): AppSnapshot => ({
@@ -515,6 +517,38 @@ function createPreviewApi(): VirgueApi {
     },
     settings: {
       update: async (input) => { settings = { ...settings, ...input }; return clone(settings) },
+    },
+    auth: {
+      getSession: async () => clone(authSession),
+      signIn: async (input) => {
+        const session: VirgueAuthSession = {
+          user: {
+            id: 'preview-user',
+            name: input.email.split('@')[0] || 'Preview User',
+            email: input.email,
+            emailVerified: true,
+            image: null,
+          },
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        }
+        authSession = session
+        return clone(session)
+      },
+      signUp: async (input) => {
+        const session: VirgueAuthSession = {
+          user: {
+            id: 'preview-user',
+            name: input.name.trim() || input.email.split('@')[0] || 'Preview User',
+            email: input.email,
+            emailVerified: true,
+            image: null,
+          },
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        }
+        authSession = session
+        return clone(session)
+      },
+      signOut: async () => { authSession = null },
     },
     window: {
       minimize: async () => undefined,

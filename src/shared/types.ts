@@ -588,6 +588,28 @@ export interface WatcherUpdateInput extends Partial<WatcherSettings> {}
 
 export interface ClientSettingsUpdateInput extends Partial<ClientSettings> {}
 
+export interface VirgueUser {
+  id: string
+  name: string
+  email: string
+  emailVerified: boolean
+  image: string | null
+}
+
+export interface VirgueAuthSession {
+  user: VirgueUser
+  expiresAt: string
+}
+
+export interface AuthCredentialsInput {
+  email: string
+  password: string
+}
+
+export interface AuthSignUpInput extends AuthCredentialsInput {
+  name: string
+}
+
 export interface VirgueApi {
   accounts: {
     create(input: CreateAccountInput): Promise<Account>
@@ -668,6 +690,12 @@ export interface VirgueApi {
   }
   settings: {
     update(input: Partial<AppSettings>): Promise<AppSettings>
+  }
+  auth: {
+    getSession(): Promise<VirgueAuthSession | null>
+    signIn(input: AuthCredentialsInput): Promise<VirgueAuthSession>
+    signUp(input: AuthSignUpInput): Promise<VirgueAuthSession>
+    signOut(): Promise<void>
   }
   window: {
     minimize(): Promise<void>

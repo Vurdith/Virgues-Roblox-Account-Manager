@@ -7,6 +7,8 @@ import type {
   AccountUtilityInput,
   AccountUtilityResult,
   AccountCopyKind,
+  AuthCredentialsInput,
+  AuthSignUpInput,
   AppSettings,
   AppSnapshot,
   CategoryIcon,
@@ -33,10 +35,12 @@ import type {
   WebApiSettings,
   UpdateAccountInput,
   UpdateCategoryInput,
+  VirgueAuthSession,
 } from '@shared/types'
 import { Icon, type IconName } from './components/Icons'
+import AccountView from './AccountView'
 
-type View = 'accounts' | 'games' | 'sessions' | 'servers' | 'utilities' | 'control' | 'activity' | 'settings'
+type View = 'accounts' | 'games' | 'sessions' | 'servers' | 'utilities' | 'control' | 'activity' | 'settings' | 'account'
 type ActivityTone = 'normal' | 'positive' | 'warning'
 
 interface ActivityItem { id: number; message: string; detail: string; tone: ActivityTone }
@@ -188,6 +192,9 @@ function App() {
   const [isMaximized, setIsMaximized] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
+  const [authSession, setAuthSession] = useState<VirgueAuthSession | null>(null)
+  const [authBusy, setAuthBusy] = useState(false)
+  const [authError, setAuthError] = useState('')
   const [launchingAccountId, setLaunchingAccountId] = useState<string | null>(null)
   const [launchingMany, setLaunchingMany] = useState(false)
   const launchingAccountRef = useRef<string | null>(null)
@@ -228,6 +235,13 @@ function App() {
   useEffect(() => { void loadSnapshot() }, [])
 
   useEffect(() => {
+    void window.virgue.auth.getSession().then(setAuthSession).catch((caught: unknown) => {
+      setAuthSession(null)
+      setAuthError(caught instanceof Error ? caught.message : 'The Virgue account session could not be restored.')
+    })
+  }, [])
+
+  useEffect(() => {
     const unsubscribe = window.virgue.sessions.onEvent(() => {
       void window.virgue.sessions.getSnapshot().then(setSessionSnapshot).catch(() => {
         // Keep the last known session registry when a renderer refresh is unavailable.
@@ -264,6 +278,51 @@ function App() {
     } catch (caught) {
       setErrorFrom(caught, 'The value could not be copied.')
       return false
+    }
+  }
+
+  const handleAuthSignIn = async (input: AuthCredentialsInput): Promise<void> => {
+    setAuthBusy(true)
+    setAuthError('')
+    try {
+      const session = await window.virgue.auth.signIn(input)
+      setAuthSession(session)
+      setActiveView('accounts')
+      pushActivity(`Signed in as ${session.user.name}`, 'Virgue account connected for subscriptions', 'positive')
+    } catch (caught) {
+      setAuthError(caught instanceof Error ? caught.message : 'Virgue sign-in failed.')
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  const handleAuthSignUp = async (input: AuthSignUpInput): Promise<void> => {
+    setAuthBusy(true)
+    setAuthError('')
+    try {
+      const session = await window.virgue.auth.signUp(input)
+      setAuthSession(session)
+      setActiveView('accounts')
+      pushActivity('Virgue account created', 'Account identity is ready for subscriptions', 'positive')
+    } catch (caught) {
+      setAuthError(caught instanceof Error ? caught.message : 'Virgue account creation failed.')
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  const handleAuthSignOut = async (): Promise<void> => {
+    setAuthBusy(true)
+    setAuthError('')
+    try {
+      await window.virgue.auth.signOut()
+      setAuthSession(null)
+      setActiveView('account')
+      pushActivity('Signed out of Virgue', 'The local Roblox workspace remains available', 'normal')
+    } catch (caught) {
+      setAuthError(caught instanceof Error ? caught.message : 'Virgue sign-out failed.')
+    } finally {
+      setAuthBusy(false)
     }
   }
 
@@ -437,19 +496,20 @@ function App() {
         <ViewButton active={activeView === 'control'} icon="terminal" label="Control" onClick={() => setActiveView('control')} />
         <ViewButton active={activeView === 'activity'} icon="clock" label="Activity" onClick={() => setActiveView('activity')} count={activity.length} />
         <ViewButton active={activeView === 'settings'} icon="settings" label="Settings" onClick={() => setActiveView('settings')} />
+        <ViewButton active={activeView === 'account'} icon="users" label="Virgue account" onClick={() => setActiveView('account')} />
       </nav>
       <div className="window-controls" aria-label="Window controls"><button type="button" className="window-button" aria-label="Minimize" onClick={() => void window.virgue.window.minimize()}><Icon name="minus" size={16} /></button><button type="button" className="window-button" aria-label={isMaximized ? 'Restore' : 'Maximize'} onClick={() => void handleMaximize()}><Icon name="square" size={14} /></button><button type="button" className="window-button close-window" aria-label="Close" onClick={() => void window.virgue.window.close()}><Icon name="close" size={16} /></button></div>
     </header>
 
     <div className="app-body">
       <aside className="sidebar">
-        <div className="sidebar-intro"><span className="eyebrow">Your workspace</span><h2>{activeView === 'games' ? 'Game shelf' : activeView === 'activity' ? 'Activity centre' : 'Account desk'}</h2><p>{activeView === 'games' ? 'Make a game collection for each experience, then sort profiles into useful categories.' : activeView === 'activity' ? 'A clear timeline for balances, launches, presence checks, and workspace changes.' : 'Keep local profiles clear, grouped by game, and ready for the next session.'}</p></div>
+        <div className="sidebar-intro"><span className="eyebrow">Your workspace</span><h2>{activeView === 'games' ? 'Game shelf' : activeView === 'activity' ? 'Activity centre' : activeView === 'account' ? 'Virgue account' : 'Account desk'}</h2><p>{activeView === 'games' ? 'Make a game collection for each experience, then sort profiles into useful categories.' : activeView === 'activity' ? 'A clear timeline for balances, launches, presence checks, and workspace changes.' : activeView === 'account' ? 'Connect the account used for subscriptions while keeping Roblox credentials local.' : 'Keep local profiles clear, grouped by game, and ready for the next session.'}</p></div>
         <div className="sidebar-actions"><button type="button" className="primary-button full-button" onClick={() => { setActiveView('accounts'); handleAddAccount() }}><Icon name="plus" size={17} /> Add Account</button><button type="button" className="outline-button full-button" onClick={() => setActiveView('games')}><Icon name="game" size={17} /> Manage games</button></div>
         <div className="sidebar-section"><div className="section-heading"><span>Games</span><span className="section-count">{games.length}</span></div><div className="group-list"><button type="button" className={`group-button ${selectedGameId === 'all' ? 'active' : ''}`} onClick={() => { setSelectedGameId('all'); setSelectedCategoryId('all'); setActiveView('accounts') }}><span className="group-name"><span className="tree-icon"><Icon name="grid" size={14} /></span>All games</span><span>{uniqueWorkspaceAccounts.length}</span></button>{games.map((game) => <div className="game-tree" key={game.id}><button type="button" className={`group-button ${selectedGameId === game.id && selectedCategoryId === 'all' ? 'active' : ''}`} onClick={() => { setSelectedGameId(game.id); setSelectedCategoryId('all'); setActiveView('accounts') }}><span className="group-name"><span className="tree-icon game-tree-icon"><Icon name={game.favorite ? 'star' : 'game'} size={14} filled={game.favorite} /></span>{game.name}</span><span>{accounts.filter((account) => account.gameId === game.id).length}</span></button>{game.categories.map((category) => <button type="button" className={`category-button ${selectedGameId === game.id && selectedCategoryId === category.id ? 'active' : ''}`} key={category.id} onClick={() => { setSelectedGameId(game.id); setSelectedCategoryId(category.id); setActiveView('accounts') }}><span className="category-icon"><Icon name={category.icon ?? 'folder'} size={13} /></span>{category.name}<span>{accounts.filter((account) => account.gameId === game.id && account.categoryId === category.id).length}</span></button>)}</div>)}</div></div>
       </aside>
 
       <main className="workspace" id="main-content">
-        <div className="workspace-header"><div><span className="eyebrow">{activeView === 'accounts' ? 'Profiles' : activeView === 'games' ? 'Collections' : activeView === 'sessions' ? 'Live activity' : activeView === 'servers' ? 'Roblox servers' : activeView === 'control' ? 'Control bridge' : activeView === 'activity' ? 'Workspace history' : activeView === 'settings' ? 'Preferences' : 'Workspace tools'}</span><h1>{activeView === 'accounts' ? 'Account desk' : activeView === 'games' ? 'Game shelf' : activeView === 'sessions' ? 'Session board' : activeView === 'servers' ? 'Server list' : activeView === 'control' ? 'Account Control' : activeView === 'activity' ? 'Activity centre' : activeView === 'settings' ? 'Settings' : 'Utilities'}</h1></div><div className="workspace-header-right"><div className="workspace-summary"><div className="summary-item"><span className="summary-number">{uniqueWorkspaceAccounts.length}</span><span>profiles</span></div><div className="summary-divider" /><div className="summary-item"><span className="status-dot ready" /><span>{runningAccounts.length} active</span></div></div>{(activeView === 'accounts' || activeView === 'games') && <button type="button" className="primary-button workspace-add-button" onClick={() => activeView === 'games' ? setActiveView('games') : handleAddAccount()}><Icon name="plus" size={16} /> {activeView === 'games' ? 'New game' : 'Add Account'}</button>}</div></div>
+        <div className="workspace-header"><div><span className="eyebrow">{activeView === 'accounts' ? 'Profiles' : activeView === 'games' ? 'Collections' : activeView === 'sessions' ? 'Live activity' : activeView === 'servers' ? 'Roblox servers' : activeView === 'control' ? 'Control bridge' : activeView === 'activity' ? 'Workspace history' : activeView === 'settings' ? 'Preferences' : activeView === 'account' ? 'Subscription identity' : 'Workspace tools'}</span><h1>{activeView === 'accounts' ? 'Account desk' : activeView === 'games' ? 'Game shelf' : activeView === 'sessions' ? 'Session board' : activeView === 'servers' ? 'Server list' : activeView === 'control' ? 'Account Control' : activeView === 'activity' ? 'Activity centre' : activeView === 'settings' ? 'Settings' : activeView === 'account' ? 'Virgue account' : 'Utilities'}</h1></div><div className="workspace-header-right"><div className="workspace-summary"><div className="summary-item"><span className="summary-number">{uniqueWorkspaceAccounts.length}</span><span>profiles</span></div><div className="summary-divider" /><div className="summary-item"><span className="status-dot ready" /><span>{runningAccounts.length} active</span></div></div><button type="button" className={`account-status-button ${authSession ? 'connected' : ''}`} onClick={() => setActiveView('account')}><span className="status-dot" /> <span>{authSession?.user.name ?? 'Sign in'}</span></button>{(activeView === 'accounts' || activeView === 'games') && <button type="button" className="primary-button workspace-add-button" onClick={() => activeView === 'games' ? setActiveView('games') : handleAddAccount()}><Icon name="plus" size={16} /> {activeView === 'games' ? 'New game' : 'Add Account'}</button>}</div></div>
         {error && <div className="error-banner" role="alert"><span>{error}</span><button type="button" aria-label="Dismiss error" onClick={() => setError('')}><Icon name="close" size={16} /></button></div>}
 
         <div className="view-stage" key={activeView}>
@@ -472,6 +532,7 @@ function App() {
           {activeView === 'control' && <ControlView accounts={snapshot?.controlAccounts ?? []} commands={snapshot?.controlCommands ?? []} control={snapshot?.control} onError={(message) => setError(message)} onActivity={pushActivity} />}
           {activeView === 'activity' && <ActivityCentreView activity={activity} sessions={sessionSnapshot} accounts={accounts} games={games} onSelect={(id) => { setSelectedId(id); setActiveView('accounts') }} onCopy={handleCopyText} onRejoin={async (session) => { await handleLaunch(session.placeId, session.jobId || session.targetJobId, undefined, undefined, session.accountId) }} />}
           {activeView === 'settings' && <><SettingsView settings={snapshot?.settings ?? null} client={snapshot?.client} webApi={snapshot?.webApi} watcher={snapshot?.watcher} onSettings={handleSetting} onClientUpdate={(client) => setSnapshot((current) => current ? { ...current, client } : current)} onMultiInstanceChange={handleMultiInstanceSetting} onError={(message) => setError(message)} onActivity={pushActivity} /><ThemePicker settings={snapshot?.settings} onChange={handleSetting} /><ControlSettingsPanel control={snapshot?.control} onChange={handleControlSetting} /></>}
+          {activeView === 'account' && <AccountView session={authSession} busy={authBusy} error={authError} onSignIn={handleAuthSignIn} onSignUp={handleAuthSignUp} onSignOut={handleAuthSignOut} />}
         </div>
       </main>
 

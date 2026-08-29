@@ -20,6 +20,8 @@ import type {
   WebApiUpdateInput,
   AppSettings,
   ControlSettings,
+  AuthCredentialsInput,
+  AuthSignUpInput,
   VirgueApi,
 } from './types'
 
@@ -79,6 +81,10 @@ export const IPC_CHANNELS = {
   sessionsCancelRecovery: 'sessions:cancel-recovery',
   sessionsEvent: 'sessions:event',
   settingsUpdate: 'settings:update',
+  authGetSession: 'auth:get-session',
+  authSignIn: 'auth:sign-in',
+  authSignUp: 'auth:sign-up',
+  authSignOut: 'auth:sign-out',
   windowMinimize: 'window:minimize',
   windowToggleMaximize: 'window:toggle-maximize',
   windowIsMaximized: 'window:is-maximized',
@@ -142,6 +148,10 @@ export interface IpcPayloads {
   [IPC_CHANNELS.sessionsStop]: string
   [IPC_CHANNELS.sessionsCancelRecovery]: string
   [IPC_CHANNELS.settingsUpdate]: Partial<AppSettings>
+  [IPC_CHANNELS.authGetSession]: undefined
+  [IPC_CHANNELS.authSignIn]: AuthCredentialsInput
+  [IPC_CHANNELS.authSignUp]: AuthSignUpInput
+  [IPC_CHANNELS.authSignOut]: undefined
   [IPC_CHANNELS.windowMinimize]: undefined
   [IPC_CHANNELS.windowToggleMaximize]: undefined
   [IPC_CHANNELS.windowIsMaximized]: undefined

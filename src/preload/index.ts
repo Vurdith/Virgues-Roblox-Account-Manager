@@ -4,6 +4,8 @@ import type {
   AccountUtilityInput,
   AccountTransferInput,
   AccountCopyKind,
+  AuthCredentialsInput,
+  AuthSignUpInput,
   BrowserOpenOptions,
   AppSettings,
   BulkImportInput,
@@ -129,6 +131,12 @@ const api: VirgueApi = {
   },
   settings: {
     update: (input: Partial<AppSettings>) => ipcRenderer.invoke(IPC_CHANNELS.settingsUpdate, input),
+  },
+  auth: {
+    getSession: () => ipcRenderer.invoke(IPC_CHANNELS.authGetSession),
+    signIn: (input: AuthCredentialsInput) => ipcRenderer.invoke(IPC_CHANNELS.authSignIn, input),
+    signUp: (input: AuthSignUpInput) => ipcRenderer.invoke(IPC_CHANNELS.authSignUp, input),
+    signOut: () => ipcRenderer.invoke(IPC_CHANNELS.authSignOut),
   },
   window: {
     minimize: () => ipcRenderer.invoke(IPC_CHANNELS.windowMinimize),

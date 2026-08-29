@@ -10,7 +10,7 @@ export const MyComposition = () => {
       fps={TRAILER_FPS}
       width={1920}
       height={1080}
-      defaultProps={{ voiceoverSrc: "" }}
+      defaultProps={{ voiceoverSrc: "virgue-voiceover.mp3" }}
     />
   );
 };

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, session, shell } from 'electron'
 import { join } from 'node:path'
 import { AccountStore } from './account-store'
+import { AuthService } from './auth-service'
 import { ControlServer } from './control-server'
 import { registerIpcHandlers } from './ipc'
 import { RobloxClient } from './roblox-client'
@@ -60,6 +61,8 @@ app.whenReady().then(async () => {
   const secrets = new SecretStore(app)
   await store.initialize()
   await secrets.initialize()
+  const auth = new AuthService(secrets)
+  await auth.initialize()
   app.setLoginItemSettings({ openAtLogin: store.getSnapshot().settings.runOnStartup })
   const sessions = new SessionGuardian(store, app.getPath('userData'))
   await sessions.initialize()
@@ -81,7 +84,7 @@ app.whenReady().then(async () => {
   const watcher = new WatcherService(store)
   watcher.start()
   if (store.getControl().autoStart) void control.start()
-  registerIpcHandlers({ store, roblox, webApi, watcher, sessions, control, secrets, getWindow: () => mainWindow })
+  registerIpcHandlers({ store, roblox, webApi, watcher, sessions, control, secrets, auth, getWindow: () => mainWindow })
 
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     callback(permission === 'notifications')

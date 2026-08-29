@@ -1,33 +1,44 @@
 # Virgue launch trailer voiceover
 
-Target length: 36 seconds. Read it conversationally with a little urgency on the first line, then let the product footage breathe. The em dashes are short pauses.
+Target length: approximately 24 seconds. Keep it assured and direct. This is for people who already run more than one Roblox account; do not turn it into a dramatic story about an invented mistake.
 
-## Script
+## Timed read
 
-**0:00–0:04**<br>
-Which Roblox account is actually running? If you had to check, you need a better desk.
+### 0:00-0:04.2 -- Hook
 
-**0:04–0:10**<br>
-Virgue puts every profile, group, game, and launch target — in one place.
+One Roblox account is easy. Multiple should be too.
 
-**0:10–0:16**<br>
-Keep each setup attached to the game you actually want to play.
+### 0:04.2-0:09.2 -- The promise
 
-**0:16–0:22**<br>
-See what’s alive, what’s stale, and what needs your attention.
+Virgue gives every profile, game, and live session one control desk.
 
-**0:22–0:28**<br>
-Tune your defaults once, and keep them with the workflow.
+### 0:09.2-0:14.3 -- The flow
 
-**0:28–0:33**<br>
-It’s a local-first workspace for the messy parts of multi-account setups.
+Pick your account. Pick your game.
 
-**0:33–0:36**<br>
-Virgue. Stop juggling. Start playing.
+### 0:14.3-0:19.2 -- The visibility
 
-## Recording notes
+See what is running. Know what is next.
 
-- Keep the opening question direct and slightly challenging.
-- Leave a tiny beat after “better desk.”
-- Stress “one place,” “actually running,” and “stop juggling.”
-- The background bed is intentionally quiet; the voice should sit clearly above it.
+### 0:19.2-0:21.4 -- The action
+
+Then launch.
+
+### 0:21.4-0:24.0 -- The close
+
+More game. Less juggling. Perfect for multi-account orchestration.
+
+## Performance notes
+
+- Say the first two sentences with calm confidence. They are the point of the trailer.
+- Let "one control desk" land; the picture supplies the feature detail.
+- Keep the account/game/session beats clean and measured, with a small pause between each.
+- Say "Then launch" simply and let the music carry the cut into the lockup.
+- Keep the close understated -- no announcer voice. Let "Perfect for multi-account orchestration" feel like a calm final qualifier, not a slogan.
+
+## Mix notes
+
+- Record close and fairly dry, with light compression and de-essing.
+- Keep the voice roughly 5-7 dB above the music bed.
+- Duck the music bed 4-6 dB under spoken lines if you mix in an editor.
+- Do not add typing, notification, click, or synthetic UI sounds. The music and voice are enough.
