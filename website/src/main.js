@@ -260,7 +260,7 @@ function billingStatusText(data) {
   if (entitlementStatus === 'trial' || subscriptionStatus === 'trialing') return endDate ? `Trial · ends ${endDate}` : 'Trial access'
   if (entitlementStatus === 'grace' || subscriptionStatus === 'past_due') return endDate ? `Payment needs attention · access through ${endDate}` : 'Payment needs attention'
   if (subscriptionStatus === 'canceled' || subscriptionStatus === 'cancelled') return endDate ? `Subscription ends ${endDate}` : 'Subscription ending'
-  return endDate ? `Active · renews ${endDate}` : 'Pro access is active'
+  return endDate ? `Active · renews ${endDate}` : "You're all set with Virgue Pro"
 }
 
 function configureDownload() {
