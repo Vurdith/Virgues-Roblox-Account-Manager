@@ -1,0 +1,267 @@
+import { createServer } from 'node:http'
+import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
+import Stripe from 'stripe'
+import { neon } from '@neondatabase/serverless'
+
+const required = ['DATABASE_URL', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'NEON_AUTH_URL', 'STRIPE_PRO_PRICE_ID', 'PUBLIC_SITE_URL']
+const missing = required.filter((key) => !process.env[key])
+if (missing.length) throw new Error(`Missing billing configuration: ${missing.join(', ')}`)
+
+const database = neon(process.env.DATABASE_URL)
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
+const authUrl = process.env.NEON_AUTH_URL.replace(/\/$/, '')
+const publicSiteUrl = process.env.PUBLIC_SITE_URL.replace(/\/$/, '')
+const allowedOrigins = new Set((process.env.WEBSITE_ORIGINS || publicSiteUrl).split(',').map((value) => value.trim()).filter(Boolean))
+const port = Number(process.env.PORT || 8787)
+
+function send(response, status, payload, origin) {
+  const body = JSON.stringify(payload)
+  const headers = {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(body),
+    'Cache-Control': 'no-store',
+  }
+  if (origin && allowedOrigins.has(origin)) {
+    headers['Access-Control-Allow-Origin'] = origin
+    headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type'
+    headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    headers.Vary = 'Origin'
+  }
+  response.writeHead(status, headers)
+  response.end(body)
+}
+
+function error(response, status, message, origin) {
+  send(response, status, { error: { message } }, origin)
+}
+
+async function readBody(request) {
+  const chunks = []
+  let bytes = 0
+  for await (const chunk of request) {
+    bytes += chunk.length
+    if (bytes > 1024 * 1024) throw new Error('Request body is too large.')
+    chunks.push(chunk)
+  }
+  return Buffer.concat(chunks)
+}
+
+function parseJson(body) {
+  if (!body.length) return {}
+  try { return JSON.parse(body.toString('utf8')) } catch { throw new Error('Request body must be valid JSON.') }
+}
+
+function requestUrl(request) {
+  const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`)
+  // Vercel functions receive the mounted /api prefix; the local server does not.
+  if (url.pathname === '/api') url.pathname = '/'
+  else if (url.pathname.startsWith('/api/')) url.pathname = url.pathname.slice('/api'.length)
+  return url
+}
+
+function unwrap(payload) {
+  return payload && typeof payload === 'object' && payload.data && typeof payload.data === 'object' ? payload.data : payload
+}
+
+async function requireUser(request) {
+  const authorization = request.headers.authorization
+  if (!authorization?.startsWith('Bearer ')) throw new Error('Sign in before managing billing.')
+
+  const sessionResponse = await fetch(`${authUrl}/get-session`, {
+    headers: { Accept: 'application/json', Authorization: authorization },
+  })
+  if (!sessionResponse.ok) throw new Error('Your sign-in has expired. Sign in again to continue.')
+
+  const payload = unwrap(await sessionResponse.json())
+  const user = payload?.user
+  if (!user?.id || !user?.email) throw new Error('Your sign-in could not be verified.')
+  return { id: String(user.id), email: String(user.email), name: typeof user.name === 'string' ? user.name : '' }
+}
+
+async function customerFor(user) {
+  const existing = await database('SELECT stripe_customer_id FROM public.virgue_billing_customers WHERE user_id = $1', [user.id])
+  if (existing[0]?.stripe_customer_id) return existing[0].stripe_customer_id
+
+  const customer = await stripe.customers.create({
+    email: user.email,
+    name: user.name || undefined,
+    metadata: { virgue_user_id: user.id },
+  })
+  const inserted = await database(
+    `INSERT INTO public.virgue_billing_customers (user_id, stripe_customer_id)
+     VALUES ($1, $2)
+     ON CONFLICT (user_id) DO UPDATE SET stripe_customer_id = EXCLUDED.stripe_customer_id, updated_at = now()
+     RETURNING stripe_customer_id`,
+    [user.id, customer.id],
+  )
+  return inserted[0].stripe_customer_id
+}
+
+async function entitlementFor(userId) {
+  const rows = await database(
+    `SELECT plan_key, plan_name, features, entitlement_status, trial_ends_at,
+            subscription_id, subscription_status, current_period_end
+     FROM public.virgue_current_entitlements WHERE user_id = $1`,
+    [userId],
+  )
+  const customer = await database('SELECT stripe_customer_id FROM public.virgue_billing_customers WHERE user_id = $1', [userId])
+  const hasBillingCustomer = Boolean(customer[0]?.stripe_customer_id)
+  if (!rows[0]) return { planKey: 'free', planName: 'Free plan', entitlementStatus: 'free', subscriptionStatus: null, currentPeriodEnd: null, features: {}, hasBillingCustomer }
+  const row = rows[0]
+  return {
+    planKey: row.plan_key,
+    planName: row.plan_name,
+    entitlementStatus: row.entitlement_status,
+    subscriptionStatus: row.subscription_status,
+    currentPeriodEnd: row.current_period_end,
+    trialEndsAt: row.trial_ends_at,
+    features: row.features || {},
+    hasBillingCustomer,
+  }
+}
+
+async function planForPrice(priceId) {
+  if (priceId === process.env.STRIPE_PRO_PRICE_ID) return 'pro'
+  const rows = await database('SELECT plan_key FROM public.virgue_plans WHERE stripe_price_id = $1 AND active = true', [priceId])
+  return rows[0]?.plan_key || null
+}
+
+async function userForCustomer(customerId) {
+  const rows = await database('SELECT user_id FROM public.virgue_billing_customers WHERE stripe_customer_id = $1', [customerId])
+  return rows[0]?.user_id || null
+}
+
+async function syncSubscription(subscription, userIdHint = null) {
+  const priceId = subscription.items.data[0]?.price?.id
+  const planKey = priceId ? await planForPrice(priceId) : null
+  const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id
+  const userId = userIdHint || subscription.metadata?.virgue_user_id || await userForCustomer(customerId)
+  if (!planKey || !userId) throw new Error('Subscription could not be mapped to a Virgue plan and account.')
+
+  await database(
+    `INSERT INTO public.virgue_subscriptions (
+       user_id, plan_key, provider, provider_customer_id, provider_subscription_id, status,
+       trial_started_at, trial_ends_at, current_period_start, current_period_end,
+       cancel_at_period_end, canceled_at, metadata, updated_at
+     ) VALUES ($1, $2, 'stripe', $3, $4, $5, to_timestamp($6), to_timestamp($7), to_timestamp($8), to_timestamp($9), $10, to_timestamp($11), $12::jsonb, now())
+     ON CONFLICT (provider_subscription_id) DO UPDATE SET
+       plan_key = EXCLUDED.plan_key, status = EXCLUDED.status,
+       trial_started_at = EXCLUDED.trial_started_at, trial_ends_at = EXCLUDED.trial_ends_at,
+       current_period_start = EXCLUDED.current_period_start, current_period_end = EXCLUDED.current_period_end,
+       cancel_at_period_end = EXCLUDED.cancel_at_period_end, canceled_at = EXCLUDED.canceled_at,
+       metadata = EXCLUDED.metadata, updated_at = now()`,
+    [
+      userId, planKey, customerId, subscription.id, subscription.status,
+      subscription.trial_start || null, subscription.trial_end || null,
+      subscription.current_period_start || null, subscription.current_period_end || null,
+      subscription.cancel_at_period_end, subscription.canceled_at || null,
+      JSON.stringify(subscription.metadata || {}),
+    ],
+  )
+}
+
+async function processWebhook(event) {
+  if (event.type === 'checkout.session.completed') {
+    const checkout = event.data.object
+    if (checkout.mode !== 'subscription' || !checkout.subscription) return
+    const subscription = await stripe.subscriptions.retrieve(String(checkout.subscription))
+    await syncSubscription(subscription, checkout.metadata?.virgue_user_id || checkout.client_reference_id || null)
+    return
+  }
+  if (event.type.startsWith('customer.subscription.')) {
+    await syncSubscription(event.data.object)
+    return
+  }
+  if (event.type === 'invoice.paid' || event.type === 'invoice.payment_failed') {
+    const invoice = event.data.object
+    if (!invoice.subscription) return
+    const subscription = await stripe.subscriptions.retrieve(String(invoice.subscription))
+    await syncSubscription(subscription)
+  }
+}
+
+async function handleWebhook(request, response) {
+  const signature = request.headers['stripe-signature']
+  if (typeof signature !== 'string') return error(response, 400, 'Missing Stripe signature.')
+  let event
+  try {
+    event = stripe.webhooks.constructEvent(await readBody(request), signature, process.env.STRIPE_WEBHOOK_SECRET)
+  } catch {
+    return error(response, 400, 'Invalid Stripe signature.')
+  }
+
+  const eventRows = await database(
+    `INSERT INTO public.virgue_billing_events (event_id, event_type, status)
+     VALUES ($1, $2, 'received')
+     ON CONFLICT (event_id) DO UPDATE SET
+       status = CASE WHEN public.virgue_billing_events.status = 'processed' THEN 'processed' ELSE 'received' END,
+       error_message = CASE WHEN public.virgue_billing_events.status = 'processed' THEN public.virgue_billing_events.error_message ELSE NULL END
+     RETURNING status`,
+    [event.id, event.type],
+  )
+  if (eventRows[0]?.status === 'processed') return send(response, 200, { received: true })
+
+  try {
+    await processWebhook(event)
+    await database("UPDATE public.virgue_billing_events SET status = 'processed', processed_at = now(), error_message = NULL WHERE event_id = $1", [event.id])
+    send(response, 200, { received: true })
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message.slice(0, 1000) : 'Webhook processing failed.'
+    await database("UPDATE public.virgue_billing_events SET status = 'failed', error_message = $2 WHERE event_id = $1", [event.id, message])
+    throw caught
+  }
+}
+
+async function handleApi(request, response, origin) {
+  if (request.method === 'OPTIONS') return send(response, 204, {}, origin)
+  if (origin && !allowedOrigins.has(origin)) return error(response, 403, 'This website origin is not allowed to use billing.', origin)
+  const url = requestUrl(request)
+  if (request.method === 'GET' && url.pathname === '/health') return send(response, 200, { ok: true }, origin)
+
+  const user = await requireUser(request)
+  if (request.method === 'GET' && url.pathname === '/billing/me') return send(response, 200, await entitlementFor(user.id), origin)
+
+  if (request.method === 'POST' && url.pathname === '/billing/checkout') {
+    const body = parseJson(await readBody(request))
+    if (body.planKey !== 'pro') return error(response, 400, 'That plan is not available for checkout.', origin)
+    const customer = await customerFor(user)
+    const checkout = await stripe.checkout.sessions.create({
+      mode: 'subscription', customer,
+      line_items: [{ price: process.env.STRIPE_PRO_PRICE_ID, quantity: 1 }],
+      success_url: `${publicSiteUrl}/account.html?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${publicSiteUrl}/pricing.html?checkout=canceled`,
+      allow_promotion_codes: true,
+      client_reference_id: user.id,
+      metadata: { virgue_user_id: user.id, virgue_plan_key: 'pro' },
+      subscription_data: { metadata: { virgue_user_id: user.id, virgue_plan_key: 'pro' } },
+    })
+    if (!checkout.url) throw new Error('Stripe did not return a checkout URL.')
+    return send(response, 200, { url: checkout.url }, origin)
+  }
+
+  if (request.method === 'POST' && url.pathname === '/billing/portal') {
+    const customer = await customerFor(user)
+    const portal = await stripe.billingPortal.sessions.create({ customer, return_url: `${publicSiteUrl}/account.html` })
+    return send(response, 200, { url: portal.url }, origin)
+  }
+  return error(response, 404, 'Billing endpoint not found.', origin)
+}
+
+export async function handleBillingRequest(request, response) {
+  const origin = request.headers.origin
+  try {
+    if (requestUrl(request).pathname === '/webhooks/stripe') {
+      if (request.method !== 'POST') return error(response, 405, 'Method not allowed.')
+      return await handleWebhook(request, response)
+    }
+    return await handleApi(request, response, origin)
+  } catch (caught) {
+    console.error('Billing API request failed', caught)
+    return error(response, 500, 'Billing is temporarily unavailable.', origin)
+  }
+}
+
+const server = createServer((request, response) => { void handleBillingRequest(request, response) })
+const isDirectRun = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+if (isDirectRun) server.listen(port, () => console.log(`Virgue billing API listening on :${port}`))

@@ -1,4 +1,6 @@
 export type AccountStatus = 'ready' | 'idle' | 'running' | 'offline'
+import type { PlanEntitlements } from './entitlements'
+export type { PlanEntitlements } from './entitlements'
 
 export type PresenceType = 'offline' | 'online' | 'in-game' | 'in-studio'
 
@@ -400,6 +402,7 @@ export interface AppSnapshot {
   watcher: WatcherSettings
   client: ClientSettings
   settings: AppSettings
+  entitlements: PlanEntitlements
   info: AppInfo
 }
 
@@ -696,6 +699,9 @@ export interface VirgueApi {
     signIn(input: AuthCredentialsInput): Promise<VirgueAuthSession>
     signUp(input: AuthSignUpInput): Promise<VirgueAuthSession>
     signOut(): Promise<void>
+  }
+  billing: {
+    refresh(): Promise<PlanEntitlements>
   }
   window: {
     minimize(): Promise<void>

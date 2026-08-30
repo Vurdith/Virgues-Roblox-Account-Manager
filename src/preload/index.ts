@@ -138,6 +138,9 @@ const api: VirgueApi = {
     signUp: (input: AuthSignUpInput) => ipcRenderer.invoke(IPC_CHANNELS.authSignUp, input),
     signOut: () => ipcRenderer.invoke(IPC_CHANNELS.authSignOut),
   },
+  billing: {
+    refresh: () => ipcRenderer.invoke(IPC_CHANNELS.billingRefresh),
+  },
   window: {
     minimize: () => ipcRenderer.invoke(IPC_CHANNELS.windowMinimize),
     toggleMaximize: () => ipcRenderer.invoke(IPC_CHANNELS.windowToggleMaximize),

@@ -31,6 +31,7 @@ import type {
   UniverseInfo,
   UniverseResult,
 } from '../shared/types'
+import { getPlanFeatureError } from '../shared/entitlements'
 import { AccountStore, parseGameSearchResult } from './account-store'
 import { SecretStore } from './secret-store'
 import type { SessionGuardian } from './session-guardian'
@@ -1169,6 +1170,8 @@ export class RobloxClient {
   }
 
   async launchMany(input: { targets: Array<{ accountId: string; placeId?: string; jobId?: string }> }): Promise<LaunchResult[]> {
+    const entitlements = this.store.getSnapshot().entitlements
+    if (!entitlements.bulkLaunch) throw new Error(getPlanFeatureError(entitlements, 'bulk-launch'))
     const targets = input.targets.filter((target) => target.accountId)
     const launchOne = (target: { accountId: string; placeId?: string; jobId?: string }) => this.launch(target.accountId, target.placeId ?? '', target.jobId ?? '')
     if (this.store.getSnapshot().settings.asyncJoin) return Promise.all(targets.map(launchOne))

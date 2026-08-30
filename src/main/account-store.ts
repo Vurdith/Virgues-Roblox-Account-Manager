@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { dialog, type App, type Shell } from 'electron'
+import { DEFAULT_PLAN_KEY, getPlanEntitlements, getPlanLimitError, type PlanKey } from '../shared/entitlements'
 import type {
   Account,
   AccountRecoveryPolicy,
@@ -407,6 +408,9 @@ function cloneFinderState(state: ServerFinderState): ServerFinderState { return 
 
 export class AccountStore {
   private readonly dataPath: string
+  // Billing resolution will replace this local default once the desktop
+  // client reads the authenticated user's Neon entitlement.
+  private planKey: PlanKey = DEFAULT_PLAN_KEY
   private data: PersistedData = {
     accounts: [],
     games: seedGames,
@@ -494,7 +498,30 @@ export class AccountStore {
       watcher: { ...this.data.watcher },
       client: { ...this.data.client },
       settings: { ...this.data.settings },
+      entitlements: getPlanEntitlements(this.planKey),
       info,
+    }
+  }
+
+  setPlanKey(planKey: PlanKey): void {
+    this.planKey = planKey
+  }
+
+  private accountSlotCount(): number {
+    return new Set(this.data.accounts.map((account) => account.username.trim().toLowerCase()).filter(Boolean)).size
+  }
+
+  private assertAccountCapacity(additional = 1): void {
+    const entitlements = getPlanEntitlements(this.planKey)
+    if (entitlements.maxAccounts !== null && this.accountSlotCount() + additional > entitlements.maxAccounts) {
+      throw new Error(getPlanLimitError(entitlements, 'accounts'))
+    }
+  }
+
+  private assertGameCapacity(additional = 1): void {
+    const entitlements = getPlanEntitlements(this.planKey)
+    if (entitlements.maxGames !== null && this.data.games.length + additional > entitlements.maxGames) {
+      throw new Error(getPlanLimitError(entitlements, 'games'))
     }
   }
 
@@ -528,6 +555,7 @@ export class AccountStore {
     const username = input.username.trim()
     if (!/^[A-Za-z0-9_]{3,20}$/.test(username)) throw new Error('Use a Roblox username with 3–20 letters, numbers, or underscores.')
     if (this.data.accounts.some((account) => account.username.toLowerCase() === username.toLowerCase())) throw new Error('That username is already in your workspace.')
+    this.assertAccountCapacity()
     const game = this.getGame(input.gameId)
     const categoryId = game.categories.some((category) => category.id === input.categoryId) ? input.categoryId : game.categories[0]?.id ?? ''
     const account: Account = {
@@ -688,6 +716,7 @@ export class AccountStore {
     const name = input.name.trim()
     if (name.length < 2) throw new Error('Give the game a name.')
     if (this.data.games.some((game) => game.name.toLowerCase() === name.toLowerCase())) throw new Error('That game already exists.')
+    this.assertGameCapacity()
     const game: GameCollection = { id: randomUUID(), name, placeId: input.placeId.trim(), description: input.description.trim() || 'A local game collection.', accent: this.data.games.length % 2 === 0 ? '#fa6d60' : '#efb762', categories: [{ id: randomUUID(), name: 'General', accent: '#efc870', sortOrder: 0, icon: 'folder' }], favorite: false, createdAt: new Date().toISOString(), lastUsed: null, universeId: null, thumbnailUrl: '', creatorName: '', creatorId: '', playing: 0, visits: 0, infoUpdatedAt: null }
     this.data.games.push(game)
     await this.persist()
@@ -922,7 +951,7 @@ export class AccountStore {
   }
 
   async importData(): Promise<void> {
-    const result = await dialog.showOpenDialog({ title: 'Import Virgue account data', properties: ['openFile'], filters: [{ name: 'JSON files', extensions: ['json'] }] })
+    const result = await dialog.showOpenDialog({ title: 'Import workspace data', properties: ['openFile'], filters: [{ name: 'JSON files', extensions: ['json'] }] })
     if (result.canceled || result.filePaths.length === 0) return
     const contents = await readFile(result.filePaths[0]!, 'utf8')
     const parsed: unknown = JSON.parse(contents)
@@ -932,6 +961,14 @@ export class AccountStore {
     const rawAccounts = Array.isArray(parsed.accounts) ? parsed.accounts : Array.isArray(parsed) ? parsed : []
     const imported = rawAccounts.map((account, index) => normalizeAccount(account, index, importedGames)).filter((account): account is Account => account !== null)
     const existing = new Set(this.data.accounts.map((account) => account.username.toLowerCase()))
+    const entitlements = getPlanEntitlements(this.planKey)
+    if (entitlements.maxGames !== null && importedGames.length > entitlements.maxGames) {
+      throw new Error(`${entitlements.displayName} supports up to ${entitlements.maxGames} game collections. This import contains ${importedGames.length}.`)
+    }
+    const newAccountNames = new Set(imported.map((account) => account.username.toLowerCase()).filter((username) => !existing.has(username)))
+    if (entitlements.maxAccounts !== null && this.accountSlotCount() + newAccountNames.size > entitlements.maxAccounts) {
+      throw new Error(`${entitlements.displayName} supports up to ${entitlements.maxAccounts} unique Roblox accounts. This import would exceed that limit.`)
+    }
     this.data.games = importedGames
     this.data.accounts.push(...imported.filter((account) => !existing.has(account.username.toLowerCase())))
     await this.persist()

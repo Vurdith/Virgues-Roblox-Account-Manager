@@ -3,6 +3,7 @@ import { IPC_CHANNELS } from '../shared/ipc'
 import type { AccountTransferInput, AppSettings, AuthCredentialsInput, AuthSignUpInput, ClientSettingsUpdateInput, ControlCommandInput, ControlSettings, JoinServerInput, ServerQuery, UpdateAccountInput, UpdateGameInput, WebApiUpdateInput, WatcherUpdateInput } from '../shared/types'
 import { AccountStore } from './account-store'
 import { AuthService } from './auth-service'
+import { BillingService } from './billing-service'
 import { ControlServer } from './control-server'
 import { SecretStore } from './secret-store'
 import { SessionGuardian } from './session-guardian'
@@ -19,11 +20,12 @@ interface IpcServices {
   control: ControlServer
   secrets: SecretStore
   auth: AuthService
+  billing: BillingService
   getWindow: () => BrowserWindow | null
 }
 
 export function registerIpcHandlers(services: IpcServices): void {
-  const { store, roblox, webApi, watcher, sessions, control, secrets, auth, getWindow } = services
+  const { store, roblox, webApi, watcher, sessions, control, secrets, auth, billing, getWindow } = services
   ipcMain.handle(IPC_CHANNELS.appGetSnapshot, () => store.getSnapshot())
   ipcMain.handle(IPC_CHANNELS.appImportData, async () => { await store.importData(); return store.getSnapshot() })
   ipcMain.handle(IPC_CHANNELS.appOpenDataFolder, () => store.openDataFolder())
@@ -116,9 +118,18 @@ export function registerIpcHandlers(services: IpcServices): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.authGetSession, () => auth.getSession())
-  ipcMain.handle(IPC_CHANNELS.authSignIn, (_event, input: AuthCredentialsInput) => auth.signIn(input))
-  ipcMain.handle(IPC_CHANNELS.authSignUp, (_event, input: AuthSignUpInput) => auth.signUp(input))
-  ipcMain.handle(IPC_CHANNELS.authSignOut, () => auth.signOut())
+  ipcMain.handle(IPC_CHANNELS.authSignIn, async (_event, input: AuthCredentialsInput) => {
+    const session = await auth.signIn(input)
+    try { await billing.refreshEntitlements() } catch { billing.reset() }
+    return session
+  })
+  ipcMain.handle(IPC_CHANNELS.authSignUp, async (_event, input: AuthSignUpInput) => {
+    const session = await auth.signUp(input)
+    try { await billing.refreshEntitlements() } catch { billing.reset() }
+    return session
+  })
+  ipcMain.handle(IPC_CHANNELS.authSignOut, async () => { await auth.signOut(); billing.reset() })
+  ipcMain.handle(IPC_CHANNELS.billingRefresh, () => billing.refreshEntitlements())
 
   ipcMain.handle(IPC_CHANNELS.windowMinimize, () => getWindow()?.minimize())
   ipcMain.handle(IPC_CHANNELS.windowToggleMaximize, () => {

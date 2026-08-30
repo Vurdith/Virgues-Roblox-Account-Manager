@@ -85,6 +85,7 @@ export const IPC_CHANNELS = {
   authSignIn: 'auth:sign-in',
   authSignUp: 'auth:sign-up',
   authSignOut: 'auth:sign-out',
+  billingRefresh: 'billing:refresh',
   windowMinimize: 'window:minimize',
   windowToggleMaximize: 'window:toggle-maximize',
   windowIsMaximized: 'window:is-maximized',
@@ -152,6 +153,7 @@ export interface IpcPayloads {
   [IPC_CHANNELS.authSignIn]: AuthCredentialsInput
   [IPC_CHANNELS.authSignUp]: AuthSignUpInput
   [IPC_CHANNELS.authSignOut]: undefined
+  [IPC_CHANNELS.billingRefresh]: undefined
   [IPC_CHANNELS.windowMinimize]: undefined
   [IPC_CHANNELS.windowToggleMaximize]: undefined
   [IPC_CHANNELS.windowIsMaximized]: undefined

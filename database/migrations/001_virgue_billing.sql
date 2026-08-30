@@ -1,4 +1,4 @@
--- Virgue account, trial, subscription, and entitlement foundation.
+-- Account, trial, subscription, and entitlement foundation.
 -- Neon Auth owns identity/session tables in neon_auth; this migration only
 -- adds Virgue billing tables in public.
 
@@ -77,8 +77,8 @@ INSERT INTO public.virgue_plans (
   features
 )
 VALUES
-  ('free', 'Free', 'The core Virgue workspace.', '{"tier":"free"}'::jsonb),
-  ('pro', 'Virgue Pro', 'The complete Virgue workspace.', '{"tier":"pro"}'::jsonb)
+  ('free', 'Free', 'The core Virgue workspace.', '{"tier":"free","limits":{"maxAccounts":2,"maxGames":2},"bulkLaunch":false}'::jsonb),
+  ('pro', 'Virgue Pro', 'The complete Virgue workspace.', '{"tier":"pro","limits":{"maxAccounts":null,"maxGames":null},"bulkLaunch":true}'::jsonb)
 ON CONFLICT (plan_key) DO NOTHING;
 
 INSERT INTO public.virgue_billing_settings (

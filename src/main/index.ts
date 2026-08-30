@@ -2,6 +2,7 @@ import { app, BrowserWindow, session, shell } from 'electron'
 import { join } from 'node:path'
 import { AccountStore } from './account-store'
 import { AuthService } from './auth-service'
+import { BillingService } from './billing-service'
 import { ControlServer } from './control-server'
 import { registerIpcHandlers } from './ipc'
 import { RobloxClient } from './roblox-client'
@@ -63,6 +64,12 @@ app.whenReady().then(async () => {
   await secrets.initialize()
   const auth = new AuthService(secrets)
   await auth.initialize()
+  const billing = new BillingService(store, auth)
+  try {
+    await billing.refreshEntitlements()
+  } catch (error) {
+    console.warn('Billing entitlements could not be refreshed at startup.', error)
+  }
   app.setLoginItemSettings({ openAtLogin: store.getSnapshot().settings.runOnStartup })
   const sessions = new SessionGuardian(store, app.getPath('userData'))
   await sessions.initialize()
@@ -84,7 +91,7 @@ app.whenReady().then(async () => {
   const watcher = new WatcherService(store)
   watcher.start()
   if (store.getControl().autoStart) void control.start()
-  registerIpcHandlers({ store, roblox, webApi, watcher, sessions, control, secrets, auth, getWindow: () => mainWindow })
+  registerIpcHandlers({ store, roblox, webApi, watcher, sessions, control, secrets, auth, billing, getWindow: () => mainWindow })
 
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     callback(permission === 'notifications')
@@ -97,7 +104,7 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 }).catch((error: unknown) => {
-  console.error('Virgue account manager failed to start', error)
+  console.error("Virgue's Roblox Account Manager failed to start", error)
 })
 
 app.on('window-all-closed', () => {

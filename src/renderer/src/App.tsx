@@ -35,13 +35,24 @@ import type {
   WebApiSettings,
   UpdateAccountInput,
   UpdateCategoryInput,
+  PlanEntitlements,
   VirgueAuthSession,
 } from '@shared/types'
+import { getPlanEntitlements, getPlanFeatureError, getPlanLimitError } from '@shared/entitlements'
 import { Icon, type IconName } from './components/Icons'
 import AccountView from './AccountView'
 
-type View = 'accounts' | 'games' | 'sessions' | 'servers' | 'utilities' | 'control' | 'activity' | 'settings' | 'account'
+type View = 'accounts' | 'games' | 'sessions' | 'servers' | 'utilities' | 'control' | 'activity' | 'settings'
 type ActivityTone = 'normal' | 'positive' | 'warning'
+type SettingsTab = 'features' | 'privacy' | 'billing'
+
+const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; description: string; icon: IconName }> = [
+  { id: 'features', label: 'App features', description: 'Workspace, watcher, and Roblox controls', icon: 'spark' },
+  { id: 'privacy', label: 'Privacy & security', description: 'Local data and integration access', icon: 'shield' },
+  { id: 'billing', label: 'Billing', description: 'Plan and subscription access', icon: 'coins' },
+]
+
+const DEFAULT_ENTITLEMENTS = getPlanEntitlements()
 
 interface ActivityItem { id: number; message: string; detail: string; tone: ActivityTone }
 
@@ -191,10 +202,13 @@ function App() {
   const [showCookieImport, setShowCookieImport] = useState(false)
   const [isMaximized, setIsMaximized] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [authLoading, setAuthLoading] = useState(true)
   const [error, setError] = useState('')
   const [authSession, setAuthSession] = useState<VirgueAuthSession | null>(null)
   const [authBusy, setAuthBusy] = useState(false)
   const [authError, setAuthError] = useState('')
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false)
+  const accountMenuRef = useRef<HTMLDivElement | null>(null)
   const [launchingAccountId, setLaunchingAccountId] = useState<string | null>(null)
   const [launchingMany, setLaunchingMany] = useState(false)
   const launchingAccountRef = useRef<string | null>(null)
@@ -205,9 +219,12 @@ function App() {
 
   const accounts = snapshot?.accounts ?? []
   const games = snapshot?.games ?? []
+  const entitlements = snapshot?.entitlements ?? DEFAULT_ENTITLEMENTS
   const selectedAccount = accounts.find((account) => account.id === selectedId) ?? null
   const selectedGame = games.find((game) => game.id === selectedGameId) ?? null
   const uniqueWorkspaceAccounts = useMemo(() => uniqueAccounts(accounts), [accounts])
+  const accountLimitReached = entitlements.maxAccounts !== null && uniqueWorkspaceAccounts.length >= entitlements.maxAccounts
+  const gameLimitReached = entitlements.maxGames !== null && games.length >= entitlements.maxGames
   const activeSessionAccountIds = useMemo(() => new Set(sessionSnapshot.active.map((session) => session.accountId)), [sessionSnapshot.active])
   const runningAccounts = useMemo(() => uniqueAccounts(accounts.filter((account) => activeSessionAccountIds.has(account.id))), [accounts, activeSessionAccountIds])
   const filteredAccounts = useMemo(() => {
@@ -235,11 +252,32 @@ function App() {
   useEffect(() => { void loadSnapshot() }, [])
 
   useEffect(() => {
-    void window.virgue.auth.getSession().then(setAuthSession).catch((caught: unknown) => {
+    void window.virgue.auth.getSession().then((session) => {
+      setAuthSession(session)
+      setAuthError('')
+    }).catch((caught: unknown) => {
       setAuthSession(null)
-      setAuthError(caught instanceof Error ? caught.message : 'The Virgue account session could not be restored.')
-    })
+      setAuthError(caught instanceof Error ? caught.message : 'Your account session could not be restored.')
+    }).finally(() => setAuthLoading(false))
   }, [])
+
+  useEffect(() => {
+    if (!isAccountMenuOpen) return
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!accountMenuRef.current?.contains(event.target as Node)) setIsAccountMenuOpen(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsAccountMenuOpen(false)
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isAccountMenuOpen])
 
   useEffect(() => {
     const unsubscribe = window.virgue.sessions.onEvent(() => {
@@ -287,10 +325,12 @@ function App() {
     try {
       const session = await window.virgue.auth.signIn(input)
       setAuthSession(session)
+      setSnapshot(await window.virgue.app.getSnapshot())
       setActiveView('accounts')
-      pushActivity(`Signed in as ${session.user.name}`, 'Virgue account connected for subscriptions', 'positive')
+      setIsAccountMenuOpen(false)
+      pushActivity(`Signed in as ${session.user.name}`, 'Account connected for subscriptions', 'positive')
     } catch (caught) {
-      setAuthError(caught instanceof Error ? caught.message : 'Virgue sign-in failed.')
+      setAuthError(caught instanceof Error ? caught.message : 'Account sign-in failed.')
     } finally {
       setAuthBusy(false)
     }
@@ -302,10 +342,12 @@ function App() {
     try {
       const session = await window.virgue.auth.signUp(input)
       setAuthSession(session)
+      setSnapshot(await window.virgue.app.getSnapshot())
       setActiveView('accounts')
-      pushActivity('Virgue account created', 'Account identity is ready for subscriptions', 'positive')
+      setIsAccountMenuOpen(false)
+      pushActivity('Account created', 'Account identity is ready for subscriptions', 'positive')
     } catch (caught) {
-      setAuthError(caught instanceof Error ? caught.message : 'Virgue account creation failed.')
+      setAuthError(caught instanceof Error ? caught.message : 'Account creation failed.')
     } finally {
       setAuthBusy(false)
     }
@@ -317,10 +359,12 @@ function App() {
     try {
       await window.virgue.auth.signOut()
       setAuthSession(null)
-      setActiveView('account')
-      pushActivity('Signed out of Virgue', 'The local Roblox workspace remains available', 'normal')
+      setSnapshot(await window.virgue.app.getSnapshot())
+      setActiveView('accounts')
+      setIsAccountMenuOpen(false)
+      pushActivity('Signed out of account', 'Sign in again to reopen the workspace', 'normal')
     } catch (caught) {
-      setAuthError(caught instanceof Error ? caught.message : 'Virgue sign-out failed.')
+      setAuthError(caught instanceof Error ? caught.message : 'Account sign-out failed.')
     } finally {
       setAuthBusy(false)
     }
@@ -341,7 +385,14 @@ function App() {
     }
   }
 
-  const handleAddAccount = () => { void handleLogin({}) }
+  const handleAddAccount = () => {
+    if (accountLimitReached) {
+      setError(getPlanLimitError(entitlements, 'accounts'))
+      setActiveView('accounts')
+      return
+    }
+    void handleLogin({})
+  }
 
   const handleRemoveAccount = async () => {
     if (!selectedAccount) return
@@ -417,6 +468,10 @@ function App() {
   }
 
   const handleLaunchMany = async (targets: Array<{ accountId: string; placeId?: string; jobId?: string }>) => {
+    if (!entitlements.bulkLaunch) {
+      setError(getPlanFeatureError(entitlements, 'bulk-launch'))
+      return
+    }
     if (launchingMany || targets.length === 0) return
     setLaunchingMany(true)
     try {
@@ -482,11 +537,26 @@ function App() {
 
   const handleMaximize = async () => setIsMaximized(await window.virgue.window.toggleMaximize())
 
-  if (isLoading) return <div className="loading-screen"><div className="loading-mark"><img src="./virgue-icon.png" alt="Virgue's app icon" /></div><p>Opening the account workspace</p></div>
+  if (isLoading || authLoading) return <div className="loading-screen"><div className="loading-mark"><img src="./virgue-icon.png" alt="Virgue's app icon" /></div><p>{authLoading ? 'Checking your account' : 'Opening the account workspace'}</p></div>
 
-  return <div className={`app-shell theme-${snapshot?.settings.theme ?? 'neo'}`}>
-    <header className="titlebar">
-      <div className="brand-area" aria-label="Virgue's Roblox Account Manager"><div className="brand-mark"><img src="./virgue-icon.png" alt="Virgue's app icon" /></div><div className="brand-copy"><span className="brand-name">Virgue's</span><span className="brand-product">Roblox Account Manager</span></div></div>
+  const themeClass = `theme-${snapshot?.settings.theme ?? 'neo'}`
+
+  if (!authSession) return <div className={`app-shell auth-gate-shell ${themeClass}`}>
+    <header className="titlebar auth-titlebar">
+      <BrandArea />
+      <div className="titlebar-actions"><WindowControls isMaximized={isMaximized} onMaximize={() => void handleMaximize()} /></div>
+    </header>
+    <main className="auth-gate-main" id="main-content">
+      <AccountView busy={authBusy} error={authError} onSignIn={handleAuthSignIn} onSignUp={handleAuthSignUp} />
+    </main>
+  </div>
+
+  const workspaceEyebrow = activeView === 'accounts' ? 'Profiles' : activeView === 'games' ? 'Collections' : activeView === 'sessions' ? 'Live activity' : activeView === 'servers' ? 'Roblox servers' : activeView === 'control' ? 'Control bridge' : activeView === 'activity' ? 'Workspace history' : activeView === 'settings' ? 'Preferences' : 'Workspace tools'
+  const workspaceTitle = activeView === 'accounts' ? 'Account desk' : activeView === 'games' ? 'Game shelf' : activeView === 'sessions' ? 'Session board' : activeView === 'servers' ? 'Server list' : activeView === 'control' ? 'Account Control' : activeView === 'activity' ? 'Activity centre' : activeView === 'settings' ? 'Settings' : 'Utilities'
+
+  return <div className={`app-shell ${themeClass}`}>
+    <header className={`titlebar ${isAccountMenuOpen ? 'account-menu-open' : ''}`}>
+      <BrandArea />
       <nav className="titlebar-nav" aria-label="Workspace views">
         <ViewButton active={activeView === 'accounts'} icon="users" label="Accounts" onClick={() => setActiveView('accounts')} />
         <ViewButton active={activeView === 'games'} icon="game" label="Games" onClick={() => setActiveView('games')} count={games.length} />
@@ -495,28 +565,27 @@ function App() {
         <ViewButton active={activeView === 'utilities'} icon="spark" label="Utilities" onClick={() => setActiveView('utilities')} />
         <ViewButton active={activeView === 'control'} icon="terminal" label="Control" onClick={() => setActiveView('control')} />
         <ViewButton active={activeView === 'activity'} icon="clock" label="Activity" onClick={() => setActiveView('activity')} count={activity.length} />
-        <ViewButton active={activeView === 'settings'} icon="settings" label="Settings" onClick={() => setActiveView('settings')} />
-        <ViewButton active={activeView === 'account'} icon="users" label="Virgue account" onClick={() => setActiveView('account')} />
       </nav>
-      <div className="window-controls" aria-label="Window controls"><button type="button" className="window-button" aria-label="Minimize" onClick={() => void window.virgue.window.minimize()}><Icon name="minus" size={16} /></button><button type="button" className="window-button" aria-label={isMaximized ? 'Restore' : 'Maximize'} onClick={() => void handleMaximize()}><Icon name="square" size={14} /></button><button type="button" className="window-button close-window" aria-label="Close" onClick={() => void window.virgue.window.close()}><Icon name="close" size={16} /></button></div>
+      <div className="titlebar-actions"><AccountMenu session={authSession} busy={authBusy} entitlements={entitlements} isOpen={isAccountMenuOpen} menuRef={accountMenuRef} onToggle={() => setIsAccountMenuOpen((current) => !current)} onOpenSettings={() => { setActiveView('settings'); setIsAccountMenuOpen(false) }} onSignOut={handleAuthSignOut} /><WindowControls isMaximized={isMaximized} onMaximize={() => void handleMaximize()} /></div>
     </header>
 
-    <div className="app-body">
+    <div className={`app-body ${activeView === 'settings' ? 'settings-mode' : ''}`}>
       <aside className="sidebar">
-        <div className="sidebar-intro"><span className="eyebrow">Your workspace</span><h2>{activeView === 'games' ? 'Game shelf' : activeView === 'activity' ? 'Activity centre' : activeView === 'account' ? 'Virgue account' : 'Account desk'}</h2><p>{activeView === 'games' ? 'Make a game collection for each experience, then sort profiles into useful categories.' : activeView === 'activity' ? 'A clear timeline for balances, launches, presence checks, and workspace changes.' : activeView === 'account' ? 'Connect the account used for subscriptions while keeping Roblox credentials local.' : 'Keep local profiles clear, grouped by game, and ready for the next session.'}</p></div>
-        <div className="sidebar-actions"><button type="button" className="primary-button full-button" onClick={() => { setActiveView('accounts'); handleAddAccount() }}><Icon name="plus" size={17} /> Add Account</button><button type="button" className="outline-button full-button" onClick={() => setActiveView('games')}><Icon name="game" size={17} /> Manage games</button></div>
+        <div className="sidebar-intro"><span className="eyebrow">Your workspace</span><h2>{activeView === 'games' ? 'Game shelf' : activeView === 'activity' ? 'Activity centre' : activeView === 'settings' ? 'Settings' : 'Account desk'}</h2><p>{activeView === 'games' ? 'Make a game collection for each experience, then sort profiles into useful categories.' : activeView === 'activity' ? 'A clear timeline for balances, launches, presence checks, and workspace changes.' : activeView === 'settings' ? 'Manage app features, privacy, and billing from one place.' : 'Keep local profiles clear, grouped by game, and ready for the next session.'}</p></div>
+        <div className="sidebar-actions"><button type="button" className="primary-button full-button" disabled={accountLimitReached} title={accountLimitReached ? getPlanLimitError(entitlements, 'accounts') : undefined} onClick={() => { setActiveView('accounts'); handleAddAccount() }}><Icon name="plus" size={17} /> Add Account</button><button type="button" className="outline-button full-button" onClick={() => setActiveView('games')}><Icon name="game" size={17} /> Manage games</button></div>
         <div className="sidebar-section"><div className="section-heading"><span>Games</span><span className="section-count">{games.length}</span></div><div className="group-list"><button type="button" className={`group-button ${selectedGameId === 'all' ? 'active' : ''}`} onClick={() => { setSelectedGameId('all'); setSelectedCategoryId('all'); setActiveView('accounts') }}><span className="group-name"><span className="tree-icon"><Icon name="grid" size={14} /></span>All games</span><span>{uniqueWorkspaceAccounts.length}</span></button>{games.map((game) => <div className="game-tree" key={game.id}><button type="button" className={`group-button ${selectedGameId === game.id && selectedCategoryId === 'all' ? 'active' : ''}`} onClick={() => { setSelectedGameId(game.id); setSelectedCategoryId('all'); setActiveView('accounts') }}><span className="group-name"><span className="tree-icon game-tree-icon"><Icon name={game.favorite ? 'star' : 'game'} size={14} filled={game.favorite} /></span>{game.name}</span><span>{accounts.filter((account) => account.gameId === game.id).length}</span></button>{game.categories.map((category) => <button type="button" className={`category-button ${selectedGameId === game.id && selectedCategoryId === category.id ? 'active' : ''}`} key={category.id} onClick={() => { setSelectedGameId(game.id); setSelectedCategoryId(category.id); setActiveView('accounts') }}><span className="category-icon"><Icon name={category.icon ?? 'folder'} size={13} /></span>{category.name}<span>{accounts.filter((account) => account.gameId === game.id && account.categoryId === category.id).length}</span></button>)}</div>)}</div></div>
       </aside>
 
       <main className="workspace" id="main-content">
-        <div className="workspace-header"><div><span className="eyebrow">{activeView === 'accounts' ? 'Profiles' : activeView === 'games' ? 'Collections' : activeView === 'sessions' ? 'Live activity' : activeView === 'servers' ? 'Roblox servers' : activeView === 'control' ? 'Control bridge' : activeView === 'activity' ? 'Workspace history' : activeView === 'settings' ? 'Preferences' : activeView === 'account' ? 'Subscription identity' : 'Workspace tools'}</span><h1>{activeView === 'accounts' ? 'Account desk' : activeView === 'games' ? 'Game shelf' : activeView === 'sessions' ? 'Session board' : activeView === 'servers' ? 'Server list' : activeView === 'control' ? 'Account Control' : activeView === 'activity' ? 'Activity centre' : activeView === 'settings' ? 'Settings' : activeView === 'account' ? 'Virgue account' : 'Utilities'}</h1></div><div className="workspace-header-right"><div className="workspace-summary"><div className="summary-item"><span className="summary-number">{uniqueWorkspaceAccounts.length}</span><span>profiles</span></div><div className="summary-divider" /><div className="summary-item"><span className="status-dot ready" /><span>{runningAccounts.length} active</span></div></div><button type="button" className={`account-status-button ${authSession ? 'connected' : ''}`} onClick={() => setActiveView('account')}><span className="status-dot" /> <span>{authSession?.user.name ?? 'Sign in'}</span></button>{(activeView === 'accounts' || activeView === 'games') && <button type="button" className="primary-button workspace-add-button" onClick={() => activeView === 'games' ? setActiveView('games') : handleAddAccount()}><Icon name="plus" size={16} /> {activeView === 'games' ? 'New game' : 'Add Account'}</button>}</div></div>
+        <div className="workspace-header"><div><span className="eyebrow">{workspaceEyebrow}</span><h1>{workspaceTitle}</h1></div><div className="workspace-header-right"><div className="workspace-summary"><div className="summary-item"><span className="summary-number">{uniqueWorkspaceAccounts.length}</span><span>profiles</span></div><div className="summary-divider" /><div className="summary-item"><span className="status-dot ready" /><span>{runningAccounts.length} active</span></div></div>{(activeView === 'accounts' || activeView === 'games') && <button type="button" className="primary-button workspace-add-button" disabled={activeView === 'accounts' ? accountLimitReached : gameLimitReached} title={activeView === 'accounts' && accountLimitReached ? getPlanLimitError(entitlements, 'accounts') : activeView === 'games' && gameLimitReached ? getPlanLimitError(entitlements, 'games') : undefined} onClick={() => activeView === 'games' ? setActiveView('games') : handleAddAccount()}><Icon name="plus" size={16} /> {activeView === 'games' ? 'New game' : 'Add Account'}</button>}</div></div>
         {error && <div className="error-banner" role="alert"><span>{error}</span><button type="button" aria-label="Dismiss error" onClick={() => setError('')}><Icon name="close" size={16} /></button></div>}
 
         <div className="view-stage" key={activeView}>
-          {activeView === 'accounts' && <AccountsView accounts={filteredAccounts} allAccounts={accounts} games={games} selectedAccount={selectedAccount} selectedGameId={selectedGameId} selectedCategoryId={selectedCategoryId} search={search} sortMode={sortMode} onSort={setSortMode} showCookieImport={showCookieImport} launchingMany={launchingMany} onSearch={setSearch} onSelect={setSelectedId} onAdd={handleAddAccount} onImport={handleImport} onCookieImport={() => setShowCookieImport(true)} onCookieClose={() => setShowCookieImport(false)} onRemove={handleRemoveAccount} onLaunch={handleLaunch} onLaunchMany={(targets) => void handleLaunchMany(targets)} onUpdate={handleAccountUpdate} onTransfer={handleAccountTransfer} onOpenBrowser={async () => { if (!selectedAccount) return; try { await window.virgue.accounts.openBrowser(selectedAccount.id); pushActivity('Browser opened', 'Roblox opened in an isolated account window', 'positive') } catch (caught) { setErrorFrom(caught, 'Account browser failed.') } }} />}
+          {activeView === 'accounts' && <AccountsView accounts={filteredAccounts} allAccounts={accounts} games={games} entitlements={entitlements} selectedAccount={selectedAccount} selectedGameId={selectedGameId} selectedCategoryId={selectedCategoryId} search={search} sortMode={sortMode} onSort={setSortMode} showCookieImport={showCookieImport} launchingMany={launchingMany} onSearch={setSearch} onSelect={setSelectedId} onAdd={handleAddAccount} onImport={handleImport} onCookieImport={() => setShowCookieImport(true)} onCookieClose={() => setShowCookieImport(false)} onRemove={handleRemoveAccount} onLaunch={handleLaunch} onLaunchMany={(targets) => void handleLaunchMany(targets)} onUpdate={handleAccountUpdate} onTransfer={handleAccountTransfer} onOpenBrowser={async () => { if (!selectedAccount) return; try { await window.virgue.accounts.openBrowser(selectedAccount.id); pushActivity('Browser opened', 'Roblox opened in an isolated account window', 'positive') } catch (caught) { setErrorFrom(caught, 'Account browser failed.') } }} />}
           {activeView === 'games' && <GamesView
             games={games}
             accounts={accounts}
+            entitlements={entitlements}
             selectedGame={selectedGame}
             onSelect={(id) => setSelectedGameId(id)}
             onUpdate={updateGame}
@@ -531,8 +600,7 @@ function App() {
           {activeView === 'utilities' && <UtilitiesView selectedAccount={selectedAccount} onImport={handleImport} onExport={async () => { const path = await window.virgue.app.exportData(); if (path) pushActivity('Export complete', path, 'positive') }} onCookieImport={() => setShowCookieImport(true)} onError={(message) => setError(message)} onActivity={pushActivity} />}
           {activeView === 'control' && <ControlView accounts={snapshot?.controlAccounts ?? []} commands={snapshot?.controlCommands ?? []} control={snapshot?.control} onError={(message) => setError(message)} onActivity={pushActivity} />}
           {activeView === 'activity' && <ActivityCentreView activity={activity} sessions={sessionSnapshot} accounts={accounts} games={games} onSelect={(id) => { setSelectedId(id); setActiveView('accounts') }} onCopy={handleCopyText} onRejoin={async (session) => { await handleLaunch(session.placeId, session.jobId || session.targetJobId, undefined, undefined, session.accountId) }} />}
-          {activeView === 'settings' && <><SettingsView settings={snapshot?.settings ?? null} client={snapshot?.client} webApi={snapshot?.webApi} watcher={snapshot?.watcher} onSettings={handleSetting} onClientUpdate={(client) => setSnapshot((current) => current ? { ...current, client } : current)} onMultiInstanceChange={handleMultiInstanceSetting} onError={(message) => setError(message)} onActivity={pushActivity} /><ThemePicker settings={snapshot?.settings} onChange={handleSetting} /><ControlSettingsPanel control={snapshot?.control} onChange={handleControlSetting} /></>}
-          {activeView === 'account' && <AccountView session={authSession} busy={authBusy} error={authError} onSignIn={handleAuthSignIn} onSignUp={handleAuthSignUp} onSignOut={handleAuthSignOut} />}
+          {activeView === 'settings' && <SettingsView settings={snapshot?.settings ?? null} client={snapshot?.client} webApi={snapshot?.webApi} watcher={snapshot?.watcher} control={snapshot?.control} entitlements={entitlements} accountCount={uniqueWorkspaceAccounts.length} gameCount={games.length} onSettings={handleSetting} onClientUpdate={(client) => setSnapshot((current) => current ? { ...current, client } : current)} onControl={handleControlSetting} onBillingRefresh={async () => { try { await window.virgue.billing.refresh(); setSnapshot(await window.virgue.app.getSnapshot()); pushActivity('Plan refreshed', 'Subscription access updated from your Virgue account.', 'positive') } catch (caught) { setErrorFrom(caught, 'Could not refresh your plan.') } }} onMultiInstanceChange={handleMultiInstanceSetting} onError={(message) => setError(message)} onActivity={pushActivity} />}
         </div>
       </main>
 
@@ -542,12 +610,40 @@ function App() {
   </div>
 }
 
+function BrandArea() {
+  return <div className="brand-area" aria-label="Virgue's Roblox Account Manager"><div className="brand-mark"><img src="./virgue-icon.png" alt="Virgue's app icon" /></div><div className="brand-copy"><span className="brand-name">Virgue's</span><span className="brand-product">Roblox Account Manager</span></div></div>
+}
+
+function WindowControls({ isMaximized, onMaximize }: { isMaximized: boolean; onMaximize: () => void }) {
+  return <div className="window-controls" aria-label="Window controls"><button type="button" className="window-button" aria-label="Minimize" onClick={() => void window.virgue.window.minimize()}><Icon name="minus" size={16} /></button><button type="button" className="window-button" aria-label={isMaximized ? 'Restore' : 'Maximize'} onClick={onMaximize}><Icon name="square" size={14} /></button><button type="button" className="window-button close-window" aria-label="Close" onClick={() => void window.virgue.window.close()}><Icon name="close" size={16} /></button></div>
+}
+
+function AccountMenu({ session, busy, entitlements, isOpen, menuRef, onToggle, onOpenSettings, onSignOut }: { session: VirgueAuthSession; busy: boolean; entitlements: PlanEntitlements; isOpen: boolean; menuRef: { current: HTMLDivElement | null }; onToggle: () => void; onOpenSettings: () => void; onSignOut: () => Promise<void> }) {
+  const initial = session.user.name.trim().slice(0, 1).toUpperCase() || session.user.email.trim().slice(0, 1).toUpperCase() || 'V'
+
+  return <div className="account-menu" ref={menuRef}>
+    <button type="button" className={`account-menu-trigger ${isOpen ? 'open' : ''}`} aria-haspopup="menu" aria-expanded={isOpen} aria-controls="account-menu" onClick={onToggle}>
+      <span className="account-menu-avatar" aria-hidden="true">{initial}</span>
+      <span className="account-menu-copy"><span className="account-menu-label">Account</span><strong>{session.user.name}</strong></span>
+      <Icon name="chevron" size={16} className={`account-menu-chevron ${isOpen ? 'open' : ''}`} />
+    </button>
+    {isOpen && <div id="account-menu" className="account-menu-popover" role="menu">
+      <div className="account-menu-summary"><div className="account-menu-summary-top"><span className="eyebrow">Account</span></div><strong>{session.user.email}</strong><div className="account-menu-plan"><span>Plan</span><strong>{entitlements.displayName}</strong></div></div>
+      <div className="account-menu-actions">
+        <button type="button" className="account-menu-item" role="menuitem" onClick={onOpenSettings}><span className="account-menu-item-icon"><Icon name="settings" size={15} /></span><strong>Settings</strong><Icon name="arrow" size={14} /></button>
+        <button type="button" className="outline-button account-menu-signout" role="menuitem" disabled={busy} onClick={() => void onSignOut()}><Icon name="close" size={15} /> {busy ? 'Signing out...' : 'Sign out'}</button>
+      </div>
+    </div>}
+  </div>
+}
+
 function ViewButton({ active, icon, label, onClick, count }: { active: boolean; icon: IconName; label: string; onClick: () => void; count?: number }) { return <button type="button" className={`view-button ${active ? 'active' : ''}`} onClick={onClick}><Icon name={icon} size={16} /><span>{label}</span>{count !== undefined && count > 0 && <span className="nav-count">{count}</span>}</button> }
 
-function AccountsView(props: { accounts: Account[]; allAccounts: Account[]; games: GameCollection[]; selectedAccount: Account | null; selectedGameId: string; selectedCategoryId: string; search: string; sortMode: 'status' | 'name' | 'last-used' | 'sessions'; onSort: (value: 'status' | 'name' | 'last-used' | 'sessions') => void; showCookieImport: boolean; launchingMany: boolean; onSearch: (value: string) => void; onSelect: (id: string) => void; onAdd: () => void; onImport: () => void; onCookieImport: () => void; onCookieClose: () => void; onRemove: () => void; onLaunch: (placeId: string, jobId: string, vipLink?: string, followUserId?: string) => void; onLaunchMany: (targets: Array<{ accountId: string; placeId?: string; jobId?: string }>) => void; onUpdate: (input: UpdateAccountInput) => void; onTransfer: (input: AccountTransferInput) => Promise<boolean>; onOpenBrowser: () => void }) {
+function AccountsView(props: { accounts: Account[]; allAccounts: Account[]; games: GameCollection[]; entitlements: PlanEntitlements; selectedAccount: Account | null; selectedGameId: string; selectedCategoryId: string; search: string; sortMode: 'status' | 'name' | 'last-used' | 'sessions'; onSort: (value: 'status' | 'name' | 'last-used' | 'sessions') => void; showCookieImport: boolean; launchingMany: boolean; onSearch: (value: string) => void; onSelect: (id: string) => void; onAdd: () => void; onImport: () => void; onCookieImport: () => void; onCookieClose: () => void; onRemove: () => void; onLaunch: (placeId: string, jobId: string, vipLink?: string, followUserId?: string) => void; onLaunchMany: (targets: Array<{ accountId: string; placeId?: string; jobId?: string }>) => void; onUpdate: (input: UpdateAccountInput) => void; onTransfer: (input: AccountTransferInput) => Promise<boolean>; onOpenBrowser: () => void }) {
   const { accounts, allAccounts, games, selectedGameId, selectedCategoryId, search, showCookieImport } = props
   const [showTransfer, setShowTransfer] = useState(false)
   const uniqueWorkspaceAccounts = uniqueAccounts(allAccounts)
+  const accountLimitReached = props.entitlements.maxAccounts !== null && uniqueWorkspaceAccounts.length >= props.entitlements.maxAccounts
   const sourceGame = games.find((game) => game.id === selectedGameId)
   const sourceCategory = sourceGame?.categories.find((category) => category.id === selectedCategoryId)
   const sectionAccounts = allAccounts.filter((account) => selectedGameId === 'all' || account.gameId === selectedGameId).filter((account) => selectedCategoryId === 'all' || account.categoryId === selectedCategoryId)
@@ -559,8 +655,8 @@ function AccountsView(props: { accounts: Account[]; allAccounts: Account[]; game
       <label className="search-field"><Icon name="search" size={17} /><span className="sr-only">Search profiles</span><input value={search} onChange={(event) => props.onSearch(event.target.value)} placeholder="Search profiles" /></label>
       <div className="toolbar-actions">
         <span className="toolbar-meta">{accounts.length} shown <span className="toolbar-rule" /> {sectionLabel}</span>
-        <button type="button" className="text-button" onClick={props.onAdd}><Icon name="plus" size={15} /> Add Account</button>
-        <button type="button" className="text-button" disabled={accounts.length === 0 || props.launchingMany} onClick={() => props.onLaunchMany(accounts.map((account) => ({ accountId: account.id, placeId: account.placeId, jobId: account.jobId })))}><Icon name={props.launchingMany ? 'clock' : 'launch'} size={15} /> {props.launchingMany ? 'Launching...' : 'Launch shown'}</button>
+        <button type="button" className="text-button" disabled={accountLimitReached} title={accountLimitReached ? getPlanLimitError(props.entitlements, 'accounts') : undefined} onClick={props.onAdd}><Icon name="plus" size={15} /> Add Account</button>
+        <button type="button" className="text-button" disabled={!props.entitlements.bulkLaunch || accounts.length === 0 || props.launchingMany} title={!props.entitlements.bulkLaunch ? getPlanFeatureError(props.entitlements, 'bulk-launch') : undefined} onClick={() => props.onLaunchMany(accounts.map((account) => ({ accountId: account.id, placeId: account.placeId, jobId: account.jobId })))}><Icon name={props.launchingMany ? 'clock' : props.entitlements.bulkLaunch ? 'launch' : 'gem'} size={15} /> {props.launchingMany ? 'Launching...' : props.entitlements.bulkLaunch ? 'Bulk launch' : 'Bulk launch · Pro'}</button>
         <button type="button" className="text-button" disabled={sectionAccounts.length === 0} onClick={() => setShowTransfer(true)}><Icon name="arrow" size={15} /> Transfer section</button>
         <button type="button" className="text-button" onClick={props.onImport}><Icon name="import" size={15} /> Import JSON</button>
       </div>
@@ -856,7 +952,7 @@ function CookieImportPanel({ games, onClose, onImported }: { games: GameCollecti
   return <section ref={revealRef} className="add-profile-panel credential-panel motion-reveal"><div className="add-profile-head"><div><span className="eyebrow">Advanced import</span><h2>Import an existing session</h2></div><button type="button" className="icon-button" aria-label="Close credential import" onClick={onClose}><Icon name="close" size={18} /></button></div><form onSubmit={(event) => void submit(event)}><div className="add-profile-fields"><label className="field-label">Format<select value={format} onChange={(event) => setFormat(event.target.value as typeof format)}><option value="cookie">One cookie per line</option><option value="username-cookie">Username | cookie</option><option value="username-password">Username:password</option></select></label><label className="field-label">Game<select value={gameId} onChange={(event) => { setGameId(event.target.value); setCategoryId(games.find((game) => game.id === event.target.value)?.categories[0]?.id ?? '') }}>{games.map((game) => <option value={game.id} key={game.id}>{game.name}</option>)}</select></label><label className="field-label">Category<select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>{(selectedGame?.categories ?? []).map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}</select></label></div><label className="field-label import-textarea">Import lines<textarea rows={5} value={text} onChange={(event) => setText(event.target.value)} placeholder={format === 'username-password' ? 'username:password' : '.ROBLOSECURITY value'} /></label><div className="add-profile-actions"><span><Icon name="shield" size={14} /> Stored with Windows secure storage.</span><div><span className="form-status">{status}</span><button type="submit" className="primary-button" disabled={!text.trim()}>Import existing session <Icon name="arrow" size={16} /></button></div></div></form></section>
 }
 
-function GamesView({ games, accounts, selectedGame: selectedGameProp, onSelect, onUpdate, onCreate, onRemove, onCategoryCreate, onCategoryUpdate, onCategoryRemove }: { games: GameCollection[]; accounts: Account[]; selectedGame: GameCollection | null; onSelect: (id: string) => void; onUpdate: (game: GameCollection) => void; onCreate: (input: { name: string; placeId: string; description: string }) => void; onRemove: (id: string) => void; onCategoryCreate: (gameId: string, name: string) => void; onCategoryUpdate: (gameId: string, categoryId: string, input: UpdateCategoryInput) => Promise<boolean>; onCategoryRemove: (gameId: string, categoryId: string) => void }) {
+function GamesView({ games, accounts, entitlements, selectedGame: selectedGameProp, onSelect, onUpdate, onCreate, onRemove, onCategoryCreate, onCategoryUpdate, onCategoryRemove }: { games: GameCollection[]; accounts: Account[]; entitlements: PlanEntitlements; selectedGame: GameCollection | null; onSelect: (id: string) => void; onUpdate: (game: GameCollection) => void; onCreate: (input: { name: string; placeId: string; description: string }) => void; onRemove: (id: string) => void; onCategoryCreate: (gameId: string, name: string) => void; onCategoryUpdate: (gameId: string, categoryId: string, input: UpdateCategoryInput) => Promise<boolean>; onCategoryRemove: (gameId: string, categoryId: string) => void }) {
   const [showForm, setShowForm] = useState(false)
   const [name, setName] = useState('')
   const [placeId, setPlaceId] = useState('')
@@ -868,6 +964,7 @@ function GamesView({ games, accounts, selectedGame: selectedGameProp, onSelect, 
   const [categoryIconOpenId, setCategoryIconOpenId] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const selectedGame = selectedGameProp ?? games[0] ?? null
+  const gameLimitReached = entitlements.maxGames !== null && games.length >= entitlements.maxGames
   const gameRefreshKey = games.map((game) => game.id + ':' + game.placeId).join('|')
 
   useEffect(() => { if (!selectedGameProp && games[0]) onSelect(games[0].id) }, [games, onSelect, selectedGameProp])
@@ -911,7 +1008,7 @@ function GamesView({ games, accounts, selectedGame: selectedGameProp, onSelect, 
     if (saved) setCategoryIconOpenId(null)
   }
 
-  return <section className="games-view"><div className="game-layout"><div className="game-card-list">{games.map((game) => <button type="button" className={'game-card ' + (selectedGame?.id === game.id ? 'selected' : '')} key={game.id} onClick={() => onSelect(game.id)}><div className="game-card-top"><span className="game-card-identity"><span className="game-thumbnail">{thumbnail(game, 17)}</span></span><span className="game-card-count">{countFor(game.id)} profiles</span></div><h2>{game.name}</h2><p>{game.description}</p>{game.creatorName && <span className="game-live-line">{game.creatorName} · {formatMetric(game.playing)} playing · {formatMetric(game.visits)} visits</span>}<div className="game-card-bottom"><span>{game.placeId || 'No place id'}</span><span className="game-favorite">{game.favorite && <Icon name="star" size={13} filled />}<span>{game.favorite ? 'Favorite' : 'Not favorite'}</span></span></div></button>)}<button type="button" className="game-card add-game-card" onClick={() => setShowForm((current) => !current)}><Icon name="plus" size={22} /><strong>New game</strong><span>Add a Roblox game ID and the live details will fill in automatically.</span></button></div><div className="game-editor">{showForm && <form className="inline-editor" onSubmit={(event) => { event.preventDefault(); onCreate({ name, placeId, description }); setName(''); setPlaceId(''); setDescription(''); setShowForm(false) }}><span className="eyebrow">New collection</span><h2>Make a game shelf</h2><label className="field-label">Name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Dungeon Quest Reborn" autoFocus /></label><label className="field-label">Game ID / Place ID<input value={placeId} onChange={(event) => setPlaceId(event.target.value)} placeholder="77649408247578" /></label><label className="field-label">Description<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} placeholder="What belongs in this game collection?" /></label><button type="submit" className="primary-button" disabled={!name.trim()}>Create game <Icon name="arrow" size={16} /></button></form>}{selectedGame ? <div className="game-editor-card"><div className="game-editor-header"><div className="game-editor-identity"><span className="game-thumbnail large">{thumbnail(selectedGame, 22)}</span><div><span className="eyebrow">Selected game</span><h2>{selectedGame.name}</h2><p>{selectedGame.placeId || 'Add a game ID to unlock live Roblox data.'}</p></div></div><button type="button" className={'icon-button favorite-toggle ' + (selectedGame.favorite ? 'active' : '')} aria-label={selectedGame.favorite ? 'Remove game from favorites' : 'Add game to favorites'} aria-pressed={selectedGame.favorite} onClick={() => void window.virgue.games.toggleFavorite(selectedGame.id).then(onUpdate)}><Icon name="star" size={18} filled={selectedGame.favorite} /></button></div><div className="game-live-panel"><div className="game-live-heading"><span><Icon name="globe" size={14} /> Live Roblox information</span><span>{refreshing ? 'Refreshing...' : selectedGame.infoUpdatedAt ? 'Updated ' + formatRelativeTime(selectedGame.infoUpdatedAt) : 'Waiting for first refresh'}</span></div><div className="game-metrics"><span><strong>{selectedGame.creatorName || '—'}</strong><small>Creator</small></span><span><strong>{formatMetric(selectedGame.playing)}</strong><small>Playing now</small></span><span><strong>{formatMetric(selectedGame.visits)}</strong><small>Visits</small></span></div></div><label className="field-label">Game name<input defaultValue={selectedGame.name} onBlur={(event) => void window.virgue.games.update(selectedGame.id, { name: event.target.value }).then(onUpdate)} /></label><label className="field-label">Game ID / Place ID<input defaultValue={selectedGame.placeId} onBlur={(event) => void window.virgue.games.update(selectedGame.id, { placeId: event.target.value }).then(onUpdate)} /></label><label className="field-label">Description<textarea defaultValue={selectedGame.description} rows={2} onBlur={(event) => void window.virgue.games.update(selectedGame.id, { description: event.target.value }).then(onUpdate)} /></label><div className="category-editor"><div className="panel-heading"><span>Sub-categories</span><span>{selectedGame.categories.length}</span></div>{selectedGame.categories.map((item) => <div className={'category-editor-row ' + (categoryIconOpenId === item.id ? 'icon-menu-open' : '')} key={item.id}>{editingCategoryId === item.id ? <div className="category-edit-control"><input value={editingCategoryName} onChange={(event) => setEditingCategoryName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void saveCategoryName() } if (event.key === 'Escape') cancelCategoryRename() }} autoFocus /><button type="button" className="icon-button mini-button" aria-label="Save category name" disabled={categorySaving || !editingCategoryName.trim()} onClick={() => void saveCategoryName()}><Icon name={categorySaving ? 'clock' : 'check'} size={13} /></button><button type="button" className="icon-button mini-button" aria-label="Cancel category rename" onClick={cancelCategoryRename}><Icon name="close" size={13} /></button></div> : <><CategoryIconPicker categoryId={item.name} icon={item.icon ?? 'folder'} open={categoryIconOpenId === item.id} busy={categorySaving} onToggle={() => setCategoryIconOpenId((current) => current === item.id ? null : item.id)} onPick={(icon) => void saveCategoryIcon(item.id, icon)} /><span className="category-name">{item.name}</span><span className="category-count">{countFor(selectedGame.id, item.id)}</span><button type="button" className="icon-button mini-button" aria-label={'Rename ' + item.name} onClick={() => beginCategoryRename(item.id, item.name)}><Icon name="edit" size={13} /></button>{selectedGame.categories.length > 1 && <button type="button" className="icon-button mini-button" aria-label={'Remove ' + item.name} onClick={() => onCategoryRemove(selectedGame.id, item.id)}><Icon name="trash" size={13} /></button>}</>}</div>)}<div className="category-add"><input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="New category, e.g. Fighters" /><button type="button" className="primary-button" disabled={!category.trim()} onClick={() => { onCategoryCreate(selectedGame.id, category); setCategory('') }}><Icon name="plus" size={15} /> Add</button></div></div><div className="game-editor-footer"><button type="button" className="text-button danger" onClick={() => onRemove(selectedGame.id)}><Icon name="trash" size={14} /> Remove game collection</button></div></div> : <div className="no-selection"><div className="empty-mark"><Icon name="game" size={22} /></div><h2>Choose a game</h2><p>Games replace the old flat groups. Categories keep storage, fighters, and other roles together.</p></div>}</div></div></section>
+  return <section className="games-view"><div className="game-layout"><div className="game-card-list">{games.map((game) => <button type="button" className={'game-card ' + (selectedGame?.id === game.id ? 'selected' : '')} key={game.id} onClick={() => onSelect(game.id)}><div className="game-card-top"><span className="game-card-identity"><span className="game-thumbnail">{thumbnail(game, 17)}</span></span><span className="game-card-count">{countFor(game.id)} profiles</span></div><h2>{game.name}</h2><p>{game.description}</p>{game.creatorName && <span className="game-live-line">{game.creatorName} · {formatMetric(game.playing)} playing · {formatMetric(game.visits)} visits</span>}<div className="game-card-bottom"><span>{game.placeId || 'No place id'}</span><span className="game-favorite">{game.favorite && <Icon name="star" size={13} filled />}<span>{game.favorite ? 'Favorite' : 'Not favorite'}</span></span></div></button>)}<button type="button" className={'game-card add-game-card ' + (gameLimitReached ? 'limit-reached' : '')} disabled={gameLimitReached} title={gameLimitReached ? getPlanLimitError(entitlements, 'games') : undefined} onClick={() => setShowForm((current) => !current)}><Icon name={gameLimitReached ? 'shield' : 'plus'} size={22} /><strong>{gameLimitReached ? 'Game limit reached' : 'New game'}</strong><span>{gameLimitReached ? getPlanLimitError(entitlements, 'games') : 'Add a Roblox game ID and the live details will fill in automatically.'}</span></button></div><div className="game-editor">{showForm && <form className="inline-editor" onSubmit={(event) => { event.preventDefault(); onCreate({ name, placeId, description }); setName(''); setPlaceId(''); setDescription(''); setShowForm(false) }}><span className="eyebrow">New collection</span><h2>Make a game shelf</h2><label className="field-label">Name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Dungeon Quest Reborn" autoFocus /></label><label className="field-label">Game ID / Place ID<input value={placeId} onChange={(event) => setPlaceId(event.target.value)} placeholder="77649408247578" /></label><label className="field-label">Description<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} placeholder="What belongs in this game collection?" /></label><button type="submit" className="primary-button" disabled={!name.trim()}>Create game <Icon name="arrow" size={16} /></button></form>}{selectedGame ? <div className="game-editor-card"><div className="game-editor-header"><div className="game-editor-identity"><span className="game-thumbnail large">{thumbnail(selectedGame, 22)}</span><div><span className="eyebrow">Selected game</span><h2>{selectedGame.name}</h2><p>{selectedGame.placeId || 'Add a game ID to unlock live Roblox data.'}</p></div></div><button type="button" className={'icon-button favorite-toggle ' + (selectedGame.favorite ? 'active' : '')} aria-label={selectedGame.favorite ? 'Remove game from favorites' : 'Add game to favorites'} aria-pressed={selectedGame.favorite} onClick={() => void window.virgue.games.toggleFavorite(selectedGame.id).then(onUpdate)}><Icon name="star" size={18} filled={selectedGame.favorite} /></button></div><div className="game-live-panel"><div className="game-live-heading"><span><Icon name="globe" size={14} /> Live Roblox information</span><span>{refreshing ? 'Refreshing...' : selectedGame.infoUpdatedAt ? 'Updated ' + formatRelativeTime(selectedGame.infoUpdatedAt) : 'Waiting for first refresh'}</span></div><div className="game-metrics"><span><strong>{selectedGame.creatorName || '—'}</strong><small>Creator</small></span><span><strong>{formatMetric(selectedGame.playing)}</strong><small>Playing now</small></span><span><strong>{formatMetric(selectedGame.visits)}</strong><small>Visits</small></span></div></div><label className="field-label">Game name<input defaultValue={selectedGame.name} onBlur={(event) => void window.virgue.games.update(selectedGame.id, { name: event.target.value }).then(onUpdate)} /></label><label className="field-label">Game ID / Place ID<input defaultValue={selectedGame.placeId} onBlur={(event) => void window.virgue.games.update(selectedGame.id, { placeId: event.target.value }).then(onUpdate)} /></label><label className="field-label">Description<textarea defaultValue={selectedGame.description} rows={2} onBlur={(event) => void window.virgue.games.update(selectedGame.id, { description: event.target.value }).then(onUpdate)} /></label><div className="category-editor"><div className="panel-heading"><span>Sub-categories</span><span>{selectedGame.categories.length}</span></div>{selectedGame.categories.map((item) => <div className={'category-editor-row ' + (categoryIconOpenId === item.id ? 'icon-menu-open' : '')} key={item.id}>{editingCategoryId === item.id ? <div className="category-edit-control"><input value={editingCategoryName} onChange={(event) => setEditingCategoryName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void saveCategoryName() } if (event.key === 'Escape') cancelCategoryRename() }} autoFocus /><button type="button" className="icon-button mini-button" aria-label="Save category name" disabled={categorySaving || !editingCategoryName.trim()} onClick={() => void saveCategoryName()}><Icon name={categorySaving ? 'clock' : 'check'} size={13} /></button><button type="button" className="icon-button mini-button" aria-label="Cancel category rename" onClick={cancelCategoryRename}><Icon name="close" size={13} /></button></div> : <><CategoryIconPicker categoryId={item.name} icon={item.icon ?? 'folder'} open={categoryIconOpenId === item.id} busy={categorySaving} onToggle={() => setCategoryIconOpenId((current) => current === item.id ? null : item.id)} onPick={(icon) => void saveCategoryIcon(item.id, icon)} /><span className="category-name">{item.name}</span><span className="category-count">{countFor(selectedGame.id, item.id)}</span><button type="button" className="icon-button mini-button" aria-label={'Rename ' + item.name} onClick={() => beginCategoryRename(item.id, item.name)}><Icon name="edit" size={13} /></button>{selectedGame.categories.length > 1 && <button type="button" className="icon-button mini-button" aria-label={'Remove ' + item.name} onClick={() => onCategoryRemove(selectedGame.id, item.id)}><Icon name="trash" size={13} /></button>}</>}</div>)}<div className="category-add"><input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="New category, e.g. Fighters" /><button type="button" className="primary-button" disabled={!category.trim()} onClick={() => { onCategoryCreate(selectedGame.id, category); setCategory('') }}><Icon name="plus" size={15} /> Add</button></div></div><div className="game-editor-footer"><button type="button" className="text-button danger" onClick={() => onRemove(selectedGame.id)}><Icon name="trash" size={14} /> Remove game collection</button></div></div> : <div className="no-selection"><div className="empty-mark"><Icon name="game" size={22} /></div><h2>Choose a game</h2><p>Games replace the old flat groups. Categories keep storage, fighters, and other roles together.</p></div>}</div></div></section>
 }
 
 function sessionStatusLabel(session: SessionRecord): string {
@@ -1385,14 +1482,14 @@ const SETTING_HELP: Record<string, string> = {
   'Allow external API clients': 'Binds the Web API beyond localhost. Only enable this on a trusted network.',
 }
 
-function SettingsView({ settings, client, webApi, watcher, onSettings, onClientUpdate, onMultiInstanceChange, onError, onActivity }: { settings: AppSettings | null; client?: AppSnapshot['client']; webApi?: WebApiSettings; watcher?: WatcherSettings; onSettings: (input: Partial<AppSettings>) => void; onClientUpdate: (client: AppSnapshot['client']) => void; onMultiInstanceChange: (enabled: boolean) => Promise<MultiInstanceChangeResult>; onError: (message: string) => void; onActivity: (message: string, detail: string, tone?: ActivityTone) => void }) {
+function SettingsView({ settings, client, webApi, watcher, control, entitlements, accountCount, gameCount, onSettings, onClientUpdate, onControl, onBillingRefresh, onMultiInstanceChange, onError, onActivity }: { settings: AppSettings | null; client?: AppSnapshot['client']; webApi?: WebApiSettings; watcher?: WatcherSettings; control?: ControlSettings; entitlements: PlanEntitlements; accountCount: number; gameCount: number; onSettings: (input: Partial<AppSettings>) => void; onClientUpdate: (client: AppSnapshot['client']) => void; onControl: (input: Partial<ControlSettings>) => void; onBillingRefresh: () => Promise<void>; onMultiInstanceChange: (enabled: boolean) => Promise<MultiInstanceChangeResult>; onError: (message: string) => void; onActivity: (message: string, detail: string, tone?: ActivityTone) => void }) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>('features')
   const [multiInstanceIssue, setMultiInstanceIssue] = useState<'clients' | 'guard' | null>(null)
   const [closingRoblox, setClosingRoblox] = useState(false)
   const multiInstanceRecovery = false
   const revealRef = useMotionReveal<HTMLElement>()
   const toggle = (key: 'asyncJoin' | 'runOnStartup' | 'autoCookieRefresh' | 'showPresence', value: boolean) => onSettings({ [key]: value })
   const updateWatcher = (input: WatcherUpdateInput) => void window.virgue.watcher.update(input).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Watcher settings could not be saved.'))
-  const updateWebApi = (input: WebApiUpdateInput) => void window.virgue.webApi.update(input).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Web API settings could not be saved.'))
   const changeMultiInstance = async (value: boolean) => {
     setMultiInstanceIssue(null)
     const result = await onMultiInstanceChange(value)
@@ -1411,51 +1508,130 @@ function SettingsView({ settings, client, webApi, watcher, onSettings, onClientU
       setClosingRoblox(false)
     }
   }
+
   return <section ref={revealRef} className="settings-view motion-reveal">
-    <div className="settings-grid">
-      <article className="settings-card">
-        <div className="panel-heading"><span>General</span><Icon name="settings" size={16} /></div>
-        <SettingToggle label="Async launching" checked={settings?.asyncJoin ?? false} onChange={(value) => toggle('asyncJoin', value)} />
-        <SettingToggle label="Run on Windows startup" checked={settings?.runOnStartup ?? false} onChange={(value) => toggle('runOnStartup', value)} />
-        <SettingToggle label="Multiple Roblox sessions" checked={settings?.multiInstance ?? false} onChange={(value) => void changeMultiInstance(value)} />
-        {multiInstanceIssue && <div className="setting-recovery" role="alert"><strong>{multiInstanceIssue === 'clients' ? 'Close Roblox before enabling this' : 'Multi-session guard needs attention'}</strong><span>{multiInstanceIssue === 'clients' ? 'Roblox Player is still holding its single-session guard. This action closes RobloxPlayerBeta.exe only; it does not close Studio, but unsaved game progress will be lost.' : 'No Roblox Player clients were detected, but the helper did not become ready. Try enabling the setting again; if it continues, restart the manager and try once more.'}</span><button type="button" className="primary-button" disabled={closingRoblox} onClick={() => multiInstanceIssue === 'clients' ? void closeRobloxAndEnable() : void changeMultiInstance(true)}><Icon name={multiInstanceIssue === 'clients' ? 'trash' : 'refresh'} size={15} /> {multiInstanceIssue === 'clients' ? closingRoblox ? 'Closing Roblox clients…' : 'Close all Roblox clients and enable' : 'Retry enabling multiple sessions'}</button></div>}
-        {multiInstanceRecovery && <div className="setting-recovery" role="alert"><strong>Close Roblox before enabling this</strong><span>Multiple sessions needs the Roblox Player guard to be free. This action force-closes RobloxPlayerBeta.exe only; it does not close Studio, but unsaved game progress will be lost.</span><button type="button" className="primary-button" disabled={closingRoblox} onClick={() => void closeRobloxAndEnable()}><Icon name="trash" size={15} /> {closingRoblox ? 'Closing Roblox clients…' : 'Close all Roblox clients and enable'}</button></div>}
-        <SettingToggle label="Refresh stale session cookies" checked={settings?.autoCookieRefresh ?? false} onChange={(value) => toggle('autoCookieRefresh', value)} />
-        <SettingToggle label="Show live presence" checked={settings?.showPresence ?? true} onChange={(value) => toggle('showPresence', value)} />
-        <SettingField label="Launch delay" description="Wait time between sequential account launches." suffix="sec"><input type="number" min="0" max="60" value={settings?.launchDelay ?? 8} onChange={(event) => onSettings({ launchDelay: Number(event.target.value) })} /></SettingField>
-        <SettingField label="Recent games" description="Controls how many recent game shortcuts are retained." suffix="items"><input type="number" min="1" max="50" value={settings?.maxRecentGames ?? 8} onChange={(event) => onSettings({ maxRecentGames: Number(event.target.value) })} /></SettingField>
-        <SettingField label="Presence refresh" description="Controls how often the automatic watcher asks Roblox for presence updates." suffix="sec"><input type="number" min="1" max="300" value={settings?.presenceUpdateRate ?? 30} onChange={(event) => onSettings({ presenceUpdateRate: Number(event.target.value) })} /></SettingField>
-      </article>
+    <div className="settings-navigation-layout">
+      <nav className="settings-navigation" aria-label="Settings sections">
+        <div className="settings-navigation-plan"><span>Current plan</span><strong>{entitlements.displayName}</strong></div>
+        <div className="settings-tabs" role="tablist" aria-orientation="vertical">
+          {SETTINGS_TABS.map((tab) => <button type="button" key={tab.id} id={`settings-tab-${tab.id}`} className={`settings-tab ${activeTab === tab.id ? 'active' : ''}`} role="tab" aria-selected={activeTab === tab.id} aria-controls={`settings-panel-${tab.id}`} onClick={() => setActiveTab(tab.id)}><span className="settings-tab-icon"><Icon name={tab.icon} size={16} /></span><span><strong>{tab.label}</strong><small>{tab.description}</small></span><Icon name="arrow" size={14} /></button>)}
+        </div>
+      </nav>
 
-      <article className="settings-card">
-        <div className="panel-heading"><span>Watcher</span><Icon name="watch" size={16} /></div>
-        <SettingToggle label="Enable Roblox watcher" checked={watcher?.enabled ?? false} onChange={(value) => updateWatcher({ enabled: value })} />
-        <SettingToggle label="Close when Roblox is unreachable" checked={watcher?.closeIfNoConnection ?? false} onChange={(value) => updateWatcher({ closeIfNoConnection: value })} />
-        <SettingToggle label="Close low-memory clients" checked={watcher?.closeIfMemoryLow ?? false} onChange={(value) => updateWatcher({ closeIfMemoryLow: value })} />
-        <SettingToggle label="Close unexpected window titles" checked={watcher?.closeIfWindowTitle ?? false} onChange={(value) => updateWatcher({ closeIfWindowTitle: value })} />
-        <SettingField label="Expected title" description="Title text the watcher uses when deciding whether a Roblox window is expected."><input value={watcher?.expectedWindowTitle ?? 'Roblox'} onChange={(event) => updateWatcher({ expectedWindowTitle: event.target.value })} /></SettingField>
-        <SettingField label="Memory floor" description="Minimum Roblox process memory in megabytes before the low-memory rule can close it." suffix="MB"><input type="number" min="32" max="4096" value={watcher?.memoryLowMb ?? 200} onChange={(event) => updateWatcher({ memoryLowMb: Number(event.target.value) })} /></SettingField>
-        <button type="button" className="outline-button" onClick={() => void window.virgue.watcher.check().then((result) => onActivity('Watcher checked', result.message, result.closed > 0 ? 'warning' : 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Watcher failed.'))}><Icon name="refresh" size={15} /> Check now</button>
-      </article>
+      <div id={`settings-panel-${activeTab}`} className="settings-tab-content" role="tabpanel" aria-labelledby={`settings-tab-${activeTab}`}>
+      {activeTab === 'features' && <>
+        <div className="settings-grid">
+          <article className="settings-card">
+            <div className="panel-heading"><span>General</span><Icon name="settings" size={16} /></div>
+            <SettingToggle label="Async launching" checked={settings?.asyncJoin ?? false} onChange={(value) => toggle('asyncJoin', value)} />
+            <SettingToggle label="Run on Windows startup" checked={settings?.runOnStartup ?? false} onChange={(value) => toggle('runOnStartup', value)} />
+            <SettingToggle label="Multiple Roblox sessions" checked={settings?.multiInstance ?? false} onChange={(value) => void changeMultiInstance(value)} />
+            {multiInstanceIssue && <div className="setting-recovery" role="alert"><strong>{multiInstanceIssue === 'clients' ? 'Close Roblox before enabling this' : 'Multi-session guard needs attention'}</strong><span>{multiInstanceIssue === 'clients' ? 'Roblox Player is still holding its single-session guard. This action closes RobloxPlayerBeta.exe only; it does not close Studio, but unsaved game progress will be lost.' : 'No Roblox Player clients were detected, but the helper did not become ready. Try enabling the setting again; if it continues, restart the manager and try once more.'}</span><button type="button" className="primary-button" disabled={closingRoblox} onClick={() => multiInstanceIssue === 'clients' ? void closeRobloxAndEnable() : void changeMultiInstance(true)}><Icon name={multiInstanceIssue === 'clients' ? 'trash' : 'refresh'} size={15} /> {multiInstanceIssue === 'clients' ? closingRoblox ? 'Closing Roblox clients…' : 'Close all Roblox clients and enable' : 'Retry enabling multiple sessions'}</button></div>}
+            {multiInstanceRecovery && <div className="setting-recovery" role="alert"><strong>Close Roblox before enabling this</strong><span>Multiple sessions needs the Roblox Player guard to be free. This action force-closes RobloxPlayerBeta.exe only; it does not close Studio, but unsaved game progress will be lost.</span><button type="button" className="primary-button" disabled={closingRoblox} onClick={() => void closeRobloxAndEnable()}><Icon name="trash" size={15} /> {closingRoblox ? 'Closing Roblox clients…' : 'Close all Roblox clients and enable'}</button></div>}
+            <SettingToggle label="Refresh stale session cookies" checked={settings?.autoCookieRefresh ?? false} onChange={(value) => toggle('autoCookieRefresh', value)} />
+            <SettingToggle label="Show live presence" checked={settings?.showPresence ?? true} onChange={(value) => toggle('showPresence', value)} />
+            <SettingField label="Launch delay" description="Wait time between sequential account launches." suffix="sec"><input type="number" min="0" max="60" value={settings?.launchDelay ?? 8} onChange={(event) => onSettings({ launchDelay: Number(event.target.value) })} /></SettingField>
+            <SettingField label="Recent games" description="Controls how many recent game shortcuts are retained." suffix="items"><input type="number" min="1" max="50" value={settings?.maxRecentGames ?? 8} onChange={(event) => onSettings({ maxRecentGames: Number(event.target.value) })} /></SettingField>
+            <SettingField label="Presence refresh" description="Controls how often the automatic watcher asks Roblox for presence updates." suffix="sec"><input type="number" min="1" max="300" value={settings?.presenceUpdateRate ?? 30} onChange={(event) => onSettings({ presenceUpdateRate: Number(event.target.value) })} /></SettingField>
+          </article>
 
-      <ClientPerformanceSettings client={client} onClientUpdate={onClientUpdate} onError={onError} onActivity={onActivity} />
+          <article className="settings-card">
+            <div className="panel-heading"><span>Watcher</span><Icon name="watch" size={16} /></div>
+            <SettingToggle label="Enable Roblox watcher" checked={watcher?.enabled ?? false} onChange={(value) => updateWatcher({ enabled: value })} />
+            <SettingToggle label="Close when Roblox is unreachable" checked={watcher?.closeIfNoConnection ?? false} onChange={(value) => updateWatcher({ closeIfNoConnection: value })} />
+            <SettingToggle label="Close low-memory clients" checked={watcher?.closeIfMemoryLow ?? false} onChange={(value) => updateWatcher({ closeIfMemoryLow: value })} />
+            <SettingToggle label="Close unexpected window titles" checked={watcher?.closeIfWindowTitle ?? false} onChange={(value) => updateWatcher({ closeIfWindowTitle: value })} />
+            <SettingField label="Expected title" description="Title text the watcher uses when deciding whether a Roblox window is expected."><input value={watcher?.expectedWindowTitle ?? 'Roblox'} onChange={(event) => updateWatcher({ expectedWindowTitle: event.target.value })} /></SettingField>
+            <SettingField label="Memory floor" description="Minimum Roblox process memory in megabytes before the low-memory rule can close it." suffix="MB"><input type="number" min="32" max="4096" value={watcher?.memoryLowMb ?? 200} onChange={(event) => updateWatcher({ memoryLowMb: Number(event.target.value) })} /></SettingField>
+            <button type="button" className="outline-button" onClick={() => void window.virgue.watcher.check().then((result) => onActivity('Watcher checked', result.message, result.closed > 0 ? 'warning' : 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Watcher failed.'))}><Icon name="refresh" size={15} /> Check now</button>
+          </article>
 
-      <article className="settings-card settings-card-wide">
-        <div className="panel-heading"><span>Local Web API</span><Icon name="globe" size={16} /></div>
-        <p className="settings-copy">Keep integrations local by default. Only expose routes that a trusted tool needs.</p>
-        <SettingToggle label="Enable Web API" checked={webApi?.enabled ?? false} onChange={(value) => updateWebApi({ enabled: value })} />
-        <SettingToggle label="Require password" checked={webApi?.requirePassword ?? false} onChange={(value) => updateWebApi({ requirePassword: value })} />
-        <SettingToggle label="Allow account listing" checked={webApi?.allowGetAccounts ?? true} onChange={(value) => updateWebApi({ allowGetAccounts: value })} />
-        <SettingToggle label="Allow launch route" checked={webApi?.allowLaunchAccount ?? false} onChange={(value) => updateWebApi({ allowLaunchAccount: value })} />
-        <SettingToggle label="Allow cookie route" checked={webApi?.allowGetCookie ?? false} onChange={(value) => updateWebApi({ allowGetCookie: value })} />
-        <SettingToggle label="Allow account editing" checked={webApi?.allowAccountEditing ?? false} onChange={(value) => updateWebApi({ allowAccountEditing: value })} />
-        <SettingToggle label="Allow external API clients" checked={webApi?.allowExternalConnections ?? false} onChange={(value) => updateWebApi({ allowExternalConnections: value })} />
-        <SettingField label="Port" description="Local port used by the Web API. It must stay between 1024 and 65535."><input type="number" min="1024" max="65535" value={webApi?.port ?? 7963} onChange={(event) => updateWebApi({ port: Number(event.target.value) })} /></SettingField>
-        <SettingField label="API password" description="Password sent by clients when password protection is enabled. Leave blank to clear the current password."><input type="password" placeholder="Leave blank to keep current" onChange={(event) => updateWebApi({ password: event.target.value })} /></SettingField>
-        <button type="button" className="outline-button" onClick={() => void window.virgue.webApi.start().then(() => onActivity('Web API started', 'Listening on localhost:' + (webApi?.port ?? 7963), 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Web API failed.'))}><Icon name="play" size={15} /> Start API</button>
-      </article>
+          <ClientPerformanceSettings client={client} onClientUpdate={onClientUpdate} onError={onError} onActivity={onActivity} />
+        </div>
+        <ThemePicker settings={settings ?? undefined} onChange={onSettings} />
+        <ControlSettingsPanel control={control} onChange={onControl} />
+      </>}
+
+        {activeTab === 'privacy' && <WebApiSettingsCard webApi={webApi} onError={onError} onActivity={onActivity} />}
+
+        {activeTab === 'billing' && <BillingSettingsPanel entitlements={entitlements} accountCount={accountCount} gameCount={gameCount} onRefresh={onBillingRefresh} />}
+      </div>
     </div>
   </section>
+}
+
+function WebApiSettingsCard({ webApi, onError, onActivity }: { webApi?: WebApiSettings; onError: (message: string) => void; onActivity: (message: string, detail: string, tone?: ActivityTone) => void }) {
+  const updateWebApi = (input: WebApiUpdateInput) => void window.virgue.webApi.update(input).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Web API settings could not be saved.'))
+  return <article className="settings-card settings-card-wide">
+    <div className="panel-heading"><span>Local Web API</span><Icon name="globe" size={16} /></div>
+    <p className="settings-copy">Keep integrations local by default. Only expose routes that a trusted tool needs.</p>
+    <SettingToggle label="Enable Web API" checked={webApi?.enabled ?? false} onChange={(value) => updateWebApi({ enabled: value })} />
+    <SettingToggle label="Require password" checked={webApi?.requirePassword ?? false} onChange={(value) => updateWebApi({ requirePassword: value })} />
+    <SettingToggle label="Allow account listing" checked={webApi?.allowGetAccounts ?? true} onChange={(value) => updateWebApi({ allowGetAccounts: value })} />
+    <SettingToggle label="Allow launch route" checked={webApi?.allowLaunchAccount ?? false} onChange={(value) => updateWebApi({ allowLaunchAccount: value })} />
+    <SettingToggle label="Allow cookie route" checked={webApi?.allowGetCookie ?? false} onChange={(value) => updateWebApi({ allowGetCookie: value })} />
+    <SettingToggle label="Allow account editing" checked={webApi?.allowAccountEditing ?? false} onChange={(value) => updateWebApi({ allowAccountEditing: value })} />
+    <SettingToggle label="Allow external API clients" checked={webApi?.allowExternalConnections ?? false} onChange={(value) => updateWebApi({ allowExternalConnections: value })} />
+    <SettingField label="Port" description="Local port used by the Web API. It must stay between 1024 and 65535."><input type="number" min="1024" max="65535" value={webApi?.port ?? 7963} onChange={(event) => updateWebApi({ port: Number(event.target.value) })} /></SettingField>
+    <SettingField label="API password" description="Password sent by clients when password protection is enabled. Leave blank to keep the current password."><input type="password" placeholder="Leave blank to keep current" onChange={(event) => updateWebApi({ password: event.target.value })} /></SettingField>
+    <button type="button" className="outline-button" onClick={() => void window.virgue.webApi.start().then(() => onActivity('Web API started', 'Listening on localhost:' + (webApi?.port ?? 7963), 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Web API failed.'))}><Icon name="play" size={15} /> Start API</button>
+  </article>
+}
+
+function PlanUsageMeter({ label, singular, icon, current, maximum }: { label: string; singular: string; icon: IconName; current: number; maximum: number | null }) {
+  const usageMaximum = maximum ?? Math.max(current, 1)
+  const percentage = maximum === null ? 100 : Math.min(100, Math.round((current / Math.max(usageMaximum, 1)) * 100))
+  const usageLabel = maximum === null ? `${current} used` : `${current} of ${maximum} used`
+  const remainingLabel = maximum === null ? 'Unlimited capacity' : `${Math.max(maximum - current, 0)} ${singular}${maximum - current === 1 ? '' : 's'} remaining`
+
+  return <div className="settings-usage-row">
+    <div className="settings-usage-row-head">
+      <span className="settings-usage-label"><span className="settings-usage-icon"><Icon name={icon} size={15} /></span><strong>{label}</strong></span>
+      <span className="settings-usage-value">{usageLabel}</span>
+    </div>
+    <div className="settings-usage-progress" role="progressbar" aria-label={`${label} usage`} aria-valuemin={0} aria-valuemax={maximum ?? undefined} aria-valuenow={maximum === null ? undefined : Math.min(current, maximum)} aria-valuetext={usageLabel}>
+      <span style={{ width: `${percentage}%` }} />
+    </div>
+    <div className="settings-usage-foot"><span>Plan capacity</span><strong>{remainingLabel}</strong></div>
+  </div>
+}
+
+function BillingSettingsPanel({ entitlements, accountCount, gameCount, onRefresh }: { entitlements: PlanEntitlements; accountCount: number; gameCount: number; onRefresh: () => Promise<void> }) {
+  return <div className="settings-billing-layout">
+    <article className="settings-card settings-billing-current settings-billing-overview">
+      <div className="settings-billing-heading">
+        <span className="eyebrow">Current plan</span>
+        <h2>{entitlements.displayName}</h2>
+        <p className="settings-copy">Core workspace access for local account management.</p>
+      </div>
+      <div className="settings-billing-section settings-billing-capacity">
+        <div className="settings-section-heading"><span>Workspace capacity</span><small>What you get and what you have used</small></div>
+        <div className="settings-usage-list">
+          <PlanUsageMeter label="Roblox accounts" singular="account" icon="users" current={accountCount} maximum={entitlements.maxAccounts} />
+          <PlanUsageMeter label="Game collections" singular="game" icon="game" current={gameCount} maximum={entitlements.maxGames} />
+        </div>
+      </div>
+      <div className="settings-billing-section settings-billing-includes">
+        <div className="settings-section-heading"><span>Included with Free</span></div>
+        <ul className="settings-included-list">
+          <li><Icon name="check" size={14} /> Local encrypted storage</li>
+          <li><Icon name="check" size={14} /> Account and game organization</li>
+          <li><Icon name="check" size={14} /> Single-account launches</li>
+          <li><Icon name="check" size={14} /> Basic server browsing and filters</li>
+        </ul>
+      </div>
+    </article>
+    <article className="settings-card settings-billing-next">
+      <div className="settings-billing-next-heading"><div><span className="eyebrow">Next plan</span><h2>Virgue Pro</h2></div><Icon name="gem" size={20} /></div>
+      <p className="settings-copy">More room for larger workspaces, with unlimited account and game slots.</p>
+      <div className="settings-billing-pro-list">
+        <div><Icon name="check" size={14} /> <span>Unlimited Roblox account slots</span></div>
+        <div><Icon name="check" size={14} /> <span>Unlimited game collection slots</span></div>
+        <div><Icon name="check" size={14} /> <span>Premium tools as they launch</span></div>
+      </div>
+      <button type="button" className="outline-button" onClick={() => void onRefresh()}>Refresh plan <Icon name="refresh" size={14} /></button>
+    </article>
+  </div>
 }
 
 function ClientPerformanceSettings({ client, onClientUpdate, onError, onActivity }: { client?: AppSnapshot['client']; onClientUpdate: (client: AppSnapshot['client']) => void; onError: (message: string) => void; onActivity: (message: string, detail: string, tone?: ActivityTone) => void }) {
@@ -1497,14 +1673,24 @@ function ClientPerformanceSettings({ client, onClientUpdate, onError, onActivity
 
   return <article className="settings-card settings-card-wide settings-performance-card">
     <div className="panel-heading"><span>Roblox client performance</span><Icon name="settings" size={16} /></div>
-    <p className="settings-copy">FPS and custom ClientAppSettings are applied to future Roblox Player launches. Account-level overrides still take precedence.</p>
-    <div className="settings-performance-grid">
-      <SettingToggle label="Enable FPS override" description="Sets the default frame-rate cap for new Roblox Player launches." checked={fpsEnabled} onChange={(value) => { setFpsEnabled(value); void applyFps(value) }} />
-      <SettingField label="Target FPS" description="Default frame-rate cap for new Roblox clients. Values from 15 to 1000 FPS are accepted." suffix="FPS"><input type="number" min={15} max={1000} value={fps} onChange={(event) => setFps(Number(event.target.value))} /></SettingField>
-      <button type="button" className="primary-button" onClick={() => void applyFps()}><Icon name="check" size={15} /> Apply FPS</button>
-      <SettingField className="settings-path-field" label="Custom settings path" description="Optional path to a ClientAppSettings.json file that should be synced before launching Roblox."><input value={customSettingsPath} onChange={(event) => setCustomSettingsPath(event.target.value)} placeholder="C:\\path\\ClientAppSettings.json" /></SettingField>
-      <SettingToggle label="Use custom JSON" description="Copies the selected custom ClientAppSettings.json into the Roblox client settings folder before launch." checked={customSettingsEnabled} onChange={setCustomSettingsEnabled} />
-      <button type="button" className="outline-button" onClick={() => void applyCustom()}><Icon name="check" size={15} /> Apply custom</button>
+    <p className="settings-copy">Set defaults for new Roblox Player launches. Account-level overrides still take precedence.</p>
+    <div className="settings-performance-sections">
+      <div className="settings-performance-section">
+        <div className="settings-performance-section-heading"><strong>Frame rate</strong><span>Choose the default cap for new clients.</span></div>
+        <div className="settings-performance-controls settings-fps-controls">
+          <SettingToggle label="Enable FPS override" description="Sets the default frame-rate cap for new Roblox Player launches." checked={fpsEnabled} onChange={(value) => { setFpsEnabled(value); void applyFps(value) }} />
+          <SettingField label="Target FPS" description="Default frame-rate cap for new Roblox clients. Values from 15 to 1000 FPS are accepted." suffix="FPS"><input type="number" min={15} max={1000} value={fps} onChange={(event) => setFps(Number(event.target.value))} /></SettingField>
+          <button type="button" className="primary-button" onClick={() => void applyFps()}><Icon name="check" size={15} /> Apply FPS</button>
+        </div>
+      </div>
+      <div className="settings-performance-section">
+        <div className="settings-performance-section-heading"><strong>Custom client settings</strong><span>Sync a ClientAppSettings.json file before launching.</span></div>
+        <div className="settings-performance-controls settings-custom-controls">
+          <SettingField className="settings-path-field" label="Settings file" description="Optional path to a ClientAppSettings.json file that should be synced before launching Roblox."><input value={customSettingsPath} onChange={(event) => setCustomSettingsPath(event.target.value)} placeholder="C:\\path\\ClientAppSettings.json" /></SettingField>
+          <SettingToggle label="Use custom JSON" description="Copies the selected custom ClientAppSettings.json into the Roblox client settings folder before launch." checked={customSettingsEnabled} onChange={setCustomSettingsEnabled} />
+          <button type="button" className="outline-button" onClick={() => void applyCustom()}><Icon name="check" size={15} /> Apply custom</button>
+        </div>
+      </div>
     </div>
   </article>
 }

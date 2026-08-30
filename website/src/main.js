@@ -6,7 +6,11 @@ import '@fontsource/outfit/800.css'
 import './styles.css'
 
 const AUTH_URL = (import.meta.env.VITE_NEON_AUTH_URL || 'https://ep-morning-frost-zagg2ox8.neonauth.c-2.eu-west-2.aws.neon.tech/neondb/auth').replace(/\/$/, '')
-const BILLING_API_URL = (import.meta.env.VITE_VIRGUE_BILLING_API_URL || '').replace(/\/$/, '')
+const configuredBillingApiUrl = (import.meta.env.VITE_VIRGUE_BILLING_API_URL || '').trim()
+const sameOriginBillingApiUrl = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+  ? `${window.location.origin}/api`
+  : ''
+const BILLING_API_URL = (configuredBillingApiUrl || sameOriginBillingApiUrl).replace(/\/$/, '')
 const DOWNLOAD_URL = (import.meta.env.VITE_VIRGUE_DOWNLOAD_URL || '').trim()
 const SITE_BASE = import.meta.env.BASE_URL
 const currentPage = document.body.dataset.page || 'home'

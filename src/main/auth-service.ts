@@ -4,6 +4,10 @@ import { SecretStore } from './secret-store'
 // This is a public Neon Auth endpoint, not a database credential. The session
 // cookie returned by it is kept in the encrypted SecretStore below.
 const NEON_AUTH_URL = 'https://ep-morning-frost-zagg2ox8.neonauth.c-2.eu-west-2.aws.neon.tech/neondb/auth'
+// Electron calls Neon Auth from the main process rather than from a browser
+// page, so fetch does not provide an Origin header automatically. Neon Auth
+// uses this trusted origin to resolve the default relative callback safely.
+const NEON_AUTH_ORIGIN = new URL(NEON_AUTH_URL).origin
 const SESSION_SECRET_KEY = 'virgue-neon-auth-session'
 
 interface JsonRecord {
@@ -27,7 +31,7 @@ function authError(payload: unknown, status: number): Error {
 
   if (status === 401) return new Error('The email or password is incorrect.')
   if (status === 409) return new Error('An account with that email already exists.')
-  return new Error(`Virgue account service returned HTTP ${status}.`)
+  return new Error(`Account service returned HTTP ${status}.`)
 }
 
 export class AuthService {
@@ -53,6 +57,17 @@ export class AuthService {
     }
 
     return this.toSession(envelope.user, envelope.session)
+  }
+
+  /**
+   * Returns the short-lived Better Auth session token for server-to-server
+   * verification only. It is deliberately never exposed through IPC.
+   */
+  async getSessionToken(): Promise<string | null> {
+    const payload = await this.request('/get-session', { method: 'GET' })
+    const envelope = isRecord(payload) && isRecord(payload.data) ? payload.data : payload
+    if (!isRecord(envelope) || !isRecord(envelope.session)) return null
+    return stringValue(envelope.session.token)
   }
 
   async signIn(input: AuthCredentialsInput): Promise<VirgueAuthSession> {
@@ -101,6 +116,7 @@ export class AuthService {
         method: init.method,
         headers: {
           Accept: 'application/json',
+          Origin: NEON_AUTH_ORIGIN,
           ...(init.body ? { 'Content-Type': 'application/json' } : {}),
           ...(this.cookieHeader() ? { Cookie: this.cookieHeader() } : {}),
         },

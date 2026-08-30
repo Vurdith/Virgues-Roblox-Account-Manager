@@ -1,3 +1,4 @@
+import { getPlanEntitlements, getPlanFeatureError, getPlanLimitError } from '@shared/entitlements'
 import type {
   Account,
   AppSettings,
@@ -160,6 +161,14 @@ function createPreviewApi(): VirgueApi {
   let sessionSnapshot: SessionSnapshot = { active: [], history: [], events: [], recoveryJobs: [], checkedAt: now() }
   let authSession: VirgueAuthSession | null = null
   const sessionListeners = new Set<(event: SessionEvent) => void>()
+  const entitlements = getPlanEntitlements()
+  const accountSlotCount = () => new Set(accounts.map((account) => account.username.trim().toLowerCase()).filter(Boolean)).size
+  const assertAccountCapacity = (additional = 1) => {
+    if (entitlements.maxAccounts !== null && accountSlotCount() + additional > entitlements.maxAccounts) throw new Error(getPlanLimitError(entitlements, 'accounts'))
+  }
+  const assertGameCapacity = (additional = 1) => {
+    if (entitlements.maxGames !== null && games.length + additional > entitlements.maxGames) throw new Error(getPlanLimitError(entitlements, 'games'))
+  }
 
   const snapshot = (): AppSnapshot => ({
     accounts: clone(accounts),
@@ -173,6 +182,7 @@ function createPreviewApi(): VirgueApi {
     watcher: clone(watcher),
     client: clone(client),
     settings: clone(settings),
+    entitlements: clone(entitlements),
     info: { name: "Virgue's Roblox Account Manager", version: '1.0.0', platform: 'Browser preview', dataPath: 'Preview only' },
   })
 
@@ -219,6 +229,7 @@ function createPreviewApi(): VirgueApi {
     return clone({ mode: input.mode, transfers })
   }
   const importPreviewCookie: VirgueApi['accounts']['importCookie'] = async (input) => {
+    assertAccountCapacity()
     const assignment = firstAssignment()
     const username = input.username?.trim() || `cookieUser${accounts.length + 1}`
     const account: Account = {
@@ -256,6 +267,7 @@ function createPreviewApi(): VirgueApi {
   return {
     accounts: {
       create: async (input) => {
+        assertAccountCapacity()
         const assignment = firstAssignment()
         const account: Account = {
           id: `preview-${Date.now()}`,
@@ -301,14 +313,18 @@ function createPreviewApi(): VirgueApi {
         const updated = updateAccount(id, { placeId: target.placeId, jobId: target.jobId, status: 'running', sessions: current.sessions + 1, lastUsed: now(), presence: presence('in-game', 'Roblox game') })
         return { account: clone(updated), openedUrl: `https://www.roblox.com/games/${target.placeId}${target.jobId ? `?gameInstanceId=${target.jobId}` : ''}` }
       },
-      launchMany: async (input) => Promise.all(input.targets.map(async (target) => {
-        const current = findAccount(target.accountId)
-        if (!current) throw new Error('Account not found.')
-        const placeId = target.placeId || current.placeId
-        const jobId = target.jobId || current.jobId
-        const updated = updateAccount(target.accountId, { placeId, jobId, status: 'running', sessions: current.sessions + 1, lastUsed: now(), presence: presence('in-game', 'Roblox game') })
-        return { account: clone(updated), openedUrl: `https://www.roblox.com/games/${placeId}${jobId ? `?gameInstanceId=${jobId}` : ''}` }
-      })),
+      launchMany: async (input) => {
+        const entitlements = getPlanEntitlements()
+        if (!entitlements.bulkLaunch) throw new Error(getPlanFeatureError(entitlements, 'bulk-launch'))
+        return Promise.all(input.targets.map(async (target) => {
+          const current = findAccount(target.accountId)
+          if (!current) throw new Error('Account not found.')
+          const placeId = target.placeId || current.placeId
+          const jobId = target.jobId || current.jobId
+          const updated = updateAccount(target.accountId, { placeId, jobId, status: 'running', sessions: current.sessions + 1, lastUsed: now(), presence: presence('in-game', 'Roblox game') })
+          return { account: clone(updated), openedUrl: `https://www.roblox.com/games/${placeId}${jobId ? `?gameInstanceId=${jobId}` : ''}` }
+        }))
+      },
       importCookie: importPreviewCookie,
       bulkImport: async (input) => {
         const imported: Account[] = []
@@ -339,6 +355,7 @@ function createPreviewApi(): VirgueApi {
     },
     games: {
       create: async (input) => {
+        assertGameCapacity()
         const game: GameCollection = { id: `preview-game-${Date.now()}`, name: input.name.trim() || 'Untitled game', placeId: input.placeId.trim(), description: input.description.trim(), accent: '#fa6d60', categories: [{ id: `preview-category-${Date.now()}`, name: 'Main', accent: '#fa6d60', sortOrder: 0, icon: 'folder' }], favorite: false, createdAt: now(), lastUsed: null, universeId: null, thumbnailUrl: '', creatorName: '', creatorId: '', playing: 0, visits: 0, infoUpdatedAt: null }
         games = [...games, game]
         return clone(game)
