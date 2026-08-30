@@ -139,11 +139,15 @@ h1, h2, h3 { margin-top: 0; }
 .plan-list li { padding: 11px 0; border-top: 1px solid rgba(23, 23, 23, .26); font-size: 12px; font-weight: 700; }
 .plan-list li::before { content: '✓'; margin-right: 10px; }
 .plan-card .button { align-self: start; }
+.plan-card-action { align-self: start; }
+.plan-card-action .site-status { max-width: 260px; }
+#pricing-status:empty { display: none; }
 .download-card { display: grid; grid-template-columns: 1fr auto; gap: 30px; align-items: center; padding: 40px; border: 3px solid var(--ink); background: var(--yellow); box-shadow: var(--shadow); }
 .download-card h2 { margin: 0; font-size: clamp(30px, 4vw, 48px); letter-spacing: -.08em; line-height: .92; }
 .download-card p { max-width: 540px; margin: 18px 0 0; color: #4f4939; font-size: 14px; line-height: 1.5; }
 .download-card-action { min-width: 220px; }
 .download-card-action .button { width: 100%; }
+.download-card-action .site-status { max-width: 220px; }
 .site-status { min-height: 17px; margin: 12px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .site-status.is-error { color: #b32d29; font-weight: 700; }
 .site-shell [hidden] { display: none !important; }

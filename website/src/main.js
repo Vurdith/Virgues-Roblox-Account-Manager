@@ -240,6 +240,29 @@ function setStatus(element, message = '', tone = '') {
   element.className = `site-status${tone ? ` ${tone}` : ''}`
 }
 
+function formatBillingDate(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' }).format(date)
+}
+
+function billingStatusText(data) {
+  const planKey = String(data.planKey || '').toLowerCase()
+  const subscriptionStatus = String(data.subscriptionStatus || '').toLowerCase()
+  const entitlementStatus = String(data.entitlementStatus || '').toLowerCase()
+  const endDate = formatBillingDate(data.currentPeriodEnd || data.trialEndsAt)
+
+  if (planKey !== 'pro') {
+    if (subscriptionStatus === 'past_due' || subscriptionStatus === 'unpaid') return 'Payment needs attention'
+    return 'No active subscription'
+  }
+  if (entitlementStatus === 'trial' || subscriptionStatus === 'trialing') return endDate ? `Trial · ends ${endDate}` : 'Trial access'
+  if (entitlementStatus === 'grace' || subscriptionStatus === 'past_due') return endDate ? `Payment needs attention · access through ${endDate}` : 'Payment needs attention'
+  if (subscriptionStatus === 'canceled' || subscriptionStatus === 'cancelled') return endDate ? `Subscription ends ${endDate}` : 'Subscription ending'
+  return endDate ? `Active · renews ${endDate}` : 'Pro access is active'
+}
+
 function configureDownload() {
   const link = document.getElementById('download-link')
   if (!link) return
@@ -248,14 +271,11 @@ function configureDownload() {
     link.href = DOWNLOAD_URL
     link.target = '_blank'
     link.rel = 'noreferrer'
-    setStatus(status, 'Latest Windows installer link ready.')
+    setStatus(status)
     return
   }
-  link.href = '#download-status'
-  link.addEventListener('click', (event) => {
-    event.preventDefault()
-    setStatus(status, 'The Windows release link will be published here before launch.')
-  })
+  link.hidden = true
+  setStatus(status, 'The Windows installer is not published yet.')
 }
 
 function initializeAccount() {
@@ -278,6 +298,7 @@ function initializeAccount() {
   const authSwitch = document.getElementById('auth-switch')
   const authStatus = document.getElementById('auth-status')
   const billingAction = document.getElementById('billing-action')
+  const plansLink = document.getElementById('account-plans-link')
   const billingStatus = document.getElementById('billing-status')
   const state = { mode: 'signin', busy: false, session: null }
 
@@ -328,7 +349,11 @@ function initializeAccount() {
     document.getElementById('account-plan').textContent = BILLING_API_URL ? 'Checking your plan' : 'Free plan'
     document.getElementById('account-subscription').textContent = BILLING_API_URL ? 'Loading billing details' : 'No active subscription'
     billingAction.hidden = true
+    if (plansLink) plansLink.hidden = false
     setStatus(billingStatus)
+    const checkoutState = new URLSearchParams(window.location.search).get('checkout')
+    if (checkoutState === 'success') setStatus(billingStatus, 'Payment received. Your Pro access will appear after Stripe confirms the subscription.')
+    if (checkoutState === 'canceled') setStatus(billingStatus, 'Checkout canceled. No changes were made.')
     void loadBilling()
   }
 
@@ -338,11 +363,14 @@ function initializeAccount() {
       const payload = await billingRequest('/billing/me', state.session)
       const data = asRecord(unwrap(payload))
       document.getElementById('account-plan').textContent = data.planName || data.displayName || data.planKey || 'Free plan'
-      document.getElementById('account-subscription').textContent = data.subscriptionStatus || data.status || 'No active subscription'
+      document.getElementById('account-subscription').textContent = billingStatusText(data)
       billingAction.hidden = !data.hasBillingCustomer
+      if (plansLink) plansLink.hidden = data.planKey === 'pro'
     } catch (error) {
       document.getElementById('account-plan').textContent = 'Plan unavailable'
       document.getElementById('account-subscription').textContent = 'Could not load billing'
+      if (plansLink) plansLink.hidden = false
+      billingAction.hidden = true
       setStatus(billingStatus, error instanceof Error ? error.message : 'Could not load billing details.', 'is-error')
     }
   }
@@ -425,36 +453,69 @@ function initializeAccount() {
 function initializePricing() {
   const checkoutLink = document.querySelector('[data-start-checkout]')
   if (!checkoutLink) return
-  void getSession().then((session) => {
-    applySiteSession(session)
-    if (!session) {
-      checkoutLink.textContent = 'Sign in to upgrade'
-      checkoutLink.href = `${SITE_BASE}account.html`
+  const checkoutStatus = document.getElementById('pricing-status')
+  let checkoutMode = 'loading'
+  const setCheckoutCta = (label, href, mode) => {
+    checkoutLink.textContent = label
+    checkoutLink.href = href
+    checkoutMode = mode
+  }
+
+  checkoutLink.addEventListener('click', async (event) => {
+    if (checkoutMode !== 'checkout') return
+    event.preventDefault()
+    if (!BILLING_API_URL) {
+      window.location.assign(`${SITE_BASE}account.html`)
       return
     }
-    checkoutLink.textContent = 'Upgrade to Pro'
-    checkoutLink.href = '#checkout'
-    checkoutLink.addEventListener('click', async (event) => {
-      event.preventDefault()
-      if (!BILLING_API_URL) {
-        window.location.assign(`${SITE_BASE}account.html`)
-        return
+    checkoutLink.classList.add('is-busy')
+    checkoutLink.setAttribute('aria-busy', 'true')
+    checkoutLink.textContent = 'Opening checkout…'
+    setStatus(checkoutStatus)
+    try {
+      const session = await getSession()
+      if (!session) throw new Error('Sign in again to continue.')
+      const payload = await billingRequest('/billing/checkout', session, { method: 'POST', body: JSON.stringify({ planKey: 'pro' }) })
+      const data = asRecord(unwrap(payload))
+      if (typeof data.url !== 'string') throw new Error('Billing did not return a checkout link.')
+      window.location.assign(data.url)
+    } catch (error) {
+      setCheckoutCta('Try again', '#checkout', 'checkout')
+      setStatus(checkoutStatus, error instanceof Error ? error.message : 'Could not open checkout.', 'is-error')
+    } finally {
+      checkoutLink.classList.remove('is-busy')
+      checkoutLink.removeAttribute('aria-busy')
+    }
+  })
+
+  void getSession().then(async (session) => {
+    applySiteSession(session)
+    if (!session) {
+      setCheckoutCta('Sign in to upgrade', `${SITE_BASE}account.html`, 'account')
+      return
+    }
+    if (!BILLING_API_URL) {
+      setCheckoutCta('View your account', `${SITE_BASE}account.html`, 'account')
+      return
+    }
+    checkoutLink.textContent = 'Checking plan…'
+    checkoutLink.setAttribute('aria-busy', 'true')
+    try {
+      const payload = await billingRequest('/billing/me', session)
+      const data = asRecord(unwrap(payload))
+      if (data.planKey === 'pro') {
+        setCheckoutCta('Manage billing', `${SITE_BASE}account.html`, 'account')
+        setStatus(checkoutStatus)
+      } else {
+        setCheckoutCta('Upgrade to Pro', '#checkout', 'checkout')
+        setStatus(checkoutStatus)
       }
-      checkoutLink.classList.add('is-busy')
-      checkoutLink.setAttribute('aria-busy', 'true')
-      checkoutLink.textContent = 'Opening checkout…'
-      try {
-        const payload = await billingRequest('/billing/checkout', session, { method: 'POST', body: JSON.stringify({ planKey: 'pro' }) })
-        const data = asRecord(unwrap(payload))
-        if (typeof data.url !== 'string') throw new Error('Billing did not return a checkout link.')
-        window.location.assign(data.url)
-      } catch (error) {
-        checkoutLink.classList.remove('is-busy')
-        checkoutLink.removeAttribute('aria-busy')
-        checkoutLink.textContent = 'Upgrade to Pro'
-        window.alert(error instanceof Error ? error.message : 'Could not open checkout.')
-      }
-    })
+    } catch (error) {
+      setCheckoutCta('Check your account', `${SITE_BASE}account.html`, 'account')
+      setStatus(checkoutStatus, error instanceof Error ? error.message : 'We could not verify your plan.', 'is-error')
+    } finally {
+      checkoutLink.removeAttribute('aria-busy')
+    }
   })
 }
 
@@ -463,4 +524,4 @@ initializeAccountMenu()
 configureDownload()
 initializeAccount()
 initializePricing()
-if (!document.getElementById('auth-form') && AUTH_URL) void getSession().then(applySiteSession)
+if (!document.getElementById('auth-form') && !document.querySelector('[data-start-checkout]') && AUTH_URL) void getSession().then(applySiteSession)
