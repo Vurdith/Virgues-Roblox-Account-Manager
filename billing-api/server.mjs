@@ -173,7 +173,7 @@ async function requireUser(request) {
 }
 
 async function customerFor(user) {
-  const existing = await database('SELECT stripe_customer_id FROM public.virgue_billing_customers WHERE user_id = $1', [user.id])
+  const existing = await database.query('SELECT stripe_customer_id FROM public.virgue_billing_customers WHERE user_id = $1', [user.id])
   if (existing[0]?.stripe_customer_id) return existing[0].stripe_customer_id
 
   const customer = await stripe.customers.create({
@@ -181,7 +181,7 @@ async function customerFor(user) {
     name: user.name || undefined,
     metadata: { virgue_user_id: user.id },
   })
-  const inserted = await database(
+  const inserted = await database.query(
     `INSERT INTO public.virgue_billing_customers (user_id, stripe_customer_id)
      VALUES ($1, $2)
      ON CONFLICT (user_id) DO UPDATE SET stripe_customer_id = EXCLUDED.stripe_customer_id, updated_at = now()
@@ -192,13 +192,13 @@ async function customerFor(user) {
 }
 
 async function entitlementFor(userId) {
-  const rows = await database(
+  const rows = await database.query(
     `SELECT plan_key, plan_name, features, entitlement_status, trial_ends_at,
             subscription_id, subscription_status, current_period_end
      FROM public.virgue_current_entitlements WHERE user_id = $1`,
     [userId],
   )
-  const customer = await database('SELECT stripe_customer_id FROM public.virgue_billing_customers WHERE user_id = $1', [userId])
+  const customer = await database.query('SELECT stripe_customer_id FROM public.virgue_billing_customers WHERE user_id = $1', [userId])
   const hasBillingCustomer = Boolean(customer[0]?.stripe_customer_id)
   if (!rows[0]) return { planKey: 'free', planName: 'Free plan', entitlementStatus: 'free', subscriptionStatus: null, currentPeriodEnd: null, features: {}, hasBillingCustomer }
   const row = rows[0]
@@ -216,12 +216,12 @@ async function entitlementFor(userId) {
 
 async function planForPrice(priceId) {
   if (priceId === process.env.STRIPE_PRO_PRICE_ID) return 'pro'
-  const rows = await database('SELECT plan_key FROM public.virgue_plans WHERE stripe_price_id = $1 AND active = true', [priceId])
+  const rows = await database.query('SELECT plan_key FROM public.virgue_plans WHERE stripe_price_id = $1 AND active = true', [priceId])
   return rows[0]?.plan_key || null
 }
 
 async function userForCustomer(customerId) {
-  const rows = await database('SELECT user_id FROM public.virgue_billing_customers WHERE stripe_customer_id = $1', [customerId])
+  const rows = await database.query('SELECT user_id FROM public.virgue_billing_customers WHERE stripe_customer_id = $1', [customerId])
   return rows[0]?.user_id || null
 }
 
@@ -232,7 +232,7 @@ async function syncSubscription(subscription, userIdHint = null) {
   const userId = userIdHint || subscription.metadata?.virgue_user_id || await userForCustomer(customerId)
   if (!planKey || !userId) throw new Error('Subscription could not be mapped to a Virgue plan and account.')
 
-  await database(
+  await database.query(
     `INSERT INTO public.virgue_subscriptions (
        user_id, plan_key, provider, provider_customer_id, provider_subscription_id, status,
        trial_started_at, trial_ends_at, current_period_start, current_period_end,
@@ -284,7 +284,7 @@ async function handleWebhook(request, response) {
     return error(response, 400, 'Invalid Stripe signature.')
   }
 
-  const eventRows = await database(
+  const eventRows = await database.query(
     `INSERT INTO public.virgue_billing_events (event_id, event_type, status)
      VALUES ($1, $2, 'received')
      ON CONFLICT (event_id) DO UPDATE SET
@@ -297,11 +297,11 @@ async function handleWebhook(request, response) {
 
   try {
     await processWebhook(event)
-    await database("UPDATE public.virgue_billing_events SET status = 'processed', processed_at = now(), error_message = NULL WHERE event_id = $1", [event.id])
+    await database.query("UPDATE public.virgue_billing_events SET status = 'processed', processed_at = now(), error_message = NULL WHERE event_id = $1", [event.id])
     send(response, 200, { received: true })
   } catch (caught) {
     const message = caught instanceof Error ? caught.message.slice(0, 1000) : 'Webhook processing failed.'
-    await database("UPDATE public.virgue_billing_events SET status = 'failed', error_message = $2 WHERE event_id = $1", [event.id, message])
+    await database.query("UPDATE public.virgue_billing_events SET status = 'failed', error_message = $2 WHERE event_id = $1", [event.id, message])
     throw caught
   }
 }
