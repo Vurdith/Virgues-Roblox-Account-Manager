@@ -60,14 +60,14 @@ export class AuthService {
   }
 
   /**
-   * Returns the short-lived Better Auth session token for server-to-server
-   * verification only. It is deliberately never exposed through IPC.
+   * Returns the short-lived Neon Auth JWT for server-to-server verification
+   * only. It is deliberately never exposed through IPC.
    */
   async getSessionToken(): Promise<string | null> {
-    const payload = await this.request('/get-session', { method: 'GET' })
+    const payload = await this.request('/token', { method: 'GET' })
     const envelope = isRecord(payload) && isRecord(payload.data) ? payload.data : payload
-    if (!isRecord(envelope) || !isRecord(envelope.session)) return null
-    return stringValue(envelope.session.token)
+    if (!isRecord(envelope)) return null
+    return stringValue(envelope.token)
   }
 
   async signIn(input: AuthCredentialsInput): Promise<VirgueAuthSession> {

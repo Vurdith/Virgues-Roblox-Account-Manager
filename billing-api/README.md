@@ -19,10 +19,12 @@ to Neon, and returns resolved entitlements to the website and desktop app.
    a public HTTPS origin. Point `VITE_VIRGUE_BILLING_API_URL` and
    `VIRGUE_BILLING_API_URL` at it.
 
-The API expects a Better Auth session token in `Authorization: Bearer …` and
-re-verifies it with Neon Auth on every user-facing billing request. Stripe keys,
-database URLs, and webhook secrets must never be placed in the website or
-Electron renderer.
+The website and desktop app request a short-lived Neon Auth JWT from the
+`/token` endpoint and send it as `Authorization: Bearer …`. The API verifies
+that JWT locally against Neon Auth's JWKS endpoint, so billing requests do not
+depend on forwarding a session-cookie token to Neon Auth. Stripe keys, database
+URLs, and webhook secrets must never be placed in the website or Electron
+renderer.
 
 ## Vercel
 

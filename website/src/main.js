@@ -192,15 +192,23 @@ function sessionFromPayload(payload) {
   return { user, session }
 }
 
-function billingToken(session) {
-  const token = session?.session?.token
-  return typeof token === 'string' && token.length > 0 ? token : null
+async function billingToken(session) {
+  if (!session) throw new Error('Sign in before managing billing.')
+  let payload
+  try {
+    payload = await authRequest('/token')
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Virgue could not reach')) throw error
+    throw new Error('Your sign-in has expired. Sign in again to continue.')
+  }
+  const token = asRecord(unwrap(payload)).token
+  if (typeof token !== 'string' || token.length === 0) throw new Error('Your sign-in could not be verified. Sign in again to continue.')
+  return token
 }
 
 async function billingRequest(path, session, init = {}) {
   if (!BILLING_API_URL) throw new Error('Billing is not configured yet.')
-  const token = billingToken(session)
-  if (!token) throw new Error('Your sign-in cannot be used for billing yet. Sign out and sign in again.')
+  const token = await billingToken(session)
   let response
   try {
     response = await fetch(`${BILLING_API_URL}${path}`, {

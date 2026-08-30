@@ -1,4 +1,5 @@
 import { createServer } from 'node:http'
+import { createPublicKey, verify } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import Stripe from 'stripe'
@@ -11,9 +12,18 @@ if (missing.length) throw new Error(`Missing billing configuration: ${missing.jo
 const database = neon(process.env.DATABASE_URL)
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
 const authUrl = process.env.NEON_AUTH_URL.replace(/\/$/, '')
+const authJwksUrl = (process.env.NEON_AUTH_JWKS_URL || `${authUrl}/.well-known/jwks.json`).replace(/\/$/, '')
+const expectedJwtIssuer = (process.env.NEON_AUTH_JWT_ISSUER || '').trim()
+const expectedJwtAudience = (process.env.NEON_AUTH_JWT_AUDIENCE || '').trim()
 const publicSiteUrl = process.env.PUBLIC_SITE_URL.replace(/\/$/, '')
 const allowedOrigins = new Set((process.env.WEBSITE_ORIGINS || publicSiteUrl).split(',').map((value) => value.trim()).filter(Boolean))
 const port = Number(process.env.PORT || 8787)
+const jwtClockSkewSeconds = 30
+const jwksCacheTtlMs = 5 * 60 * 1000
+
+let cachedJwks = null
+let cachedJwksExpiresAt = 0
+let jwksRequest = null
 
 class BillingRequestError extends Error {
   constructor(status, message) {
@@ -71,19 +81,95 @@ function unwrap(payload) {
   return payload && typeof payload === 'object' && payload.data && typeof payload.data === 'object' ? payload.data : payload
 }
 
+function asRecord(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+}
+
+function decodeJwtJson(segment) {
+  return asRecord(JSON.parse(Buffer.from(segment, 'base64url').toString('utf8')))
+}
+
+function parseJwt(token) {
+  if (token.length > 16 * 1024) throw new Error('JWT is too large.')
+  const segments = token.split('.')
+  if (segments.length !== 3 || segments.some((segment) => !segment)) throw new Error('JWT has an invalid shape.')
+  const header = decodeJwtJson(segments[0])
+  const payload = decodeJwtJson(segments[1])
+  if (header.alg !== 'EdDSA' || typeof header.kid !== 'string' || !header.kid) throw new Error('JWT signing method is not supported.')
+  return { header, payload, signingInput: `${segments[0]}.${segments[1]}`, signature: Buffer.from(segments[2], 'base64url') }
+}
+
+async function getJwks(forceRefresh = false) {
+  if (!forceRefresh && cachedJwks && cachedJwksExpiresAt > Date.now()) return cachedJwks
+  if (jwksRequest) return jwksRequest
+
+  jwksRequest = (async () => {
+    const response = await fetch(authJwksUrl, { headers: { Accept: 'application/json' } })
+    if (!response.ok) throw new Error(`JWKS endpoint returned HTTP ${response.status}.`)
+    const payload = asRecord(await response.json())
+    const keys = Array.isArray(payload.keys) ? payload.keys.filter((key) => asRecord(key).kid) : []
+    if (!keys.length) throw new Error('JWKS endpoint returned no signing keys.')
+    cachedJwks = keys
+    cachedJwksExpiresAt = Date.now() + jwksCacheTtlMs
+    return keys
+  })().finally(() => { jwksRequest = null })
+
+  return jwksRequest
+}
+
+function matchingJwk(keys, kid) {
+  return keys.find((key) => {
+    const jwk = asRecord(key)
+    return jwk.kid === kid && jwk.kty === 'OKP' && jwk.crv === 'Ed25519' && (!jwk.alg || jwk.alg === 'EdDSA')
+  }) || null
+}
+
+function claimString(...values) {
+  return values.find((value) => typeof value === 'string' && value.trim())?.trim() || null
+}
+
+function audienceMatches(value, expected) {
+  return value === expected || (Array.isArray(value) && value.includes(expected))
+}
+
+function userFromJwtPayload(payload) {
+  const nestedUser = asRecord(payload.user)
+  const id = claimString(payload.id, payload.sub, payload.user_id, payload.userId, nestedUser.id)
+  const email = claimString(payload.email, nestedUser.email)
+  if (!id || !email) throw new Error('JWT does not identify a user.')
+  return { id, email, name: claimString(payload.name, payload.full_name, nestedUser.name) || '' }
+}
+
+export async function verifyNeonAuthToken(token) {
+  const parsed = parseJwt(token)
+  let keys = await getJwks()
+  let jwk = matchingJwk(keys, parsed.header.kid)
+  if (!jwk) {
+    keys = await getJwks(true)
+    jwk = matchingJwk(keys, parsed.header.kid)
+  }
+  if (!jwk) throw new Error('JWT signing key was not found.')
+
+  const publicKey = createPublicKey({ key: jwk, format: 'jwk' })
+  if (!verify(null, Buffer.from(parsed.signingInput), publicKey, parsed.signature)) throw new Error('JWT signature is invalid.')
+
+  const now = Math.floor(Date.now() / 1000)
+  if (typeof parsed.payload.exp !== 'number' || parsed.payload.exp <= now - jwtClockSkewSeconds) throw new Error('JWT has expired.')
+  if (typeof parsed.payload.nbf === 'number' && parsed.payload.nbf > now + jwtClockSkewSeconds) throw new Error('JWT is not active yet.')
+  if (expectedJwtIssuer && parsed.payload.iss !== expectedJwtIssuer) throw new Error('JWT issuer is invalid.')
+  if (expectedJwtAudience && !audienceMatches(parsed.payload.aud, expectedJwtAudience)) throw new Error('JWT audience is invalid.')
+  return userFromJwtPayload(parsed.payload)
+}
+
 async function requireUser(request) {
   const authorization = request.headers.authorization
-  if (!authorization?.startsWith('Bearer ')) throw new BillingRequestError(401, 'Sign in before managing billing.')
-
-  const sessionResponse = await fetch(`${authUrl}/get-session`, {
-    headers: { Accept: 'application/json', Authorization: authorization },
-  })
-  if (!sessionResponse.ok) throw new BillingRequestError(401, 'Your sign-in has expired. Sign in again to continue.')
-
-  const payload = unwrap(await sessionResponse.json())
-  const user = payload?.user
-  if (!user?.id || !user?.email) throw new BillingRequestError(401, 'Your sign-in could not be verified.')
-  return { id: String(user.id), email: String(user.email), name: typeof user.name === 'string' ? user.name : '' }
+  const token = authorization?.startsWith('Bearer ') ? authorization.slice('Bearer '.length).trim() : ''
+  if (!token) throw new BillingRequestError(401, 'Sign in before managing billing.')
+  try {
+    return await verifyNeonAuthToken(token)
+  } catch {
+    throw new BillingRequestError(401, 'Your sign-in could not be verified.')
+  }
 }
 
 async function customerFor(user) {
