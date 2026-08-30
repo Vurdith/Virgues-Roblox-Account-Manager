@@ -10,6 +10,7 @@ const BILLING_API_URL = (import.meta.env.VITE_VIRGUE_BILLING_API_URL || '').repl
 const DOWNLOAD_URL = (import.meta.env.VITE_VIRGUE_DOWNLOAD_URL || '').trim()
 const SITE_BASE = import.meta.env.BASE_URL
 const currentPage = document.body.dataset.page || 'home'
+let accountSessionHandler = null
 
 const pageLinks = [
   { key: 'product', label: 'Product', href: '/product.html' },
@@ -22,7 +23,8 @@ function mountSiteChrome() {
   const header = document.querySelector('[data-site-header]')
   const footer = document.querySelector('[data-site-footer]')
   if (header) {
-    header.innerHTML = `<header class="site-header"><a class="site-brand" href="${SITE_BASE}" aria-label="Virgue's Roblox Account Manager home"><img class="site-brand-mark" src="${SITE_BASE}virgue-icon.png" alt="" /><span class="site-brand-copy"><strong>Virgue's</strong><small>Roblox Account Manager</small></span></a><nav class="site-nav" aria-label="Main navigation">${pageLinks.map((link) => `<a class="site-nav-link${link.className ? ` ${link.className}` : ''}${currentPage === link.key ? ' is-active' : ''}" href="${SITE_BASE}${link.href.slice(1)}"${currentPage === link.key ? ' aria-current="page"' : ''}>${link.label}</a>`).join('')}</nav></header>`
+    const accountIsCurrent = currentPage === 'account'
+    header.innerHTML = `<header class="site-header"><a class="site-brand" href="${SITE_BASE}" aria-label="Virgue's Roblox Account Manager home"><img class="site-brand-mark" src="${SITE_BASE}virgue-icon.png" alt="" /><span class="site-brand-copy"><strong>Virgue's</strong><small>Roblox Account Manager</small></span></a><nav class="site-nav" aria-label="Main navigation">${pageLinks.filter((link) => link.key !== 'account').map((link) => `<a class="site-nav-link${link.className ? ` ${link.className}` : ''}${currentPage === link.key ? ' is-active' : ''}" href="${SITE_BASE}${link.href.slice(1)}"${currentPage === link.key ? ' aria-current="page"' : ''}>${link.label}</a>`).join('')}<div class="site-account-menu"><button class="site-account-trigger${accountIsCurrent ? ' is-active' : ''}" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="site-account-panel"${accountIsCurrent ? ' aria-current="page"' : ''}><span class="site-account-avatar" aria-hidden="true">V</span><span class="site-account-label">Sign in</span><span class="site-account-chevron" aria-hidden="true"></span></button><div class="site-account-panel" id="site-account-panel" role="menu" hidden><div class="site-account-panel-copy"><strong data-account-menu-title>Sign in to your workspace</strong><small data-account-menu-detail>Manage your plan and download the app.</small></div><div class="site-account-panel-actions"><a class="site-account-menu-link" data-account-manage role="menuitem" href="${SITE_BASE}account.html"><span data-account-manage-label>Sign in</span><span aria-hidden="true">→</span></a><a class="site-account-menu-link" data-account-create role="menuitem" href="${SITE_BASE}account.html?mode=signup"><span>Create account</span><span aria-hidden="true">→</span></a><button class="site-account-menu-link site-account-menu-button" data-account-signout type="button" role="menuitem" hidden><span>Sign out</span><span aria-hidden="true">→</span></button></div></div></div></nav></header>`
   }
   if (footer) {
     footer.innerHTML = `<footer class="site-footer section-shell"><a class="site-brand" href="${SITE_BASE}" aria-label="Virgue's Roblox Account Manager home"><img class="site-brand-mark" src="${SITE_BASE}virgue-icon.png" alt="" /><span class="site-brand-copy"><strong>Virgue's</strong><small>Roblox Account Manager</small></span></a><nav class="footer-links" aria-label="Footer navigation"><a href="${SITE_BASE}product.html">Product</a><a href="${SITE_BASE}pricing.html">Pricing</a><a href="${SITE_BASE}download.html">Download</a></nav></footer>`
@@ -30,11 +32,103 @@ function mountSiteChrome() {
 }
 
 function updateAccountNavigation(session) {
-  const accountLink = document.querySelector('.site-nav-account')
-  if (!accountLink) return
+  const accountMenu = document.querySelector('.site-account-menu')
+  if (!accountMenu) return
   const signedIn = Boolean(session)
-  accountLink.textContent = signedIn ? 'Account' : 'Sign in'
-  accountLink.setAttribute('aria-label', signedIn ? 'Open your account' : 'Sign in to your account')
+  const fullName = session?.user?.name?.trim() || ''
+  const email = session?.user?.email?.trim() || ''
+  const fallbackName = email.split('@')[0] || 'Account'
+  const displayName = fullName || fallbackName
+  const shortName = displayName.split(/\s+/)[0]
+  const initial = (fullName || email || 'V').slice(0, 1).toUpperCase()
+  const trigger = accountMenu.querySelector('.site-account-trigger')
+  const avatar = accountMenu.querySelector('.site-account-avatar')
+  const label = accountMenu.querySelector('.site-account-label')
+  const menuTitle = accountMenu.querySelector('[data-account-menu-title]')
+  const menuDetail = accountMenu.querySelector('[data-account-menu-detail]')
+  const manageLabel = accountMenu.querySelector('[data-account-manage-label]')
+  const createLink = accountMenu.querySelector('[data-account-create]')
+  const signOutButton = accountMenu.querySelector('[data-account-signout]')
+  if (!trigger || !avatar || !label || !menuTitle || !menuDetail || !manageLabel || !createLink || !signOutButton) return
+  avatar.textContent = initial
+  label.textContent = signedIn ? shortName : 'Sign in'
+  trigger.setAttribute('aria-label', signedIn ? `Open the account menu for ${displayName}` : 'Open the sign-in menu')
+  menuTitle.textContent = signedIn ? displayName : 'Sign in to your workspace'
+  menuDetail.textContent = signedIn ? email : 'Manage your plan and download the app.'
+  manageLabel.textContent = signedIn ? 'Manage account' : 'Sign in'
+  createLink.hidden = signedIn
+  signOutButton.hidden = !signedIn
+}
+
+function initializeAccountMenu() {
+  const accountMenu = document.querySelector('.site-account-menu')
+  if (!accountMenu) return
+  const trigger = accountMenu.querySelector('.site-account-trigger')
+  const panel = accountMenu.querySelector('.site-account-panel')
+  const signOutButton = accountMenu.querySelector('[data-account-signout]')
+  if (!trigger || !panel || !signOutButton) return
+
+  const menuItems = () => Array.from(panel.querySelectorAll('[role="menuitem"]')).filter((item) => !item.hidden)
+  const close = (restoreFocus = false) => {
+    panel.hidden = true
+    trigger.setAttribute('aria-expanded', 'false')
+    if (restoreFocus) trigger.focus()
+  }
+  const open = (focusFirst = false) => {
+    panel.hidden = false
+    trigger.setAttribute('aria-expanded', 'true')
+    if (focusFirst) menuItems()[0]?.focus()
+  }
+
+  trigger.addEventListener('click', () => {
+    if (panel.hidden) open()
+    else close()
+  })
+  trigger.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      open(true)
+    }
+  })
+  panel.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      close(true)
+      return
+    }
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+    event.preventDefault()
+    const items = menuItems()
+    const currentIndex = items.indexOf(document.activeElement)
+    const nextIndex = event.key === 'ArrowDown'
+      ? (currentIndex + 1) % items.length
+      : (currentIndex - 1 + items.length) % items.length
+    items[nextIndex]?.focus()
+  })
+  document.addEventListener('click', (event) => {
+    if (!accountMenu.contains(event.target)) close()
+  })
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !panel.hidden) close(true)
+  })
+  signOutButton.addEventListener('click', async () => {
+    signOutButton.disabled = true
+    try {
+      if (AUTH_URL) await authRequest('/sign-out', { method: 'POST' })
+    } catch {
+      // Clear the local view even if the remote session is already gone.
+    } finally {
+      signOutButton.disabled = false
+      close()
+      applySiteSession(null)
+    }
+  })
+}
+
+function applySiteSession(session) {
+  updateAccountNavigation(session)
+  if (accountSessionHandler) accountSessionHandler(session)
 }
 
 function asRecord(value) {
@@ -262,7 +356,7 @@ function initializeAccount() {
         return
       }
       setBusy(false)
-      renderSignedIn(session)
+      applySiteSession(session)
     } catch (error) {
       setBusy(false)
       setStatus(authStatus, error instanceof Error ? error.message : 'Something went wrong. Try again.', 'is-error')
@@ -277,7 +371,7 @@ function initializeAccount() {
       // Clear the local view even if the remote session is already gone.
     } finally {
       document.getElementById('sign-out').disabled = false
-      renderSignedOut()
+      applySiteSession(null)
     }
   }
 
@@ -305,11 +399,13 @@ function initializeAccount() {
   authForm.addEventListener('submit', handleSubmit)
   document.getElementById('sign-out').addEventListener('click', handleSignOut)
   document.getElementById('billing-action').addEventListener('click', handleBillingAction)
-  setMode('signin')
+  accountSessionHandler = (session) => session ? renderSignedIn(session) : renderSignedOut()
+  const requestedMode = new URLSearchParams(window.location.search).get('mode')
+  setMode(requestedMode === 'signup' ? 'signup' : 'signin')
 
   if (AUTH_URL) {
     void getSession().then((session) => {
-      if (session) renderSignedIn(session)
+      if (session) applySiteSession(session)
     })
   }
 }
@@ -318,7 +414,7 @@ function initializePricing() {
   const checkoutLink = document.querySelector('[data-start-checkout]')
   if (!checkoutLink) return
   void getSession().then((session) => {
-    updateAccountNavigation(session)
+    applySiteSession(session)
     if (!session) {
       checkoutLink.textContent = 'Sign in to upgrade'
       checkoutLink.href = `${SITE_BASE}account.html`
@@ -351,7 +447,8 @@ function initializePricing() {
 }
 
 mountSiteChrome()
+initializeAccountMenu()
 configureDownload()
 initializeAccount()
 initializePricing()
-if (!document.getElementById('auth-form') && AUTH_URL) void getSession().then(updateAccountNavigation)
+if (!document.getElementById('auth-form') && AUTH_URL) void getSession().then(applySiteSession)
