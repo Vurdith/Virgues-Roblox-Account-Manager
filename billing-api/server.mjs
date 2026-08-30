@@ -15,6 +15,13 @@ const publicSiteUrl = process.env.PUBLIC_SITE_URL.replace(/\/$/, '')
 const allowedOrigins = new Set((process.env.WEBSITE_ORIGINS || publicSiteUrl).split(',').map((value) => value.trim()).filter(Boolean))
 const port = Number(process.env.PORT || 8787)
 
+class BillingRequestError extends Error {
+  constructor(status, message) {
+    super(message)
+    this.status = status
+  }
+}
+
 function send(response, status, payload, origin) {
   const body = JSON.stringify(payload)
   const headers = {
@@ -66,16 +73,16 @@ function unwrap(payload) {
 
 async function requireUser(request) {
   const authorization = request.headers.authorization
-  if (!authorization?.startsWith('Bearer ')) throw new Error('Sign in before managing billing.')
+  if (!authorization?.startsWith('Bearer ')) throw new BillingRequestError(401, 'Sign in before managing billing.')
 
   const sessionResponse = await fetch(`${authUrl}/get-session`, {
     headers: { Accept: 'application/json', Authorization: authorization },
   })
-  if (!sessionResponse.ok) throw new Error('Your sign-in has expired. Sign in again to continue.')
+  if (!sessionResponse.ok) throw new BillingRequestError(401, 'Your sign-in has expired. Sign in again to continue.')
 
   const payload = unwrap(await sessionResponse.json())
   const user = payload?.user
-  if (!user?.id || !user?.email) throw new Error('Your sign-in could not be verified.')
+  if (!user?.id || !user?.email) throw new BillingRequestError(401, 'Your sign-in could not be verified.')
   return { id: String(user.id), email: String(user.email), name: typeof user.name === 'string' ? user.name : '' }
 }
 
@@ -258,6 +265,7 @@ export async function handleBillingRequest(request, response) {
     return await handleApi(request, response, origin)
   } catch (caught) {
     console.error('Billing API request failed', caught)
+    if (caught instanceof BillingRequestError) return error(response, caught.status, caught.message, origin)
     return error(response, 500, 'Billing is temporarily unavailable.', origin)
   }
 }
