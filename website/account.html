@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ebe9e1" />
+    <meta name="description" content="Manage your Virgue account, plan, subscription, and Windows download." />
+    <meta property="og:title" content="Account center — Virgue's Roblox Account Manager" />
+    <meta property="og:description" content="Manage your Virgue account and plan outside the desktop app." />
+    <link rel="icon" href="./virgue-icon.png" />
+    <title>Account center — Virgue's Roblox Account Manager</title>
+  </head>
+  <body data-page="account">
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <div class="site-shell">
+      <div data-site-header></div>
+      <main id="main-content" class="account-gate-main">
+        <section class="account-gate-layout section-shell">
+          <div class="account-card account-gate-card" id="account-auth-panel">
+            <div id="account-signed-out">
+              <div class="account-card-heading"><span class="account-eyebrow" id="auth-eyebrow">Welcome back</span><h2 id="auth-heading">Sign in</h2></div>
+              <form id="auth-form"><label class="site-field" id="auth-name-field" hidden>Name<input id="auth-name" autocomplete="name" placeholder="Your name" /></label><label class="site-field">Email<input id="auth-email" type="email" autocomplete="email" required placeholder="you@example.com" /></label><label class="site-field">Password<input id="auth-password" type="password" autocomplete="current-password" required minlength="8" placeholder="At least 8 characters" /></label><label class="site-field" id="auth-confirm-password-field" hidden>Confirm password<input id="auth-confirm-password" type="password" autocomplete="new-password" required minlength="8" placeholder="Repeat your password" /></label><button class="button button-coral" type="submit" id="auth-submit">Open workspace <span aria-hidden="true">→</span></button></form>
+              <div class="auth-switch"><span id="auth-switch-copy">Need an account?</span><button class="text-link" type="button" id="auth-switch">Create one</button></div>
+              <p class="site-status" id="auth-status" role="status"></p>
+            </div>
+          </div>
+          <section id="account-signed-in" class="account-dashboard" hidden aria-labelledby="account-name">
+            <header class="account-overview">
+              <div><h1 id="account-name">Your account</h1><p id="account-email"></p></div>
+              <button class="text-link" type="button" id="sign-out">Sign out</button>
+            </header>
+            <section class="account-detail-row" aria-labelledby="account-plan-heading">
+              <div><h2 id="account-plan-heading">Plan</h2><p class="account-detail-value" id="account-plan">Free plan</p><p class="account-detail-note" id="account-subscription">No active subscription</p></div>
+              <div class="account-row-actions"><a class="button button-light" href="./pricing.html">View plans</a><button class="button button-dark" type="button" id="billing-action" hidden>Manage billing</button></div>
+            </section>
+            <p class="site-status" id="billing-status" role="status"></p>
+          </section>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
