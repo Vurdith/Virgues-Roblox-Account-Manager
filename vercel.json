@@ -1,0 +1,5 @@
+{
+  "buildCommand": "npm run website:build",
+  "outputDirectory": "website-dist",
+  "installCommand": "npm ci"
+}
