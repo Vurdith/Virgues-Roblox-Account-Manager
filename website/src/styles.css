@@ -118,7 +118,9 @@ h1, h2, h3 { margin-top: 0; }
 .plan-card-head h2 { margin: 0; font-size: clamp(44px, 5vw, 66px); letter-spacing: -.09em; line-height: .88; }
 .plan-card-head p { margin: 14px 0 0; color: #4f4939; font-size: 13px; }
 .plan-card-pro .plan-card-head p { color: var(--muted); }
-.plan-card-head > strong { font-size: 20px; }
+.plan-card-price { display: grid; justify-items: end; gap: 4px; min-width: 132px; text-align: right; }
+.plan-card-price strong { font-size: 20px; white-space: nowrap; }
+.plan-card-price small { max-width: 145px; color: var(--muted); font-size: 10px; line-height: 1.25; }
 .plan-list { display: grid; gap: 0; flex: 1; margin: 24px 0 28px; padding: 0; list-style: none; }
 .plan-list li { padding: 11px 0; border-top: 1px solid rgba(23, 23, 23, .26); font-size: 12px; font-weight: 700; }
 .plan-list li::before { content: '✓'; margin-right: 10px; }
@@ -229,6 +231,7 @@ h1, h2, h3 { margin-top: 0; }
   .product-feature-copy h2 { font-size: clamp(43px, 12vw, 62px); }
   .product-cta { align-items: start; flex-direction: column; margin-bottom: 95px; }
   .plan-card { min-height: 0; padding: 25px; }
+  .plan-card-price { min-width: 0; }
   .download-card { padding: 25px; }
   .account-gate-main { min-height: calc(100dvh - 122px); }
   .account-gate-layout { padding-block: 56px 72px; }
