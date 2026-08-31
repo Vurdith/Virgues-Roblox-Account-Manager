@@ -567,6 +567,9 @@ function createPreviewApi(): VirgueApi {
       },
       signOut: async () => { authSession = null },
     },
+    billing: {
+      refresh: async () => clone(entitlements),
+    },
     window: {
       minimize: async () => undefined,
       toggleMaximize: async () => false,

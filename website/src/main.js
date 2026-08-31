@@ -12,7 +12,8 @@ const sameOriginBillingApiUrl = window.location.hostname !== 'localhost' && wind
   ? `${window.location.origin}/api`
   : ''
 const BILLING_API_URL = (configuredBillingApiUrl || sameOriginBillingApiUrl).replace(/\/$/, '')
-const DOWNLOAD_URL = (import.meta.env.VITE_VIRGUE_DOWNLOAD_URL || '').trim()
+const PUBLISHED_DOWNLOAD_URL = 'https://github.com/Vurdith/Virgues-Roblox-Account-Manager/releases/download/v1.0.0/Virgues-Roblox-Account-Manager-Setup-1.0.0.exe'
+const DOWNLOAD_URL = (import.meta.env.VITE_VIRGUE_DOWNLOAD_URL || PUBLISHED_DOWNLOAD_URL).trim()
 const SITE_BASE = import.meta.env.BASE_URL
 const currentPage = document.body.dataset.page || 'home'
 let accountSessionHandler = null
