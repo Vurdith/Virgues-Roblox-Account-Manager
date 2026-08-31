@@ -613,6 +613,15 @@ export interface AuthSignUpInput extends AuthCredentialsInput {
   name: string
 }
 
+export type AppUpdateState = 'checking' | 'available' | 'downloading' | 'downloaded' | 'not-available' | 'error'
+
+export interface AppUpdateEvent {
+  state: AppUpdateState
+  version?: string
+  percent?: number
+  message?: string
+}
+
 export interface VirgueApi {
   accounts: {
     create(input: CreateAccountInput): Promise<Account>
@@ -702,6 +711,12 @@ export interface VirgueApi {
   }
   billing: {
     refresh(): Promise<PlanEntitlements>
+  }
+  updates: {
+    check(): Promise<AppUpdateEvent>
+    download(): Promise<AppUpdateEvent>
+    install(): Promise<void>
+    onEvent(listener: (event: AppUpdateEvent) => void): () => void
   }
   window: {
     minimize(): Promise<void>

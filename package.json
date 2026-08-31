@@ -1,6 +1,6 @@
 {
   "name": "virgues-roblox-account-manager",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A focused Windows desktop account workspace for Roblox profiles.",
   "productName": "Virgue's Roblox Account Manager",
   "author": "Virgue",
@@ -17,11 +17,13 @@
     "website:preview": "vite preview --config website/vite.config.js --host localhost --port 4173",
     "billing:dev": "node --env-file=billing-api/.env billing-api/server.mjs",
     "package": "npm run build && electron-builder --win nsis --x64",
+    "package:publish": "npm run build && electron-builder --win nsis --x64 --publish always",
     "dist": "npm run package"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.1.0",
     "@fontsource/outfit": "5.3.0",
+    "@neondatabase/serverless": "^1.1.0",
+    "electron-updater": "6.8.9",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "stripe": "^20.4.1",
@@ -45,6 +47,12 @@
     "artifactName": "Virgues-Roblox-Account-Manager-Setup-${version}.${ext}",
     "directories": {
       "output": "release"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Vurdith",
+      "repo": "Virgues-Roblox-Account-Manager",
+      "releaseType": "release"
     },
     "files": [
       "out/**/*",

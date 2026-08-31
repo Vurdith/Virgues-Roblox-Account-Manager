@@ -10,6 +10,7 @@ import { SecretStore } from './secret-store'
 import { SessionGuardian } from './session-guardian'
 import { WatcherService } from './watcher'
 import { WebApiService } from './web-api'
+import { UpdateService } from './update-service'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -65,6 +66,8 @@ app.whenReady().then(async () => {
   const auth = new AuthService(secrets)
   await auth.initialize()
   const billing = new BillingService(store, auth)
+  const updates = new UpdateService(() => mainWindow)
+  updates.initialize()
   try {
     await billing.refreshEntitlements()
   } catch (error) {
@@ -91,14 +94,14 @@ app.whenReady().then(async () => {
   const watcher = new WatcherService(store)
   watcher.start()
   if (store.getControl().autoStart) void control.start()
-  registerIpcHandlers({ store, roblox, webApi, watcher, sessions, control, secrets, auth, billing, getWindow: () => mainWindow })
+  registerIpcHandlers({ store, roblox, webApi, watcher, sessions, control, secrets, auth, billing, updates, getWindow: () => mainWindow })
 
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     callback(permission === 'notifications')
   })
   createWindow()
 
-  app.on('before-quit', () => { void Promise.all([webApi.dispose(), control.dispose(), watcher.dispose()]); sessions.dispose(); roblox.dispose() })
+  app.on('before-quit', () => { updates.dispose(); void Promise.all([webApi.dispose(), control.dispose(), watcher.dispose()]); sessions.dispose(); roblox.dispose() })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

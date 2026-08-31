@@ -284,6 +284,12 @@ FakesAssemblies/
 .ntvs_analysis.dat
 node_modules/
 
+# The release helpers are required by the packaged Windows build. Keep these
+# exact binaries versioned so a clean GitHub Actions checkout can reproduce a
+# release; other native build output remains ignored.
+!native/bin/
+!native/bin/*.exe
+
 # Electron application output
 out/
 release/

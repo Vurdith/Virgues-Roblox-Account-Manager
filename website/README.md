@@ -14,6 +14,11 @@ npm run website:preview
 
 The development server runs at `http://localhost:4173/`.
 
+The build includes the product, pricing, account, download, privacy, terms,
+refunds, and support pages. The download page points to the latest public
+GitHub Release installer; update `VITE_VIRGUE_DOWNLOAD_URL` only when using a
+different release channel.
+
 ## Configuration
 
 Copy `.env.example` to `.env` when connecting a real deployment:
@@ -26,4 +31,6 @@ The website must never contain a Neon database connection string, Stripe secret,
 
 For browser sign-in to work in production, add the deployed website origin (and `http://localhost:4173` during local testing) to the trusted origins/CORS configuration for the Neon Auth project.
 
-The account center already uses the same Neon Auth contract as the desktop app. Billing and the installer link remain configuration-driven until the production API, payment provider, release channel, and domain are selected.
+The account center already uses the same Neon Auth contract as the desktop app.
+The billing API and release channel are configuration-driven, while the legal
+pages provide the public privacy, terms, refund, and support entry points.

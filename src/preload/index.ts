@@ -29,6 +29,7 @@ import type {
   WatcherUpdateInput,
   WebApiUpdateInput,
   SessionEvent,
+  AppUpdateEvent,
   VirgueApi,
 } from '../shared/types'
 
@@ -140,6 +141,16 @@ const api: VirgueApi = {
   },
   billing: {
     refresh: () => ipcRenderer.invoke(IPC_CHANNELS.billingRefresh),
+  },
+  updates: {
+    check: () => ipcRenderer.invoke(IPC_CHANNELS.updatesCheck),
+    download: () => ipcRenderer.invoke(IPC_CHANNELS.updatesDownload),
+    install: () => ipcRenderer.invoke(IPC_CHANNELS.updatesInstall),
+    onEvent: (listener: (event: AppUpdateEvent) => void) => {
+      const handler = (_event: IpcRendererEvent, event: AppUpdateEvent) => listener(event)
+      ipcRenderer.on(IPC_CHANNELS.updatesEvent, handler)
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.updatesEvent, handler)
+    },
   },
   window: {
     minimize: () => ipcRenderer.invoke(IPC_CHANNELS.windowMinimize),

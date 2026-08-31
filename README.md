@@ -20,7 +20,29 @@ npm run build
 npm run package
 ```
 
-The installer is written to `release/Virgues-Roblox-Account-Manager-Setup-1.0.0.exe`.
+The installer is written to `release/Virgues-Roblox-Account-Manager-Setup-1.0.1.exe`.
+
+## Releases and updates
+
+Installed Windows builds check the public GitHub Releases feed for a newer
+semantic version after startup. When one is available, the app asks before it
+downloads anything and asks again before restarting to install it.
+
+To publish the next version, update the package version, commit it, and push a
+matching tag. The release workflow builds the Windows installer and publishes
+the updater metadata and installer asset:
+
+```powershell
+npm version patch --no-git-tag-version
+git add package.json package-lock.json
+git commit -m "Release v$(node -p "require('./package.json').version")"
+git tag "v$(node -p "require('./package.json').version")"
+git push origin master --follow-tags
+```
+
+The current release channel is unsigned until a public-trust Authenticode
+certificate or Microsoft Artifact Signing is configured. Do not tell users to
+disable Windows security controls to install a build.
 
 ## Architecture
 

@@ -12,7 +12,7 @@ const sameOriginBillingApiUrl = window.location.hostname !== 'localhost' && wind
   ? `${window.location.origin}/api`
   : ''
 const BILLING_API_URL = (configuredBillingApiUrl || sameOriginBillingApiUrl).replace(/\/$/, '')
-const PUBLISHED_DOWNLOAD_URL = 'https://github.com/Vurdith/Virgues-Roblox-Account-Manager-Downloads/releases/download/v1.0.0/Virgues-Roblox-Account-Manager-Setup-1.0.0.exe'
+const PUBLISHED_DOWNLOAD_URL = 'https://github.com/Vurdith/Virgues-Roblox-Account-Manager/releases/download/v1.0.1/Virgues-Roblox-Account-Manager-Setup-1.0.1.exe'
 const DOWNLOAD_URL = (import.meta.env.VITE_VIRGUE_DOWNLOAD_URL || PUBLISHED_DOWNLOAD_URL).trim()
 const SITE_BASE = import.meta.env.BASE_URL
 const currentPage = document.body.dataset.page || 'home'
@@ -42,7 +42,7 @@ function mountSiteChrome() {
     header.innerHTML = '<header class="site-header"><a class="site-brand" href="' + SITE_BASE + '" aria-label="Virgue\'s Roblox Account Manager home"><img class="site-brand-mark" src="' + SITE_BASE + 'virgue-icon.png" alt="" /><span class="site-brand-copy"><strong>Virgue\'s</strong><small>Roblox Account Manager</small></span></a><nav class="site-nav" aria-label="Main navigation">' + navigation + '<div class="site-account-menu"><virgue-account-menu></virgue-account-menu></div></nav></header>'
   }
   if (footer) {
-    footer.innerHTML = '<footer class="site-footer section-shell"><a class="site-brand" href="' + SITE_BASE + '" aria-label="Virgue\'s Roblox Account Manager home"><img class="site-brand-mark" src="' + SITE_BASE + 'virgue-icon.png" alt="" /><span class="site-brand-copy"><strong>Virgue\'s</strong><small>Roblox Account Manager</small></span></a><nav class="footer-links" aria-label="Footer navigation"><a href="' + SITE_BASE + 'product.html">Product</a><a href="' + SITE_BASE + 'pricing.html">Pricing</a><a href="' + SITE_BASE + 'download.html">Download</a></nav></footer>'
+    footer.innerHTML = '<footer class="site-footer section-shell"><a class="site-brand" href="' + SITE_BASE + '" aria-label="Virgue\'s Roblox Account Manager home"><img class="site-brand-mark" src="' + SITE_BASE + 'virgue-icon.png" alt="" /><span class="site-brand-copy"><strong>Virgue\'s</strong><small>Roblox Account Manager</small></span></a><div class="footer-navigation"><nav class="footer-links" aria-label="Product navigation"><a href="' + SITE_BASE + 'product.html">Product</a><a href="' + SITE_BASE + 'pricing.html">Pricing</a><a href="' + SITE_BASE + 'download.html">Download</a></nav><nav class="footer-links footer-legal-links" aria-label="Legal and support"><a href="' + SITE_BASE + 'privacy.html">Privacy</a><a href="' + SITE_BASE + 'terms.html">Terms</a><a href="' + SITE_BASE + 'refunds.html">Refunds</a><a href="' + SITE_BASE + 'support.html">Support</a></nav></div></footer>'
   }
 }
 

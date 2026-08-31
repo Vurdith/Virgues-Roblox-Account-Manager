@@ -10,6 +10,7 @@ import { SessionGuardian } from './session-guardian'
 import { RobloxClient } from './roblox-client'
 import { WatcherService } from './watcher'
 import { WebApiService } from './web-api'
+import { UpdateService } from './update-service'
 
 interface IpcServices {
   store: AccountStore
@@ -21,11 +22,12 @@ interface IpcServices {
   secrets: SecretStore
   auth: AuthService
   billing: BillingService
+  updates: UpdateService
   getWindow: () => BrowserWindow | null
 }
 
 export function registerIpcHandlers(services: IpcServices): void {
-  const { store, roblox, webApi, watcher, sessions, control, secrets, auth, billing, getWindow } = services
+  const { store, roblox, webApi, watcher, sessions, control, secrets, auth, billing, updates, getWindow } = services
   ipcMain.handle(IPC_CHANNELS.appGetSnapshot, () => store.getSnapshot())
   ipcMain.handle(IPC_CHANNELS.appImportData, async () => { await store.importData(); return store.getSnapshot() })
   ipcMain.handle(IPC_CHANNELS.appOpenDataFolder, () => store.openDataFolder())
@@ -130,6 +132,9 @@ export function registerIpcHandlers(services: IpcServices): void {
   })
   ipcMain.handle(IPC_CHANNELS.authSignOut, async () => { await auth.signOut(); billing.reset() })
   ipcMain.handle(IPC_CHANNELS.billingRefresh, () => billing.refreshEntitlements())
+  ipcMain.handle(IPC_CHANNELS.updatesCheck, () => updates.check())
+  ipcMain.handle(IPC_CHANNELS.updatesDownload, () => updates.download())
+  ipcMain.handle(IPC_CHANNELS.updatesInstall, () => updates.install())
 
   ipcMain.handle(IPC_CHANNELS.windowMinimize, () => getWindow()?.minimize())
   ipcMain.handle(IPC_CHANNELS.windowToggleMaximize, () => {

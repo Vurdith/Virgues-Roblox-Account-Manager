@@ -37,6 +37,7 @@ import type {
   UpdateCategoryInput,
   PlanEntitlements,
   VirgueAuthSession,
+  AppUpdateEvent,
 } from '@shared/types'
 import { getPlanEntitlements, getPlanFeatureError, getPlanLimitError } from '@shared/entitlements'
 import { registerAccountMenuElement, type VirgueAccountMenuElement } from '@shared/account-menu'
@@ -210,6 +211,7 @@ function App() {
   const [authSession, setAuthSession] = useState<VirgueAuthSession | null>(null)
   const [authBusy, setAuthBusy] = useState(false)
   const [authError, setAuthError] = useState('')
+  const [appUpdate, setAppUpdate] = useState<AppUpdateEvent | null>(null)
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false)
   const [launchingAccountId, setLaunchingAccountId] = useState<string | null>(null)
   const [launchingMany, setLaunchingMany] = useState(false)
@@ -261,6 +263,14 @@ function App() {
       setAuthSession(null)
       setAuthError(caught instanceof Error ? caught.message : 'Your account session could not be restored.')
     }).finally(() => setAuthLoading(false))
+  }, [])
+
+  useEffect(() => {
+    const unsubscribe = window.virgue.updates.onEvent((event) => setAppUpdate(event))
+    void window.virgue.updates.check().catch(() => {
+      // The updater reports a user-safe error event when a packaged check fails.
+    })
+    return unsubscribe
   }, [])
 
   useEffect(() => {
@@ -521,6 +531,18 @@ function App() {
 
   const handleMaximize = async () => setIsMaximized(await window.virgue.window.toggleMaximize())
 
+  const handleUpdateDownload = async () => {
+    try { await window.virgue.updates.download() } catch (caught) { setAppUpdate({ state: 'error', message: caught instanceof Error ? caught.message : 'The update could not be downloaded.' }) }
+  }
+
+  const handleUpdateInstall = async () => {
+    try { await window.virgue.updates.install() } catch (caught) { setAppUpdate({ state: 'error', message: caught instanceof Error ? caught.message : 'The update could not be installed.' }) }
+  }
+
+  const handleUpdateCheck = async () => {
+    try { await window.virgue.updates.check() } catch (caught) { setAppUpdate({ state: 'error', message: caught instanceof Error ? caught.message : 'The update check failed.' }) }
+  }
+
   if (isLoading || authLoading) return <div className="loading-screen"><div className="loading-mark"><img src="./virgue-icon.png" alt="Virgue's app icon" /></div><p>{authLoading ? 'Checking your account' : 'Opening the account workspace'}</p></div>
 
   const themeClass = `theme-${snapshot?.settings.theme ?? 'neo'}`
@@ -530,6 +552,7 @@ function App() {
       <BrandArea />
       <div className="titlebar-actions"><WindowControls isMaximized={isMaximized} onMaximize={() => void handleMaximize()} /></div>
     </header>
+    <UpdateBanner update={appUpdate} onDownload={() => void handleUpdateDownload()} onInstall={() => void handleUpdateInstall()} onCheck={() => void handleUpdateCheck()} onDismiss={() => setAppUpdate(null)} />
     <main className="auth-gate-main" id="main-content">
       <AccountView busy={authBusy} error={authError} onSignIn={handleAuthSignIn} onSignUp={handleAuthSignUp} />
     </main>
@@ -552,6 +575,7 @@ function App() {
       </nav>
       <div className="titlebar-actions"><AccountMenu session={authSession} busy={authBusy} entitlements={entitlements} isOpen={isAccountMenuOpen} onToggle={() => setIsAccountMenuOpen((current) => !current)} onOpenSettings={() => { setActiveView('settings'); setIsAccountMenuOpen(false) }} onSignOut={handleAuthSignOut} /><WindowControls isMaximized={isMaximized} onMaximize={() => void handleMaximize()} /></div>
     </header>
+    <UpdateBanner update={appUpdate} onDownload={() => void handleUpdateDownload()} onInstall={() => void handleUpdateInstall()} onCheck={() => void handleUpdateCheck()} onDismiss={() => setAppUpdate(null)} />
 
     <div className={`app-body ${activeView === 'settings' ? 'settings-mode' : ''}`}>
       <aside className="sidebar">
@@ -600,6 +624,21 @@ function BrandArea() {
 
 function WindowControls({ isMaximized, onMaximize }: { isMaximized: boolean; onMaximize: () => void }) {
   return <div className="window-controls" aria-label="Window controls"><button type="button" className="window-button" aria-label="Minimize" onClick={() => void window.virgue.window.minimize()}><Icon name="minus" size={16} /></button><button type="button" className="window-button" aria-label={isMaximized ? 'Restore' : 'Maximize'} onClick={onMaximize}><Icon name="square" size={14} /></button><button type="button" className="window-button close-window" aria-label="Close" onClick={() => void window.virgue.window.close()}><Icon name="close" size={16} /></button></div>
+}
+
+function UpdateBanner({ update, onDownload, onInstall, onCheck, onDismiss }: { update: AppUpdateEvent | null; onDownload: () => void; onInstall: () => void; onCheck: () => void; onDismiss: () => void }) {
+  if (!update || update.state === 'checking' || update.state === 'not-available') return null
+  const version = update.version ? `v${update.version}` : 'the latest version'
+  const isError = update.state === 'error'
+  const heading = update.state === 'available' ? `Update available: ${version}` : update.state === 'downloading' ? `Downloading ${version}` : update.state === 'downloaded' ? `${version} is ready` : 'Update check failed'
+  const message = update.state === 'available'
+    ? 'Download it now. Your workspace stays open until you choose to restart.'
+    : update.state === 'downloading'
+      ? `${Math.max(0, Math.min(100, update.percent ?? 0))}% downloaded.`
+      : update.state === 'downloaded'
+        ? 'Restart the app to finish installing the update.'
+        : 'We could not check for a newer version. You can try again.'
+  return <section className={`update-banner ${isError ? 'is-error' : ''}`} role={isError ? 'alert' : 'status'} aria-live="polite"><div><strong>{heading}</strong><p>{message}</p></div><div className="update-banner-actions">{update.state === 'available' && <button type="button" className="primary-button" onClick={onDownload}>Download update</button>}{update.state === 'downloaded' && <button type="button" className="primary-button" onClick={onInstall}>Restart and install</button>}{update.state === 'downloading' && <span className="update-progress" aria-label={`${update.percent ?? 0}% downloaded`}>{Math.round(update.percent ?? 0)}%</span>}{isError && <button type="button" className="outline-button" onClick={onCheck}>Try again</button>}<button type="button" className="text-button" onClick={onDismiss}>Dismiss</button></div></section>
 }
 
 function AccountMenu({ session, busy, entitlements, isOpen, onToggle, onOpenSettings, onSignOut }: { session: VirgueAuthSession; busy: boolean; entitlements: PlanEntitlements; isOpen: boolean; onToggle: () => void; onOpenSettings: () => void; onSignOut: () => Promise<void> }) {
