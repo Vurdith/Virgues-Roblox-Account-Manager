@@ -263,14 +263,21 @@ async function processWebhook(event) {
     return
   }
   if (event.type.startsWith('customer.subscription.')) {
-    await syncSubscription(event.data.object)
+    const subscription = event.data.object
+    const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id
+    const userId = subscription.metadata?.virgue_user_id || (customerId ? await userForCustomer(customerId) : null)
+    if (!userId) return
+    await syncSubscription(subscription, userId)
     return
   }
   if (event.type === 'invoice.paid' || event.type === 'invoice.payment_failed') {
     const invoice = event.data.object
     if (!invoice.subscription) return
     const subscription = await stripe.subscriptions.retrieve(String(invoice.subscription))
-    await syncSubscription(subscription)
+    const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id
+    const userId = subscription.metadata?.virgue_user_id || (customerId ? await userForCustomer(customerId) : null)
+    if (!userId) return
+    await syncSubscription(subscription, userId)
   }
 }
 
