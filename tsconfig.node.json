@@ -22,5 +22,8 @@
     "src/main/**/*.ts",
     "src/preload/**/*.ts",
     "src/shared/**/*.ts"
+  ],
+  "exclude": [
+    "src/shared/account-menu.ts"
   ]
 }

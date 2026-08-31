@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
+import { createElement, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type {
   Account,
@@ -39,12 +39,15 @@ import type {
   VirgueAuthSession,
 } from '@shared/types'
 import { getPlanEntitlements, getPlanFeatureError, getPlanLimitError } from '@shared/entitlements'
+import { registerAccountMenuElement, type VirgueAccountMenuElement } from '@shared/account-menu'
 import { Icon, type IconName } from './components/Icons'
 import AccountView from './AccountView'
 
 type View = 'accounts' | 'games' | 'sessions' | 'servers' | 'utilities' | 'control' | 'activity' | 'settings'
 type ActivityTone = 'normal' | 'positive' | 'warning'
 type SettingsTab = 'features' | 'privacy' | 'billing'
+
+registerAccountMenuElement()
 
 const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; description: string; icon: IconName }> = [
   { id: 'features', label: 'App features', description: 'Workspace, watcher, and Roblox controls', icon: 'spark' },
@@ -208,7 +211,6 @@ function App() {
   const [authBusy, setAuthBusy] = useState(false)
   const [authError, setAuthError] = useState('')
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false)
-  const accountMenuRef = useRef<HTMLDivElement | null>(null)
   const [launchingAccountId, setLaunchingAccountId] = useState<string | null>(null)
   const [launchingMany, setLaunchingMany] = useState(false)
   const launchingAccountRef = useRef<string | null>(null)
@@ -260,24 +262,6 @@ function App() {
       setAuthError(caught instanceof Error ? caught.message : 'Your account session could not be restored.')
     }).finally(() => setAuthLoading(false))
   }, [])
-
-  useEffect(() => {
-    if (!isAccountMenuOpen) return
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!accountMenuRef.current?.contains(event.target as Node)) setIsAccountMenuOpen(false)
-    }
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setIsAccountMenuOpen(false)
-    }
-
-    document.addEventListener('pointerdown', handlePointerDown)
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isAccountMenuOpen])
 
   useEffect(() => {
     const unsubscribe = window.virgue.sessions.onEvent(() => {
@@ -566,7 +550,7 @@ function App() {
         <ViewButton active={activeView === 'control'} icon="terminal" label="Control" onClick={() => setActiveView('control')} />
         <ViewButton active={activeView === 'activity'} icon="clock" label="Activity" onClick={() => setActiveView('activity')} count={activity.length} />
       </nav>
-      <div className="titlebar-actions"><AccountMenu session={authSession} busy={authBusy} entitlements={entitlements} isOpen={isAccountMenuOpen} menuRef={accountMenuRef} onToggle={() => setIsAccountMenuOpen((current) => !current)} onOpenSettings={() => { setActiveView('settings'); setIsAccountMenuOpen(false) }} onSignOut={handleAuthSignOut} /><WindowControls isMaximized={isMaximized} onMaximize={() => void handleMaximize()} /></div>
+      <div className="titlebar-actions"><AccountMenu session={authSession} busy={authBusy} entitlements={entitlements} isOpen={isAccountMenuOpen} onToggle={() => setIsAccountMenuOpen((current) => !current)} onOpenSettings={() => { setActiveView('settings'); setIsAccountMenuOpen(false) }} onSignOut={handleAuthSignOut} /><WindowControls isMaximized={isMaximized} onMaximize={() => void handleMaximize()} /></div>
     </header>
 
     <div className={`app-body ${activeView === 'settings' ? 'settings-mode' : ''}`}>
@@ -618,23 +602,37 @@ function WindowControls({ isMaximized, onMaximize }: { isMaximized: boolean; onM
   return <div className="window-controls" aria-label="Window controls"><button type="button" className="window-button" aria-label="Minimize" onClick={() => void window.virgue.window.minimize()}><Icon name="minus" size={16} /></button><button type="button" className="window-button" aria-label={isMaximized ? 'Restore' : 'Maximize'} onClick={onMaximize}><Icon name="square" size={14} /></button><button type="button" className="window-button close-window" aria-label="Close" onClick={() => void window.virgue.window.close()}><Icon name="close" size={16} /></button></div>
 }
 
-function AccountMenu({ session, busy, entitlements, isOpen, menuRef, onToggle, onOpenSettings, onSignOut }: { session: VirgueAuthSession; busy: boolean; entitlements: PlanEntitlements; isOpen: boolean; menuRef: { current: HTMLDivElement | null }; onToggle: () => void; onOpenSettings: () => void; onSignOut: () => Promise<void> }) {
-  const initial = session.user.name.trim().slice(0, 1).toUpperCase() || session.user.email.trim().slice(0, 1).toUpperCase() || 'V'
+function AccountMenu({ session, busy, entitlements, isOpen, onToggle, onOpenSettings, onSignOut }: { session: VirgueAuthSession; busy: boolean; entitlements: PlanEntitlements; isOpen: boolean; onToggle: () => void; onOpenSettings: () => void; onSignOut: () => Promise<void> }) {
+  const menuRef = useRef<VirgueAccountMenuElement | null>(null)
 
-  return <div className="account-menu" ref={menuRef}>
-    <button type="button" className={`account-menu-trigger ${isOpen ? 'open' : ''}`} aria-haspopup="menu" aria-expanded={isOpen} aria-controls="account-menu" onClick={onToggle}>
-      <span className="account-menu-avatar" aria-hidden="true">{initial}</span>
-      <span className="account-menu-copy"><span className="account-menu-label">Account</span><strong>{session.user.name}</strong></span>
-      <Icon name="chevron" size={16} className={`account-menu-chevron ${isOpen ? 'open' : ''}`} />
-    </button>
-    {isOpen && <div id="account-menu" className="account-menu-popover" role="menu">
-      <div className="account-menu-summary"><div className="account-menu-summary-top"><span className="eyebrow">Account</span></div><strong>{session.user.email}</strong><div className="account-menu-plan"><span>Plan</span><strong>{entitlements.displayName}</strong></div></div>
-      <div className="account-menu-actions">
-        <button type="button" className="account-menu-item" role="menuitem" onClick={onOpenSettings}><span className="account-menu-item-icon"><Icon name="settings" size={15} /></span><strong>Settings</strong><Icon name="arrow" size={14} /></button>
-        <button type="button" className="outline-button account-menu-signout" role="menuitem" disabled={busy} onClick={() => void onSignOut()}><Icon name="close" size={15} /> {busy ? 'Signing out...' : 'Sign out'}</button>
-      </div>
-    </div>}
-  </div>
+  useEffect(() => {
+    const menu = menuRef.current
+    if (!menu) return
+    const handleToggle = () => onToggle()
+    const handleSettings = () => onOpenSettings()
+    const handleSignOut = () => { void onSignOut() }
+    menu.addEventListener('account-menu-toggle', handleToggle)
+    menu.addEventListener('account-menu-settings', handleSettings)
+    menu.addEventListener('account-menu-signout', handleSignOut)
+    return () => {
+      menu.removeEventListener('account-menu-toggle', handleToggle)
+      menu.removeEventListener('account-menu-settings', handleSettings)
+      menu.removeEventListener('account-menu-signout', handleSignOut)
+    }
+  }, [onOpenSettings, onSignOut, onToggle])
+
+  useEffect(() => {
+    const menu = menuRef.current
+    if (!menu) return
+    menu.name = session.user.name
+    menu.email = session.user.email
+    menu.plan = entitlements.displayName
+    menu.signedInState = true
+    menu.busyState = busy
+    menu.open = isOpen
+  }, [busy, entitlements.displayName, isOpen, session.user.email, session.user.name])
+
+  return createElement('virgue-account-menu', { ref: menuRef })
 }
 
 function ViewButton({ active, icon, label, onClick, count }: { active: boolean; icon: IconName; label: string; onClick: () => void; count?: number }) { return <button type="button" className={`view-button ${active ? 'active' : ''}`} onClick={onClick}><Icon name={icon} size={16} /><span>{label}</span>{count !== undefined && count > 0 && <span className="nav-count">{count}</span>}</button> }

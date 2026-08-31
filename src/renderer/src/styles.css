@@ -50,7 +50,7 @@ button:disabled { cursor: not-allowed; opacity: .5; transform: none !important; 
 .titlebar { display: grid; grid-template-columns: 270px minmax(0, 1fr) auto; align-items: center; min-height: 74px; padding: 0 14px 0 20px; border-bottom: 3px solid var(--ink); background: var(--panel); -webkit-app-region: drag; user-select: none; animation: chrome-in .46s var(--ease-standard) both; transform-origin: top; }
 .titlebar.account-menu-open { z-index: 20; }
 
-.brand-area, .titlebar-nav, .titlebar-actions, .window-controls, .window-button, .view-button { -webkit-app-region: no-drag; }
+.brand-area, .titlebar-nav, .titlebar-actions, .window-controls, .window-button, .view-button, virgue-account-menu { -webkit-app-region: no-drag; }
 
 .brand-area { display: flex; align-items: center; gap: 11px; }
 
@@ -1596,32 +1596,7 @@ h1, h2, p { margin: 0; }
   .recovery-queue-row .text-button { grid-column: 2; grid-row: 1 / span 2; }
 }
 
-/* Account access and profile menu. The workspace stays behind this gate until auth succeeds. */
-.account-menu { position: relative; z-index: 5; }
-.account-menu-trigger { display: inline-flex; min-width: 184px; min-height: 46px; align-items: center; gap: 9px; padding: 4px 10px 4px 5px; border: 3px solid var(--ink); background: var(--panel-strong); box-shadow: var(--shadow-small); cursor: pointer; text-align: left; transition: transform var(--motion-standard) var(--ease-spring), box-shadow var(--motion-standard) var(--ease-standard), background var(--motion-standard) var(--ease-standard); }
-.account-menu-trigger:hover { background: var(--yellow); transform: translate(-1px, -1px); box-shadow: var(--shadow); }
-.account-menu-trigger.open { background: var(--accent); }
-.account-menu-avatar { display: grid; width: 34px; height: 34px; flex: none; place-items: center; border: 2px solid var(--ink); background: var(--yellow); color: var(--ink); font-size: 15px; font-weight: 800; letter-spacing: -.04em; }
-.account-menu-copy { display: grid; min-width: 0; flex: 1; gap: 2px; }
-.account-menu-label { color: var(--ink-muted); font-size: 9px; font-weight: 800; letter-spacing: .1em; line-height: 1; text-transform: uppercase; }
-.account-menu-copy strong { overflow: hidden; font-size: 12px; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
-.account-menu-trigger.open .account-menu-label { color: #57312c; }
-.account-menu-chevron { flex: none; transition: transform var(--motion-standard) var(--ease-spring); }
-.account-menu-chevron.open { transform: rotate(180deg); }
-.account-menu-popover { position: absolute; top: calc(100% + 10px); right: 0; z-index: 30; display: grid; width: 302px; gap: 12px; padding: 14px; border: 3px solid var(--ink); background: var(--panel-strong); box-shadow: var(--shadow); animation: modal-pop-in .22s var(--ease-spring) both; }
-.account-menu-summary { display: grid; gap: 8px; padding: 2px 2px 13px; border-bottom: 2px solid var(--line); }
-.account-menu-summary-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.account-menu-summary > strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.account-menu-plan { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 2px solid var(--ink); background: var(--yellow); }
-.account-menu-plan span { color: var(--ink-muted); font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
-.account-menu-plan strong { font-size: 12px; }
-.account-menu-actions { display: grid; gap: 8px; }
-.account-menu-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; width: 100%; min-height: 44px; padding: 7px 9px; border: 2px solid var(--line); background: var(--panel); cursor: pointer; text-align: left; transition: background var(--motion-standard) var(--ease-standard), border-color var(--motion-standard) var(--ease-standard), transform var(--motion-fast) var(--ease-snap); }
-.account-menu-item:hover { border-color: var(--ink); background: var(--yellow); transform: translateY(-1px); }
-.account-menu-item-icon { display: grid; width: 25px; height: 25px; place-items: center; border: 2px solid var(--ink); background: var(--panel-strong); }
-.account-menu-item > strong { min-width: 0; font-size: 11px; }
-.account-menu-signout { width: 100%; min-height: 36px; }
-.account-menu-signout:hover { background: var(--accent); }
+/* Account access. The workspace stays behind this gate until auth succeeds. */
 .account-view { display: grid; width: 100%; min-height: 100%; align-items: center; }
 .account-auth-layout { display: grid; width: min(1180px, 100%); margin: 0 auto; grid-template-columns: minmax(0, 1fr) minmax(340px, 420px); align-items: center; gap: clamp(24px, 5vw, 74px); }
 .account-auth-intro { display: grid; align-content: center; gap: 18px; max-width: 700px; padding: 22px 0; }
@@ -1643,9 +1618,6 @@ h1, h2, p { margin: 0; }
 
 @media (max-width: 760px) {
   .titlebar-actions { grid-column: 2; grid-row: 1; gap: 4px; }
-  .account-menu-trigger { width: 42px; min-width: 42px; justify-content: center; padding: 2px; }
-  .account-menu-copy, .account-menu-chevron { display: none; }
-  .account-menu-popover { width: min(302px, calc(100vw - 30px)); }
   .auth-gate-main { padding: 25px 15px 32px; }
   .account-auth-layout { grid-template-columns: 1fr; gap: 23px; }
   .account-auth-intro { min-height: 0; padding: 12px 4px 0; }

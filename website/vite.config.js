@@ -7,6 +7,11 @@ const websiteRoot = fileURLToPath(new URL('.', import.meta.url))
 export default defineConfig({
   root: websiteRoot,
   base: process.env.VITE_SITE_BASE || '/',
+  server: {
+    fs: {
+      allow: [resolve(websiteRoot, '..')],
+    },
+  },
   build: {
     outDir: resolve(websiteRoot, '../website-dist'),
     emptyOutDir: true,
