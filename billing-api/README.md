@@ -10,8 +10,9 @@ to Neon, and returns resolved entitlements to the website and desktop app.
 2. Create a recurring **Virgue Pro** Stripe Price ($10/month base price) and
    put its ID in `STRIPE_PRO_PRICE_ID`.
 3. Configure Stripe's customer portal to allow payment-method updates and
-   cancellation. Configure regional/adaptive pricing in Stripe rather than
-   trusting a value from the client.
+   cancellation. Checkout explicitly enables Stripe Adaptive Pricing so
+   eligible customers can see a local-currency price; the client never chooses
+   the amount or currency.
 4. Register `https://your-billing-api.example.com/webhooks/stripe` in Stripe.
    Subscribe to `checkout.session.completed`, `customer.subscription.*`,
    `invoice.paid`, and `invoice.payment_failed`.

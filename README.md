@@ -20,7 +20,7 @@ npm run build
 npm run package
 ```
 
-The installer is written to `release/Virgues-Roblox-Account-Manager-Setup-1.0.1.exe`.
+The installer is written to `release/Virgues-Roblox-Account-Manager-Setup-1.0.2.exe`.
 
 ## Releases and updates
 

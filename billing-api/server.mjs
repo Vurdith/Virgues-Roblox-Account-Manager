@@ -322,6 +322,7 @@ async function handleApi(request, response, origin) {
     const checkout = await stripe.checkout.sessions.create({
       mode: 'subscription', customer,
       line_items: [{ price: process.env.STRIPE_PRO_PRICE_ID, quantity: 1 }],
+      adaptive_pricing: { enabled: true },
       // Managed Payments requires a product tax code. Keep standard Stripe
       // Checkout enabled until the product's tax treatment is configured.
       managed_payments: { enabled: false },
