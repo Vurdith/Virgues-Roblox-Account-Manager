@@ -15,6 +15,15 @@ const BILLING_API_URL = (configuredBillingApiUrl || sameOriginBillingApiUrl).rep
 const PUBLISHED_DOWNLOAD_URL = 'https://github.com/Vurdith/Virgues-Roblox-Account-Manager/releases/download/v1.0.2/Virgues-Roblox-Account-Manager-Setup-1.0.2.exe'
 const DOWNLOAD_URL = (import.meta.env.VITE_VIRGUE_DOWNLOAD_URL || PUBLISHED_DOWNLOAD_URL).trim()
 const SITE_BASE = import.meta.env.BASE_URL
+const REGIONAL_PRICES = Object.freeze({
+  GBP: { amount: '£10', period: '/ month' },
+  USD: { amount: '$10', period: '/ month' },
+  EUR: { amount: '€10', period: '/ month' },
+})
+const EUROPEAN_COUNTRIES = new Set([
+  'AD', 'AT', 'BE', 'CY', 'DE', 'EE', 'ES', 'FI', 'FR', 'GR', 'HR', 'IE', 'IT',
+  'LT', 'LU', 'LV', 'MC', 'MT', 'NL', 'PT', 'SI', 'SK', 'SM', 'VA',
+])
 const currentPage = document.body.dataset.page || 'home'
 let accountSessionHandler = null
 let accountMenuPlan = 'Free plan'
@@ -417,6 +426,7 @@ function initializeAccount() {
 }
 
 function initializePricing() {
+  initializeRegionalPrice()
   const checkoutLink = document.querySelector('[data-start-checkout]')
   if (!checkoutLink) return
   const checkoutStatus = document.getElementById('pricing-status')
@@ -482,6 +492,63 @@ function initializePricing() {
     } finally {
       checkoutLink.removeAttribute('aria-busy')
     }
+  })
+}
+
+function currencyForCountry(countryCode) {
+  const country = String(countryCode || '').trim().toUpperCase()
+  if (country === 'GB') return 'GBP'
+  if (EUROPEAN_COUNTRIES.has(country)) return 'EUR'
+  return 'USD'
+}
+
+function browserCountryCode() {
+  const locales = Array.isArray(navigator.languages) && navigator.languages.length
+    ? navigator.languages
+    : [navigator.language]
+
+  for (const locale of locales) {
+    if (!locale) continue
+    try {
+      const region = new Intl.Locale(locale).region
+      if (region) return region
+    } catch {
+      const match = String(locale).match(/[-_]([A-Za-z]{2})$/)
+      if (match) return match[1]
+    }
+  }
+
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+  if (timeZone === 'Europe/London') return 'GB'
+  if (timeZone.startsWith('Europe/')) return 'DE'
+  return ''
+}
+
+async function vercelCountryCode() {
+  try {
+    const response = await fetch('/api/region', { headers: { Accept: 'application/json' } })
+    if (!response.ok) return ''
+    const payload = await response.json()
+    return typeof payload.country === 'string' ? payload.country : ''
+  } catch {
+    return ''
+  }
+}
+
+function initializeRegionalPrice() {
+  const amount = document.querySelector('[data-regional-price]')
+  const period = document.querySelector('[data-regional-price-period]')
+  if (!amount || !period) return
+
+  const applyPrice = (countryCode) => {
+    const price = REGIONAL_PRICES[currencyForCountry(countryCode)]
+    amount.textContent = price.amount
+    period.textContent = price.period
+  }
+
+  applyPrice(browserCountryCode())
+  void vercelCountryCode().then((countryCode) => {
+    if (countryCode) applyPrice(countryCode)
   })
 }
 
