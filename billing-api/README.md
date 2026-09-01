@@ -7,11 +7,13 @@ to Neon, and returns resolved entitlements to the website and desktop app.
 ## Setup
 
 1. Run database migrations `001` through `003` in Neon.
-2. Create a recurring **Virgue Pro** Stripe Price ($10/month base price) and
-   put its ID in `STRIPE_PRO_PRICE_ID`.
+2. Create a recurring **Virgue Pro** multi-currency Stripe Price with a
+   $10/month USD default and fixed £10/month GBP and €10/month EUR options.
+   Put its ID in `STRIPE_PRO_PRICE_ID`.
 3. Configure Stripe's customer portal to allow payment-method updates and
-   cancellation. Checkout explicitly enables Stripe Adaptive Pricing so
-   eligible customers can see a local-currency price; the client never chooses
+   cancellation. Checkout passes the multi-currency Price without selecting a
+   currency; Stripe chooses the matching configured regional option and falls
+   back to USD where no regional option is available. The client never chooses
    the amount or currency.
 4. Register `https://your-billing-api.example.com/webhooks/stripe` in Stripe.
    Subscribe to `checkout.session.completed`, `customer.subscription.*`,
