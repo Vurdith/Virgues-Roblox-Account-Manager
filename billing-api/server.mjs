@@ -204,7 +204,7 @@ async function customerFor(user) {
 
 async function hasLiveSubscription(entitlement, providerCustomerId) {
   if (entitlement.plan_key !== 'pro' || entitlement.entitlement_status === 'trial' || !entitlement.subscription_id || !providerCustomerId) {
-    console.info('Stripe entitlement validation skipped', {
+    console.error('Stripe entitlement validation skipped', {
       plan: entitlement.plan_key, entitlementStatus: entitlement.entitlement_status,
       hasSubscriptionId: Boolean(entitlement.subscription_id), hasProviderCustomerId: Boolean(providerCustomerId),
     })
@@ -217,7 +217,7 @@ async function hasLiveSubscription(entitlement, providerCustomerId) {
     const customerMatches = customerId === providerCustomerId
     const statusAllowed = ['active', 'trialing', 'past_due'].includes(subscription.status)
     const priceMatches = subscription.items.data.some((item) => item.price?.id === process.env.STRIPE_PRO_PRICE_ID)
-    console.info('Stripe entitlement validation', {
+    console.error('Stripe entitlement validation', {
       hasProviderCustomerId: Boolean(providerCustomerId), customerMatches, status: subscription.status, statusAllowed, priceMatches,
     })
     return customerMatches && statusAllowed && priceMatches
@@ -243,6 +243,10 @@ async function entitlementFor(userId) {
   const hasBillingCustomer = Boolean(customer[0]?.stripe_customer_id)
   if (!rows[0]) return { planKey: 'free', planName: 'Free plan', entitlementStatus: 'free', subscriptionStatus: null, currentPeriodEnd: null, features: {}, hasBillingCustomer }
   const row = rows[0]
+  console.error('Billing entitlement row', {
+    plan: row.plan_key, entitlementStatus: row.entitlement_status, subscriptionStatus: row.subscription_status,
+    hasSubscriptionId: Boolean(row.subscription_id), hasProviderCustomerId: Boolean(row.provider_customer_id), hasBillingCustomer,
+  })
   if (row.plan_key === 'pro' && row.entitlement_status !== 'trial' && !(await hasLiveSubscription(row, row.provider_customer_id))) {
     return { planKey: 'free', planName: 'Free plan', entitlementStatus: 'free', subscriptionStatus: null, currentPeriodEnd: null, features: {}, hasBillingCustomer }
   }
