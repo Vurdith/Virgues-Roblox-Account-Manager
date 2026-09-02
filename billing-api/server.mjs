@@ -219,13 +219,13 @@ async function hasLiveSubscription(entitlement, providerCustomerId) {
 
 async function entitlementFor(userId) {
   const rows = await database.query(
-    `SELECT plan_key, plan_name, features, entitlement_status, trial_ends_at,
-            subscription_id, subscription_status, current_period_end,
+    `SELECT ent.plan_key, ent.plan_name, ent.features, ent.entitlement_status, ent.trial_ends_at,
+            ent.subscription_id, ent.subscription_status, ent.current_period_end,
             subscription.provider_customer_id
-     FROM public.virgue_current_entitlements
+     FROM public.virgue_current_entitlements ent
      LEFT JOIN public.virgue_subscriptions subscription
-       ON subscription.provider_subscription_id = virgue_current_entitlements.subscription_id::text
-     WHERE virgue_current_entitlements.user_id = $1`,
+       ON subscription.provider_subscription_id = ent.subscription_id::text
+     WHERE ent.user_id = $1`,
     [userId],
   )
   const customer = await database.query('SELECT stripe_customer_id FROM public.virgue_billing_customers WHERE user_id = $1', [userId])
