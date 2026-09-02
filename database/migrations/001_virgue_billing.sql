@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS public.virgue_subscriptions (
   user_id uuid NOT NULL REFERENCES neon_auth."user"(id) ON DELETE CASCADE,
   plan_key text NOT NULL REFERENCES public.virgue_plans(plan_key),
   provider text NOT NULL DEFAULT 'stripe' CHECK (provider IN ('stripe', 'manual')),
-  provider_customer_id text UNIQUE,
+  provider_customer_id text,
   provider_subscription_id text UNIQUE,
   status text NOT NULL CHECK (status IN ('incomplete', 'incomplete_expired', 'trialing', 'active', 'past_due', 'canceled', 'unpaid', 'paused')),
   trial_started_at timestamptz,

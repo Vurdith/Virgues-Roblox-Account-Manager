@@ -6,7 +6,7 @@ to Neon, and returns resolved entitlements to the website and desktop app.
 
 ## Setup
 
-1. Run database migrations `001` through `003` in Neon.
+1. Run database migrations `001` through `004` in Neon.
 2. Create a recurring **Virgue Pro** multi-currency Stripe Price with a
    $10/month USD default and fixed £10/month GBP and €10/month EUR options.
    Put its ID in `STRIPE_PRO_PRICE_ID`.

@@ -209,6 +209,7 @@ async function hasLiveSubscription(entitlement, customerId) {
     const subscriptions = await stripe.subscriptions.list({ customer: customerId, status: 'all', limit: 100 })
     return subscriptions.data.some((subscription) => {
       if (subscription.id !== entitlement.subscription_id) return false
+      if (!['active', 'trialing', 'past_due'].includes(subscription.status)) return false
       return subscription.items.data.some((item) => item.price?.id === process.env.STRIPE_PRO_PRICE_ID)
     })
   } catch (caught) {
@@ -290,26 +291,58 @@ async function syncSubscription(subscription, userIdHint = null) {
   const userId = userIdHint || subscription.metadata?.virgue_user_id || await userForCustomer(customerId)
   if (!planKey || !userId) throw new Error('Subscription could not be mapped to a Virgue plan and account.')
 
-  await database.query(
-    `INSERT INTO public.virgue_subscriptions (
+  const values = [
+    userId, planKey, customerId, subscription.id, subscription.status,
+    subscription.trial_start || null, subscription.trial_end || null,
+    subscription.current_period_start || null, subscription.current_period_end || null,
+    subscription.cancel_at_period_end, subscription.canceled_at || null,
+    JSON.stringify(subscription.metadata || {}),
+  ]
+  const upsert = `INSERT INTO public.virgue_subscriptions (
        user_id, plan_key, provider, provider_customer_id, provider_subscription_id, status,
        trial_started_at, trial_ends_at, current_period_start, current_period_end,
        cancel_at_period_end, canceled_at, metadata, updated_at
      ) VALUES ($1, $2, 'stripe', $3, $4, $5, to_timestamp($6), to_timestamp($7), to_timestamp($8), to_timestamp($9), $10, to_timestamp($11), $12::jsonb, now())
      ON CONFLICT (provider_subscription_id) DO UPDATE SET
-       plan_key = EXCLUDED.plan_key, status = EXCLUDED.status,
+       plan_key = EXCLUDED.plan_key, provider_customer_id = EXCLUDED.provider_customer_id,
+       status = EXCLUDED.status,
        trial_started_at = EXCLUDED.trial_started_at, trial_ends_at = EXCLUDED.trial_ends_at,
        current_period_start = EXCLUDED.current_period_start, current_period_end = EXCLUDED.current_period_end,
        cancel_at_period_end = EXCLUDED.cancel_at_period_end, canceled_at = EXCLUDED.canceled_at,
-       metadata = EXCLUDED.metadata, updated_at = now()`,
-    [
-      userId, planKey, customerId, subscription.id, subscription.status,
-      subscription.trial_start || null, subscription.trial_end || null,
-      subscription.current_period_start || null, subscription.current_period_end || null,
-      subscription.cancel_at_period_end, subscription.canceled_at || null,
-      JSON.stringify(subscription.metadata || {}),
-    ],
-  )
+       metadata = EXCLUDED.metadata, updated_at = now()`
+
+  try {
+    await database.query(upsert, values)
+  } catch (caught) {
+    // Older databases created by migration 001 had a unique customer ID.
+    // Reuse a historical terminal row until migration 004 removes that
+    // obsolete constraint, so a customer can subscribe again after canceling.
+    const isLegacyCustomerConstraint = caught?.code === '23505'
+      && (caught?.constraint === 'virgue_subscriptions_provider_customer_id_key'
+        || String(caught?.message || '').includes('virgue_subscriptions_provider_customer_id_key'))
+    if (!isLegacyCustomerConstraint) throw caught
+
+    const existing = await database.query(
+      `SELECT id, status
+       FROM public.virgue_subscriptions
+       WHERE provider_customer_id = $1
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+      [customerId],
+    )
+    if (!existing[0] || !['canceled', 'incomplete_expired', 'unpaid', 'paused'].includes(existing[0].status)) throw caught
+
+    await database.query(
+      `UPDATE public.virgue_subscriptions
+       SET user_id = $2, plan_key = $3, provider_subscription_id = $4, status = $5,
+           trial_started_at = to_timestamp($6), trial_ends_at = to_timestamp($7),
+           current_period_start = to_timestamp($8), current_period_end = to_timestamp($9),
+           cancel_at_period_end = $10, canceled_at = to_timestamp($11),
+           metadata = $12::jsonb, updated_at = now()
+       WHERE id = $1`,
+      [existing[0].id, ...values.slice(0, 2), ...values.slice(3)],
+    )
+  }
 }
 
 async function processWebhook(event) {
