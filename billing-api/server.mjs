@@ -202,16 +202,14 @@ async function customerFor(user) {
   return inserted[0].stripe_customer_id
 }
 
-async function hasLiveSubscription(entitlement, customerId) {
-  if (entitlement.plan_key !== 'pro' || entitlement.entitlement_status === 'trial' || !entitlement.subscription_id || !customerId) return false
+async function hasLiveSubscription(entitlement, providerCustomerId) {
+  if (entitlement.plan_key !== 'pro' || entitlement.entitlement_status === 'trial' || !entitlement.subscription_id || !providerCustomerId) return false
 
   try {
-    const subscriptions = await stripe.subscriptions.list({ customer: customerId, status: 'all', limit: 100 })
-    return subscriptions.data.some((subscription) => {
-      if (subscription.id !== entitlement.subscription_id) return false
-      if (!['active', 'trialing', 'past_due'].includes(subscription.status)) return false
-      return subscription.items.data.some((item) => item.price?.id === process.env.STRIPE_PRO_PRICE_ID)
-    })
+    const subscription = await stripe.subscriptions.retrieve(entitlement.subscription_id)
+    const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id
+    if (customerId !== providerCustomerId || !['active', 'trialing', 'past_due'].includes(subscription.status)) return false
+    return subscription.items.data.some((item) => item.price?.id === process.env.STRIPE_PRO_PRICE_ID)
   } catch (caught) {
     const isMissingCustomer = caught?.code === 'resource_missing' || caught?.statusCode === 404
     if (isMissingCustomer) return false
@@ -222,15 +220,19 @@ async function hasLiveSubscription(entitlement, customerId) {
 async function entitlementFor(userId) {
   const rows = await database.query(
     `SELECT plan_key, plan_name, features, entitlement_status, trial_ends_at,
-            subscription_id, subscription_status, current_period_end
-     FROM public.virgue_current_entitlements WHERE user_id = $1`,
+            subscription_id, subscription_status, current_period_end,
+            subscription.provider_customer_id
+     FROM public.virgue_current_entitlements
+     LEFT JOIN public.virgue_subscriptions subscription
+       ON subscription.provider_subscription_id = virgue_current_entitlements.subscription_id
+     WHERE virgue_current_entitlements.user_id = $1`,
     [userId],
   )
   const customer = await database.query('SELECT stripe_customer_id FROM public.virgue_billing_customers WHERE user_id = $1', [userId])
   const hasBillingCustomer = Boolean(customer[0]?.stripe_customer_id)
   if (!rows[0]) return { planKey: 'free', planName: 'Free plan', entitlementStatus: 'free', subscriptionStatus: null, currentPeriodEnd: null, features: {}, hasBillingCustomer }
   const row = rows[0]
-  if (row.plan_key === 'pro' && row.entitlement_status !== 'trial' && !(await hasLiveSubscription(row, customer[0]?.stripe_customer_id))) {
+  if (row.plan_key === 'pro' && row.entitlement_status !== 'trial' && !(await hasLiveSubscription(row, row.provider_customer_id))) {
     return { planKey: 'free', planName: 'Free plan', entitlementStatus: 'free', subscriptionStatus: null, currentPeriodEnd: null, features: {}, hasBillingCustomer }
   }
   return {
