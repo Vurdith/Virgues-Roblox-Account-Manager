@@ -174,7 +174,18 @@ async function requireUser(request) {
 
 async function customerFor(user) {
   const existing = await database.query('SELECT stripe_customer_id FROM public.virgue_billing_customers WHERE user_id = $1', [user.id])
-  if (existing[0]?.stripe_customer_id) return existing[0].stripe_customer_id
+  const existingCustomerId = existing[0]?.stripe_customer_id
+  if (existingCustomerId) {
+    try {
+      // Test and live Stripe accounts use different customer namespaces. Verify
+      // the stored ID before reusing it so a mode switch can self-heal.
+      const customer = await stripe.customers.retrieve(existingCustomerId)
+      if (customer && !customer.deleted) return customer.id
+    } catch (caught) {
+      const isMissingCustomer = caught?.code === 'resource_missing' || caught?.statusCode === 404
+      if (!isMissingCustomer) throw caught
+    }
+  }
 
   const customer = await stripe.customers.create({
     email: user.email,
