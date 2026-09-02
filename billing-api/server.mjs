@@ -289,6 +289,14 @@ async function userForCustomer(customerId) {
   return userId
 }
 
+function subscriptionIdForInvoice(invoice) {
+  const directSubscription = typeof invoice.subscription === 'string' ? invoice.subscription : null
+  if (directSubscription) return directSubscription
+
+  const nestedSubscription = invoice.parent?.subscription_details?.subscription
+  return typeof nestedSubscription === 'string' && nestedSubscription.trim() ? nestedSubscription : null
+}
+
 async function syncSubscription(subscription, userIdHint = null) {
   const priceId = subscription.items.data[0]?.price?.id
   const planKey = priceId ? await planForPrice(priceId) : null
@@ -368,8 +376,9 @@ async function processWebhook(event) {
   }
   if (event.type === 'invoice.paid' || event.type === 'invoice.payment_failed') {
     const invoice = event.data.object
-    if (!invoice.subscription) return
-    const subscription = await stripe.subscriptions.retrieve(String(invoice.subscription))
+    const subscriptionId = subscriptionIdForInvoice(invoice)
+    if (!subscriptionId) return
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId)
     const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id
     const userId = subscription.metadata?.virgue_user_id || (customerId ? await userForCustomer(customerId) : null)
     if (!userId) return
