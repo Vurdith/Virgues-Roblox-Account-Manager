@@ -224,7 +224,7 @@ async function entitlementFor(userId) {
             subscription.provider_customer_id
      FROM public.virgue_current_entitlements ent
      LEFT JOIN public.virgue_subscriptions subscription
-       ON subscription.provider_subscription_id = ent.subscription_id::text
+       ON subscription.id = ent.subscription_id
      WHERE ent.user_id = $1`,
     [userId],
   )
