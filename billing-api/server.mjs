@@ -298,16 +298,19 @@ function subscriptionIdForInvoice(invoice) {
 }
 
 async function syncSubscription(subscription, userIdHint = null) {
-  const priceId = subscription.items.data[0]?.price?.id
+  const subscriptionItem = subscription.items?.data?.[0]
+  const priceId = subscriptionItem?.price?.id
   const planKey = priceId ? await planForPrice(priceId) : null
   const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id
   const userId = userIdHint || subscription.metadata?.virgue_user_id || await userForCustomer(customerId)
   if (!planKey || !userId) throw new Error('Subscription could not be mapped to a Virgue plan and account.')
+  const currentPeriodStart = subscription.current_period_start ?? subscriptionItem?.current_period_start ?? null
+  const currentPeriodEnd = subscription.current_period_end ?? subscriptionItem?.current_period_end ?? null
 
   const values = [
     userId, planKey, customerId, subscription.id, subscription.status,
     subscription.trial_start || null, subscription.trial_end || null,
-    subscription.current_period_start || null, subscription.current_period_end || null,
+    currentPeriodStart, currentPeriodEnd,
     subscription.cancel_at_period_end, subscription.canceled_at || null,
     JSON.stringify(subscription.metadata || {}),
   ]
