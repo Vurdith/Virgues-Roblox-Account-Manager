@@ -202,6 +202,22 @@ async function customerFor(user) {
   return inserted[0].stripe_customer_id
 }
 
+async function hasLiveSubscription(entitlement, customerId) {
+  if (entitlement.plan_key !== 'pro' || entitlement.entitlement_status === 'trial' || !entitlement.subscription_id || !customerId) return false
+
+  try {
+    const subscriptions = await stripe.subscriptions.list({ customer: customerId, status: 'all', limit: 100 })
+    return subscriptions.data.some((subscription) => {
+      if (subscription.id !== entitlement.subscription_id) return false
+      return subscription.items.data.some((item) => item.price?.id === process.env.STRIPE_PRO_PRICE_ID)
+    })
+  } catch (caught) {
+    const isMissingCustomer = caught?.code === 'resource_missing' || caught?.statusCode === 404
+    if (isMissingCustomer) return false
+    throw caught
+  }
+}
+
 async function entitlementFor(userId) {
   const rows = await database.query(
     `SELECT plan_key, plan_name, features, entitlement_status, trial_ends_at,
@@ -213,6 +229,9 @@ async function entitlementFor(userId) {
   const hasBillingCustomer = Boolean(customer[0]?.stripe_customer_id)
   if (!rows[0]) return { planKey: 'free', planName: 'Free plan', entitlementStatus: 'free', subscriptionStatus: null, currentPeriodEnd: null, features: {}, hasBillingCustomer }
   const row = rows[0]
+  if (row.plan_key === 'pro' && row.entitlement_status !== 'trial' && !(await hasLiveSubscription(row, customer[0]?.stripe_customer_id))) {
+    return { planKey: 'free', planName: 'Free plan', entitlementStatus: 'free', subscriptionStatus: null, currentPeriodEnd: null, features: {}, hasBillingCustomer }
+  }
   return {
     planKey: row.plan_key,
     planName: row.plan_name,
