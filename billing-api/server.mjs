@@ -203,13 +203,24 @@ async function customerFor(user) {
 }
 
 async function hasLiveSubscription(entitlement, providerCustomerId) {
-  if (entitlement.plan_key !== 'pro' || entitlement.entitlement_status === 'trial' || !entitlement.subscription_id || !providerCustomerId) return false
+  if (entitlement.plan_key !== 'pro' || entitlement.entitlement_status === 'trial' || !entitlement.subscription_id || !providerCustomerId) {
+    console.info('Stripe entitlement validation skipped', {
+      plan: entitlement.plan_key, entitlementStatus: entitlement.entitlement_status,
+      hasSubscriptionId: Boolean(entitlement.subscription_id), hasProviderCustomerId: Boolean(providerCustomerId),
+    })
+    return false
+  }
 
   try {
     const subscription = await stripe.subscriptions.retrieve(entitlement.subscription_id)
     const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id
-    if (customerId !== providerCustomerId || !['active', 'trialing', 'past_due'].includes(subscription.status)) return false
-    return subscription.items.data.some((item) => item.price?.id === process.env.STRIPE_PRO_PRICE_ID)
+    const customerMatches = customerId === providerCustomerId
+    const statusAllowed = ['active', 'trialing', 'past_due'].includes(subscription.status)
+    const priceMatches = subscription.items.data.some((item) => item.price?.id === process.env.STRIPE_PRO_PRICE_ID)
+    console.info('Stripe entitlement validation', {
+      hasProviderCustomerId: Boolean(providerCustomerId), customerMatches, status: subscription.status, statusAllowed, priceMatches,
+    })
+    return customerMatches && statusAllowed && priceMatches
   } catch (caught) {
     const isMissingCustomer = caught?.code === 'resource_missing' || caught?.statusCode === 404
     if (isMissingCustomer) return false
