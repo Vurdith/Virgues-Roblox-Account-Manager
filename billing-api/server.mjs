@@ -247,6 +247,7 @@ async function entitlementFor(userId) {
     plan: row.plan_key, entitlementStatus: row.entitlement_status, subscriptionStatus: row.subscription_status,
     hasSubscriptionId: Boolean(row.subscription_id), hasProviderCustomerId: Boolean(row.provider_customer_id), hasBillingCustomer,
   })
+  throw new Error(`Billing diagnostic plan=${row.plan_key} entitlement=${row.entitlement_status} subscription=${row.subscription_status || 'none'} hasSubscription=${Boolean(row.subscription_id)} hasProviderCustomer=${Boolean(row.provider_customer_id)} hasBillingCustomer=${hasBillingCustomer}`)
   if (row.plan_key === 'pro' && row.entitlement_status !== 'trial' && !(await hasLiveSubscription(row, row.provider_customer_id))) {
     return { planKey: 'free', planName: 'Free plan', entitlementStatus: 'free', subscriptionStatus: null, currentPeriodEnd: null, features: {}, hasBillingCustomer }
   }
