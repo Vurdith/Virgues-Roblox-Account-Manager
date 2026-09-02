@@ -203,23 +203,15 @@ async function customerFor(user) {
 }
 
 async function hasLiveSubscription(entitlement, providerCustomerId) {
-  if (entitlement.plan_key !== 'pro' || entitlement.entitlement_status === 'trial' || !entitlement.subscription_id || !providerCustomerId) {
-    console.error('Stripe entitlement validation skipped', {
-      plan: entitlement.plan_key, entitlementStatus: entitlement.entitlement_status,
-      hasSubscriptionId: Boolean(entitlement.subscription_id), hasProviderCustomerId: Boolean(providerCustomerId),
-    })
-    return false
-  }
+  const stripeSubscriptionId = entitlement.provider_subscription_id
+  if (entitlement.plan_key !== 'pro' || entitlement.entitlement_status === 'trial' || !stripeSubscriptionId || !providerCustomerId) return false
 
   try {
-    const subscription = await stripe.subscriptions.retrieve(entitlement.subscription_id)
+    const subscription = await stripe.subscriptions.retrieve(stripeSubscriptionId)
     const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id
     const customerMatches = customerId === providerCustomerId
     const statusAllowed = ['active', 'trialing', 'past_due'].includes(subscription.status)
     const priceMatches = subscription.items.data.some((item) => item.price?.id === process.env.STRIPE_PRO_PRICE_ID)
-    console.error('Stripe entitlement validation', {
-      hasProviderCustomerId: Boolean(providerCustomerId), customerMatches, status: subscription.status, statusAllowed, priceMatches,
-    })
     return customerMatches && statusAllowed && priceMatches
   } catch (caught) {
     const isMissingCustomer = caught?.code === 'resource_missing' || caught?.statusCode === 404
@@ -232,7 +224,7 @@ async function entitlementFor(userId) {
   const rows = await database.query(
     `SELECT ent.plan_key, ent.plan_name, ent.features, ent.entitlement_status, ent.trial_ends_at,
             ent.subscription_id, ent.subscription_status, ent.current_period_end,
-            subscription.provider_customer_id
+            subscription.provider_customer_id, subscription.provider_subscription_id
      FROM public.virgue_current_entitlements ent
      LEFT JOIN public.virgue_subscriptions subscription
        ON subscription.id = ent.subscription_id
@@ -243,12 +235,6 @@ async function entitlementFor(userId) {
   const hasBillingCustomer = Boolean(customer[0]?.stripe_customer_id)
   if (!rows[0]) return { planKey: 'free', planName: 'Free plan', entitlementStatus: 'free', subscriptionStatus: null, currentPeriodEnd: null, features: {}, hasBillingCustomer }
   const row = rows[0]
-  console.error('Billing entitlement row', {
-    plan: row.plan_key, entitlementStatus: row.entitlement_status, subscriptionStatus: row.subscription_status,
-    hasSubscriptionId: Boolean(row.subscription_id), hasProviderCustomerId: Boolean(row.provider_customer_id), hasBillingCustomer,
-  })
-  const liveSubscription = await hasLiveSubscription(row, row.provider_customer_id)
-  throw new Error(`Billing diagnostic plan=${row.plan_key} entitlement=${row.entitlement_status} subscription=${row.subscription_status || 'none'} hasSubscription=${Boolean(row.subscription_id)} hasProviderCustomer=${Boolean(row.provider_customer_id)} hasBillingCustomer=${hasBillingCustomer} liveSubscription=${liveSubscription}`)
   if (row.plan_key === 'pro' && row.entitlement_status !== 'trial' && !(await hasLiveSubscription(row, row.provider_customer_id))) {
     return { planKey: 'free', planName: 'Free plan', entitlementStatus: 'free', subscriptionStatus: null, currentPeriodEnd: null, features: {}, hasBillingCustomer }
   }
