@@ -252,7 +252,35 @@ async function planForPrice(priceId) {
 
 async function userForCustomer(customerId) {
   const rows = await database.query('SELECT user_id FROM public.virgue_billing_customers WHERE stripe_customer_id = $1', [customerId])
-  return rows[0]?.user_id || null
+  if (rows[0]?.user_id) return rows[0].user_id
+
+  // A subscription created in the Stripe Dashboard may not inherit the
+  // metadata that Checkout adds. Reconcile it by the verified customer email
+  // so a mode switch or an operator-created trial cannot strand an entitlement.
+  let customer
+  try {
+    customer = await stripe.customers.retrieve(customerId)
+  } catch (caught) {
+    const isMissingCustomer = caught?.code === 'resource_missing' || caught?.statusCode === 404
+    if (isMissingCustomer) return null
+    throw caught
+  }
+  if (!customer || customer.deleted || typeof customer.email !== 'string' || !customer.email.trim()) return null
+
+  const users = await database.query(
+    'SELECT id FROM neon_auth."user" WHERE lower(email) = lower($1) LIMIT 1',
+    [customer.email.trim()],
+  )
+  const userId = users[0]?.id || null
+  if (!userId) return null
+
+  await database.query(
+    `INSERT INTO public.virgue_billing_customers (user_id, stripe_customer_id)
+     VALUES ($1, $2)
+     ON CONFLICT (user_id) DO UPDATE SET stripe_customer_id = EXCLUDED.stripe_customer_id, updated_at = now()` ,
+    [userId, customerId],
+  )
+  return userId
 }
 
 async function syncSubscription(subscription, userIdHint = null) {
