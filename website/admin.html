@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ebe9e1" />
+    <meta name="description" content="Review customer access and manage repeatable complimentary Virgue Pro trials." />
+    <meta property="og:title" content="Admin — Virgue's Roblox Account Manager" />
+    <meta property="og:description" content="Manage customer access and complimentary Pro trials." />
+    <link rel="icon" href="./virgue-icon.png" />
+    <title>Admin — Virgue's Roblox Account Manager</title>
+  </head>
+  <body data-page="admin">
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <div class="site-shell">
+      <div data-site-header></div>
+      <main id="main-content" class="admin-main">
+        <section class="admin-page section-shell" id="admin-page">
+          <div class="admin-access-panel" id="admin-access-panel">
+            <span class="account-eyebrow">Admin</span>
+            <h1 id="admin-access-heading">Checking access</h1>
+            <p id="admin-access-copy">Checking your administrator access.</p>
+            <p class="site-status" id="admin-access-status" role="status" aria-live="polite"></p>
+            <a class="button button-light" href="./account.html">Open account</a>
+          </div>
+
+          <div id="admin-dashboard" hidden>
+            <header class="admin-page-header">
+              <div>
+                <span class="account-eyebrow">Admin</span>
+                <h1>Grant Pro trials</h1>
+                <p>Search an account, review its access and trial history, then grant complimentary Pro time when needed.</p>
+              </div>
+              <p class="admin-operator" id="admin-operator"></p>
+            </header>
+
+            <div class="admin-layout">
+              <section class="admin-panel admin-customers-panel" aria-labelledby="admin-customers-heading">
+                <div class="admin-panel-heading">
+                  <div>
+                    <span class="account-eyebrow">Customers</span>
+                    <h2 id="admin-customers-heading">Find an account</h2>
+                  </div>
+                  <span id="admin-result-count" aria-live="polite"></span>
+                </div>
+
+                <form class="admin-search-form" id="admin-search-form">
+                  <label class="site-field">Email or name<input id="admin-search" type="search" autocomplete="off" required placeholder="you@example.com" /></label>
+                  <button class="button button-dark" id="admin-search-submit" type="submit">Search</button>
+                </form>
+                <p class="site-status" id="admin-search-status" role="status" aria-live="polite"></p>
+                <div class="admin-results" id="admin-results" aria-live="polite"></div>
+              </section>
+
+              <aside class="admin-panel admin-trial-panel" id="admin-trial-panel" hidden aria-labelledby="admin-trial-heading">
+                <div class="admin-panel-heading">
+                  <div>
+                    <span class="account-eyebrow">Trial access</span>
+                    <h2 id="admin-trial-heading">Grant Pro access</h2>
+                  </div>
+                  <button class="text-link" id="admin-trial-close" type="button">Close</button>
+                </div>
+
+                <div class="admin-selected-customer">
+                  <strong id="admin-trial-name"></strong>
+                  <small id="admin-trial-email"></small>
+                </div>
+
+                <div class="admin-trial-details" id="admin-trial-details"></div>
+
+                <form class="admin-trial-form" id="admin-trial-form">
+                  <div class="admin-duration-fields">
+                    <label class="site-field">Amount<input id="admin-trial-value" type="number" min="1" step="1" value="14" inputmode="numeric" required /></label>
+                    <label class="site-field">Unit<select id="admin-trial-unit"><option value="minute">Minutes</option><option value="hour">Hours</option><option value="day" selected>Days</option><option value="week">Weeks</option></select></label>
+                  </div>
+                  <label class="site-field">Internal note <span class="muted-label">Optional</span><textarea id="admin-trial-note" maxlength="280" rows="4" placeholder="Why is this trial being granted?"></textarea></label>
+                  <button class="button button-coral" type="submit">Grant Pro trial <span aria-hidden="true">→</span></button>
+                </form>
+                <p class="site-status" id="admin-trial-status" role="status" aria-live="polite"></p>
+              </aside>
+            </div>
+          </div>
+        </section>
+      </main>
+      <div data-site-footer></div>
+    </div>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

@@ -19,7 +19,10 @@ import type {
   WatcherUpdateInput,
   WebApiUpdateInput,
   AppSettings,
+  BackgroundInputCommandInput,
   ControlSettings,
+  IsolatedWorkerCommandInput,
+  IsolatedWorkerConnectionInput,
   AuthCredentialsInput,
   AuthSignUpInput,
   VirgueApi,
@@ -73,6 +76,10 @@ export const IPC_CHANNELS = {
   webApiUpdate: 'web-api:update',
   webApiStart: 'web-api:start',
   webApiStop: 'web-api:stop',
+  isolatedWorkerGetSessions: 'isolated-worker:get-sessions',
+  isolatedWorkerSendInput: 'isolated-worker:send-input',
+  backgroundInputGetSessions: 'background-input:get-sessions',
+  backgroundInputSend: 'background-input:send',
   watcherUpdate: 'watcher:update',
   watcherCheck: 'watcher:check',
   sessionsGetSnapshot: 'sessions:get-snapshot',
@@ -146,6 +153,10 @@ export interface IpcPayloads {
   [IPC_CHANNELS.webApiUpdate]: WebApiUpdateInput
   [IPC_CHANNELS.webApiStart]: undefined
   [IPC_CHANNELS.webApiStop]: undefined
+  [IPC_CHANNELS.isolatedWorkerGetSessions]: IsolatedWorkerConnectionInput
+  [IPC_CHANNELS.isolatedWorkerSendInput]: IsolatedWorkerCommandInput
+  [IPC_CHANNELS.backgroundInputGetSessions]: undefined
+  [IPC_CHANNELS.backgroundInputSend]: BackgroundInputCommandInput
   [IPC_CHANNELS.watcherUpdate]: WatcherUpdateInput
   [IPC_CHANNELS.watcherCheck]: undefined
   [IPC_CHANNELS.sessionsGetSnapshot]: undefined

@@ -1,0 +1,14 @@
+# Desktop-only build output and media are not part of the website deployment.
+node_modules
+launch-video
+release
+build
+out
+website-dist
+native/bin
+*.obj
+*.exe
+
+# Never upload local environment files to the deployment source bundle.
+.env*
+.vercel

@@ -14,7 +14,7 @@
 
 ## 1. Executive summary
 
-Bulk launch profiles already exist and should remain part of the core product. They are useful, but they are not by themselves a durable reason to pay every month.
+Bulk launch profiles already exist and should be reserved for Virgue Pro. The Free plan remains useful with individual launches, while the paid tier can make multi-account routines meaningfully faster.
 
 The subscription should be built around four outcomes:
 
@@ -290,12 +290,13 @@ If the user cannot feel that value within their first week, conversion and reten
 The free tier should include enough of the core product to build trust:
 
 - local account creation and login;
+- up to two unique Roblox account slots;
 - local encrypted storage;
 - account removal and data export;
+- two game collection slots;
 - game collections and categories;
 - basic thumbnail and game information refresh;
 - single-account launch;
-- bulk launch profiles;
 - basic session view;
 - basic server browsing;
 - basic Job ID, region, player, and ping filters;
@@ -311,6 +312,8 @@ The free tier can have shorter history retention or fewer saved presets, but it 
 
 Pro should unlock:
 
+- unlimited Roblox account and game collection slots;
+- bulk launch profiles;
 - Session Guardian and detailed session timeline;
 - long-term activity and performance history;
 - encrypted cross-device vault sync;
@@ -1882,7 +1885,7 @@ The panel must never allow:
 - yellow filled favourite star;
 - account count and category count as secondary metadata;
 - clear Add Account action;
-- clear Launch shown action;
+- clear gated Bulk launch action;
 - game refresh status;
 - category icon and count;
 - edit and delete actions grouped together;

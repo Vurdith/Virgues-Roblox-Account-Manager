@@ -37,3 +37,32 @@ variables from `.env.example` in the Vercel project, then use the same Vercel
 origin for `VITE_VIRGUE_BILLING_API_URL` with an `/api` suffix if you want to
 override the website's same-origin default. The Stripe webhook URL becomes
 `https://<your-site>/api/webhooks/stripe`.
+
+## Admin dashboard
+
+Run migrations `005_admin_dashboard.sql`, `006_custom_trial_duration.sql`, and
+`007_repeatable_trial_grants.sql` after migrations `001` through `004`.
+Migration `005` creates `virgue_admins`,
+seeds the first owner by resolving
+`reeceleneveu@gmail.com` in Neon Auth, and adds the operator and note fields to
+manual trial grants. Migration `006` adds the custom trial amount and unit
+fields. Migration `007` enables repeat grants and preserves trial history. If
+that account did not exist when migration `005` ran,
+create the account first and rerun the seed insert from migration `005`.
+
+The owner-only website surface is `/admin.html`. The account dropdown reveals
+its Admin link only after `GET /api/admin/me` succeeds. The dashboard uses:
+
+- `GET /api/admin/customers?q=...` to search account email addresses and names.
+- `POST /api/admin/trials` to grant a complimentary Pro trial with a custom
+  amount and unit (`minute`, `hour`, `day`, or `week`). Trials must be at least
+  one minute and no longer than 90 days, with an optional internal note. A
+  customer can receive multiple grants; a new grant is scheduled after any
+  existing active or scheduled grant. The legacy `{ days }` request field
+  remains supported for older clients.
+
+Admin authorization is checked server-side against the Neon Auth user ID in
+`virgue_admins`; an email shown in the browser is never sufficient. A manual
+trial changes the resolved entitlement until its expiry, but does not create a
+Stripe subscription or charge the customer. Keep the database URL, Stripe
+secrets, and Neon Auth signing configuration server-side.

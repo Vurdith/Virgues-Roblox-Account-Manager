@@ -172,6 +172,217 @@ async function requireUser(request) {
   }
 }
 
+async function requireAdmin(request) {
+  const user = await requireUser(request)
+  const rows = await database.query(
+    'SELECT 1 FROM public.virgue_admins WHERE user_id = $1 LIMIT 1',
+    [user.id],
+  )
+  if (!rows[0]) throw new BillingRequestError(403, 'Admin access is required.')
+  return user
+}
+
+function adminEmail(value) {
+  if (typeof value !== 'string') throw new BillingRequestError(400, 'Enter a customer email address.')
+  const email = value.trim().toLowerCase()
+  if (!email || email.length > 320 || !email.includes('@')) throw new BillingRequestError(400, 'Enter a valid customer email address.')
+  return email
+}
+
+const TRIAL_UNIT_SECONDS = Object.freeze({
+  minute: 60,
+  hour: 60 * 60,
+  day: 24 * 60 * 60,
+  week: 7 * 24 * 60 * 60,
+})
+const MAX_TRIAL_SECONDS = 90 * TRIAL_UNIT_SECONDS.day
+
+function trialDuration(value, unit) {
+  const amount = Number(value)
+  const normalizedUnit = typeof unit === 'string' ? unit.trim().toLowerCase().replace(/s$/, '') : ''
+  const secondsPerUnit = Object.prototype.hasOwnProperty.call(TRIAL_UNIT_SECONDS, normalizedUnit)
+    ? TRIAL_UNIT_SECONDS[normalizedUnit]
+    : 0
+  if (!Number.isSafeInteger(amount) || amount < 1) {
+    throw new BillingRequestError(400, 'Trial duration must be a whole number of at least 1.')
+  }
+  if (!secondsPerUnit) {
+    throw new BillingRequestError(400, 'Choose minutes, hours, days, or weeks for the trial unit.')
+  }
+  const seconds = amount * secondsPerUnit
+  if (seconds > MAX_TRIAL_SECONDS) {
+    throw new BillingRequestError(400, 'Trial length cannot exceed 90 days.')
+  }
+  return {
+    value: amount,
+    unit: normalizedUnit,
+    seconds,
+    days: Math.ceil(seconds / TRIAL_UNIT_SECONDS.day),
+  }
+}
+
+function trialDurationFromPayload(body) {
+  if (body.durationValue !== undefined || body.durationUnit !== undefined) {
+    return trialDuration(body.durationValue, body.durationUnit)
+  }
+  // Keep the original API shape working for older admin pages and scripts.
+  return trialDuration(body.days, 'day')
+}
+
+function trialNote(value) {
+  if (value === undefined || value === null) return ''
+  if (typeof value !== 'string' || value.trim().length > 280) throw new BillingRequestError(400, 'The trial note must be 280 characters or fewer.')
+  return value.trim()
+}
+
+function trialHistoryValue(value) {
+  if (Array.isArray(value)) return value
+  if (typeof value !== 'string') return []
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function adminCustomer(row) {
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name || '',
+    planKey: row.plan_key || 'free',
+    planName: row.plan_name || 'Free plan',
+    entitlementStatus: row.entitlement_status || 'free',
+    subscriptionStatus: row.subscription_status || null,
+    currentPeriodEnd: row.current_period_end || null,
+    trialEndsAt: row.trial_ends_at || null,
+    trialCount: Number(row.trial_count || 0),
+    trialHistory: trialHistoryValue(row.trial_history),
+    hasTrialGrant: Boolean(row.has_trial_grant),
+  }
+}
+
+async function adminCustomers(search) {
+  const query = search.trim().toLowerCase()
+  if (!query) return []
+  if (query.length < 2) throw new BillingRequestError(400, 'Enter at least 2 characters to search.')
+  if (query.length > 120) throw new BillingRequestError(400, 'Search text is too long.')
+  const rows = await database.query(
+    `SELECT u.id, u.email, u.name,
+            ent.plan_key, ent.plan_name, ent.entitlement_status,
+            ent.subscription_status, ent.current_period_end, ent.trial_ends_at,
+            trial_count.trial_count,
+            trial_history.trial_history,
+            EXISTS (
+              SELECT 1
+              FROM public.virgue_trial_grants grant_row
+              WHERE grant_row.user_id = u.id
+            ) AS has_trial_grant
+     FROM neon_auth."user" u
+     LEFT JOIN public.virgue_current_entitlements ent ON ent.user_id = u.id
+     LEFT JOIN LATERAL (
+       SELECT count(*)::integer AS trial_count
+       FROM public.virgue_trial_grants grant_row
+       WHERE grant_row.user_id = u.id
+     ) trial_count ON true
+     LEFT JOIN LATERAL (
+       SELECT COALESCE(
+         json_agg(json_build_object(
+           'id', grant_row.id,
+           'startedAt', grant_row.started_at,
+           'endsAt', grant_row.ends_at,
+           'durationDays', grant_row.duration_days,
+           'durationValue', grant_row.duration_value,
+           'durationUnit', grant_row.duration_unit,
+           'source', grant_row.source,
+           'note', grant_row.note
+         ) ORDER BY grant_row.started_at DESC),
+         '[]'::json
+       ) AS trial_history
+       FROM (
+         SELECT id, started_at, ends_at, duration_days, duration_value, duration_unit, source, note
+         FROM public.virgue_trial_grants
+         WHERE user_id = u.id
+         ORDER BY started_at DESC
+         LIMIT 20
+       ) grant_row
+     ) trial_history ON true
+     WHERE position($1 in lower(u.email)) > 0
+        OR position($1 in lower(coalesce(u.name, ''))) > 0
+     ORDER BY lower(u.email)
+     LIMIT 50`,
+    [query],
+  )
+  return Promise.all(rows.map(async (row) => {
+    if (row.plan_key !== 'pro') return adminCustomer(row)
+    const entitlement = await entitlementFor(row.id)
+    return adminCustomer({
+      ...row,
+      plan_key: entitlement.planKey,
+      plan_name: entitlement.planName,
+      entitlement_status: entitlement.entitlementStatus,
+      subscription_status: entitlement.subscriptionStatus,
+      current_period_end: entitlement.currentPeriodEnd,
+      trial_ends_at: entitlement.trialEndsAt,
+    })
+  }))
+}
+
+async function grantTrial(admin, payload) {
+  const body = asRecord(payload)
+  const email = adminEmail(body.email)
+  const duration = trialDurationFromPayload(body)
+  const note = trialNote(body.note)
+  const users = await database.query(
+    'SELECT id, email, name FROM neon_auth."user" WHERE lower(email) = $1 LIMIT 1',
+    [email],
+  )
+  const user = users[0]
+  if (!user) throw new BillingRequestError(404, 'No Virgue account was found for that email.')
+
+  const current = await entitlementFor(user.id)
+  if (current.planKey === 'pro' && current.entitlementStatus !== 'trial') {
+    throw new BillingRequestError(409, 'That account already has paid Pro access.')
+  }
+
+  const inserted = await database.query(
+    `WITH locked AS (
+       SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0)) AS acquired
+     ), schedule AS (
+       SELECT GREATEST(
+         now(),
+         COALESCE(MAX(grant_row.ends_at) FILTER (WHERE grant_row.ends_at > now()), now())
+       ) AS starts_at
+       FROM public.virgue_trial_grants grant_row
+       CROSS JOIN locked
+       WHERE grant_row.user_id = $1::uuid
+     )
+     INSERT INTO public.virgue_trial_grants
+       (id, user_id, started_at, ends_at, duration_days, duration_value, duration_unit, source, granted_by, note)
+     SELECT gen_random_uuid(), $1::uuid, schedule.starts_at,
+            schedule.starts_at + ($3 * interval '1 second'),
+            CEIL($3 / 86400.0)::integer, $2, $4, 'manual', $5, $6
+     FROM schedule
+     RETURNING id, started_at, ends_at, duration_days, duration_value, duration_unit, source, note`,
+    [user.id, duration.value, duration.seconds, duration.unit, admin.id, note],
+  )
+  if (!inserted[0]) throw new BillingRequestError(500, 'The Pro trial could not be created.')
+  return {
+    id: inserted[0].id,
+    userId: user.id,
+    email: user.email,
+    name: user.name || '',
+    startedAt: inserted[0].started_at,
+    endsAt: inserted[0].ends_at,
+    durationDays: inserted[0].duration_days,
+    durationValue: inserted[0].duration_value,
+    durationUnit: inserted[0].duration_unit,
+    source: inserted[0].source,
+    note: inserted[0].note || '',
+  }
+}
+
 async function customerFor(user) {
   const existing = await database.query('SELECT stripe_customer_id FROM public.virgue_billing_customers WHERE user_id = $1', [user.id])
   const existingCustomerId = existing[0]?.stripe_customer_id
@@ -222,7 +433,8 @@ async function hasLiveSubscription(entitlement, providerCustomerId) {
 
 async function entitlementFor(userId) {
   const rows = await database.query(
-    `SELECT ent.plan_key, ent.plan_name, ent.features, ent.entitlement_status, ent.trial_ends_at,
+    `SELECT ent.plan_key, ent.plan_name, ent.features, ent.entitlement_status,
+            ent.trial_started_at, ent.trial_ends_at,
             ent.subscription_id, ent.subscription_status, ent.current_period_end,
             subscription.provider_customer_id, subscription.provider_subscription_id
      FROM public.virgue_current_entitlements ent
@@ -235,8 +447,25 @@ async function entitlementFor(userId) {
   const hasBillingCustomer = Boolean(customer[0]?.stripe_customer_id)
   if (!rows[0]) return { planKey: 'free', planName: 'Free plan', entitlementStatus: 'free', subscriptionStatus: null, currentPeriodEnd: null, features: {}, hasBillingCustomer }
   const row = rows[0]
-  if (row.plan_key === 'pro' && row.entitlement_status !== 'trial' && !(await hasLiveSubscription(row, row.provider_customer_id))) {
+  const hasActiveManualTrial = row.trial_ends_at && new Date(row.trial_ends_at).getTime() > Date.now()
+  const hasValidPaidSubscription = row.plan_key === 'pro'
+    && row.entitlement_status !== 'trial'
+    && await hasLiveSubscription(row, row.provider_customer_id)
+  if (row.plan_key === 'pro' && row.entitlement_status !== 'trial' && !hasValidPaidSubscription && !hasActiveManualTrial) {
     return { planKey: 'free', planName: 'Free plan', entitlementStatus: 'free', subscriptionStatus: null, currentPeriodEnd: null, features: {}, hasBillingCustomer }
+  }
+  if (hasActiveManualTrial && !hasValidPaidSubscription) {
+    return {
+      planKey: 'pro',
+      planName: 'Virgue Pro',
+      entitlementStatus: 'trial',
+      subscriptionStatus: null,
+      currentPeriodEnd: null,
+      trialStartedAt: row.trial_started_at,
+      trialEndsAt: row.trial_ends_at,
+      features: row.features || {},
+      hasBillingCustomer,
+    }
   }
   return {
     planKey: row.plan_key,
@@ -244,6 +473,7 @@ async function entitlementFor(userId) {
     entitlementStatus: row.entitlement_status,
     subscriptionStatus: row.subscription_status,
     currentPeriodEnd: row.current_period_end,
+    trialStartedAt: row.trial_started_at,
     trialEndsAt: row.trial_ends_at,
     features: row.features || {},
     hasBillingCustomer,
@@ -426,6 +656,19 @@ async function handleApi(request, response, origin) {
   if (origin && !allowedOrigins.has(origin)) return error(response, 403, 'This website origin is not allowed to use billing.', origin)
   const url = requestUrl(request)
   if (request.method === 'GET' && url.pathname === '/health') return send(response, 200, { ok: true }, origin)
+
+  if (url.pathname.startsWith('/admin/')) {
+    const admin = await requireAdmin(request)
+    if (request.method === 'GET' && url.pathname === '/admin/me') return send(response, 200, { admin: true, email: admin.email }, origin)
+    if (request.method === 'GET' && url.pathname === '/admin/customers') {
+      return send(response, 200, { customers: await adminCustomers(url.searchParams.get('q') || '') }, origin)
+    }
+    if (request.method === 'POST' && url.pathname === '/admin/trials') {
+      const trial = await grantTrial(admin, parseJson(await readBody(request)))
+      return send(response, 201, { trial }, origin)
+    }
+    return error(response, 404, 'Admin endpoint not found.', origin)
+  }
 
   const user = await requireUser(request)
   if (request.method === 'GET' && url.pathname === '/billing/me') return send(response, 200, await entitlementFor(user.id), origin)

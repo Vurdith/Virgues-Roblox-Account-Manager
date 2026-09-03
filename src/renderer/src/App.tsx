@@ -11,12 +11,16 @@ import type {
   AuthSignUpInput,
   AppSettings,
   AppSnapshot,
+  BackgroundInputCommandResult,
+  BackgroundInputSnapshot,
   CategoryIcon,
   ControlAccount,
   ControlCommand,
   ControlSettings,
   GameCollection,
   GameSearchResult,
+  IsolatedWorkerInputKey,
+  IsolatedWorkerSnapshot,
   PlayerLookup,
   RecentGame,
   RecoveryJob,
@@ -36,6 +40,7 @@ import type {
   UpdateAccountInput,
   UpdateCategoryInput,
   PlanEntitlements,
+  WindowInputKey,
   VirgueAuthSession,
   AppUpdateEvent,
 } from '@shared/types'
@@ -57,6 +62,7 @@ const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; description: string
 ]
 
 const DEFAULT_ENTITLEMENTS = getPlanEntitlements()
+const PRICING_URL = 'https://virgues-roblox-account-manager.vercel.app/pricing.html'
 
 interface ActivityItem { id: number; message: string; detail: string; tone: ActivityTone }
 
@@ -296,6 +302,24 @@ function App() {
     return () => window.clearInterval(timer)
   }, [])
 
+  useEffect(() => {
+    if (!authSession) return
+    const refreshBilling = () => {
+      void window.virgue.billing.refresh()
+        .then(() => window.virgue.app.getSnapshot())
+        .then(setSnapshot)
+        .catch(() => {
+          // Keep the last known entitlement when billing is temporarily unavailable.
+        })
+    }
+    const timer = window.setInterval(refreshBilling, 30_000)
+    window.addEventListener('focus', refreshBilling)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', refreshBilling)
+    }
+  }, [authSession?.user.id])
+
   const pushActivity = (message: string, detail: string, tone: ActivityTone = 'normal') => setActivity((current) => [{ id: Date.now(), message, detail, tone }, ...current].slice(0, 40))
   const setErrorFrom = (caught: unknown, fallback: string) => setError(caught instanceof Error ? caught.message : fallback)
   const updateSnapshot = (next: AppSnapshot) => setSnapshot(next)
@@ -483,11 +507,11 @@ function App() {
     } catch (caught) { setErrorFrom(caught, 'Import failed.') }
   }
 
-  const handleSetting = async (input: Partial<AppSettings>) => {
+  const handleSetting = async (input: Partial<AppSettings>, announce = true) => {
     try {
       const settings = await window.virgue.settings.update(input)
       setSnapshot((current) => current ? { ...current, settings } : current)
-      pushActivity('Settings saved', 'Workspace preferences updated', 'positive')
+      if (announce) pushActivity('Settings saved', 'Workspace preferences updated', 'positive')
     } catch (caught) { setErrorFrom(caught, 'Settings could not be saved.') }
   }
 
@@ -558,8 +582,8 @@ function App() {
     </main>
   </div>
 
-  const workspaceEyebrow = activeView === 'accounts' ? 'Profiles' : activeView === 'games' ? 'Collections' : activeView === 'sessions' ? 'Live activity' : activeView === 'servers' ? 'Roblox servers' : activeView === 'control' ? 'Control bridge' : activeView === 'activity' ? 'Workspace history' : activeView === 'settings' ? 'Preferences' : 'Workspace tools'
-  const workspaceTitle = activeView === 'accounts' ? 'Account desk' : activeView === 'games' ? 'Game shelf' : activeView === 'sessions' ? 'Session board' : activeView === 'servers' ? 'Server list' : activeView === 'control' ? 'Account Control' : activeView === 'activity' ? 'Activity centre' : activeView === 'settings' ? 'Settings' : 'Utilities'
+  const workspaceEyebrow = activeView === 'accounts' ? 'Profiles' : activeView === 'games' ? 'Collections' : activeView === 'sessions' ? 'Live activity' : activeView === 'servers' ? 'Roblox servers' : activeView === 'control' ? 'Background input' : activeView === 'activity' ? 'Workspace history' : activeView === 'settings' ? 'Preferences' : 'Workspace tools'
+  const workspaceTitle = activeView === 'accounts' ? 'Account desk' : activeView === 'games' ? 'Game shelf' : activeView === 'sessions' ? 'Session board' : activeView === 'servers' ? 'Server list' : activeView === 'control' ? 'Alt controls' : activeView === 'activity' ? 'Activity centre' : activeView === 'settings' ? 'Settings' : 'Utilities'
 
   return <div className={`app-shell ${themeClass}`}>
     <header className={`titlebar ${isAccountMenuOpen ? 'account-menu-open' : ''}`}>
@@ -579,7 +603,7 @@ function App() {
 
     <div className={`app-body ${activeView === 'settings' ? 'settings-mode' : ''}`}>
       <aside className="sidebar">
-        <div className="sidebar-intro"><span className="eyebrow">Your workspace</span><h2>{activeView === 'games' ? 'Game shelf' : activeView === 'activity' ? 'Activity centre' : activeView === 'settings' ? 'Settings' : 'Account desk'}</h2><p>{activeView === 'games' ? 'Make a game collection for each experience, then sort profiles into useful categories.' : activeView === 'activity' ? 'A clear timeline for balances, launches, presence checks, and workspace changes.' : activeView === 'settings' ? 'Manage app features, privacy, and billing from one place.' : 'Keep local profiles clear, grouped by game, and ready for the next session.'}</p></div>
+        <div className="sidebar-intro"><span className="eyebrow">Your workspace</span><h2>{activeView === 'games' ? 'Game shelf' : activeView === 'control' ? 'Alt controls' : activeView === 'activity' ? 'Activity centre' : activeView === 'settings' ? 'Settings' : 'Account desk'}</h2><p>{activeView === 'games' ? 'Make a game collection for each experience, then sort profiles into useful categories.' : activeView === 'control' ? 'Protect the account you are playing, then send short inputs to selected alt clients.' : activeView === 'activity' ? 'A clear timeline for balances, launches, presence checks, and workspace changes.' : activeView === 'settings' ? 'Manage app features, privacy, and billing from one place.' : 'Keep local profiles clear, grouped by game, and ready for the next session.'}</p></div>
         <div className="sidebar-actions"><button type="button" className="primary-button full-button" disabled={accountLimitReached} title={accountLimitReached ? getPlanLimitError(entitlements, 'accounts') : undefined} onClick={() => { setActiveView('accounts'); handleAddAccount() }}><Icon name="plus" size={17} /> Add Account</button><button type="button" className="outline-button full-button" onClick={() => setActiveView('games')}><Icon name="game" size={17} /> Manage games</button></div>
         <div className="sidebar-section"><div className="section-heading"><span>Games</span><span className="section-count">{games.length}</span></div><div className="group-list"><button type="button" className={`group-button ${selectedGameId === 'all' ? 'active' : ''}`} onClick={() => { setSelectedGameId('all'); setSelectedCategoryId('all'); setActiveView('accounts') }}><span className="group-name"><span className="tree-icon"><Icon name="grid" size={14} /></span>All games</span><span>{uniqueWorkspaceAccounts.length}</span></button>{games.map((game) => <div className="game-tree" key={game.id}><button type="button" className={`group-button ${selectedGameId === game.id && selectedCategoryId === 'all' ? 'active' : ''}`} onClick={() => { setSelectedGameId(game.id); setSelectedCategoryId('all'); setActiveView('accounts') }}><span className="group-name"><span className="tree-icon game-tree-icon"><Icon name={game.favorite ? 'star' : 'game'} size={14} filled={game.favorite} /></span>{game.name}</span><span>{accounts.filter((account) => account.gameId === game.id).length}</span></button>{game.categories.map((category) => <button type="button" className={`category-button ${selectedGameId === game.id && selectedCategoryId === category.id ? 'active' : ''}`} key={category.id} onClick={() => { setSelectedGameId(game.id); setSelectedCategoryId(category.id); setActiveView('accounts') }}><span className="category-icon"><Icon name={category.icon ?? 'folder'} size={13} /></span>{category.name}<span>{accounts.filter((account) => account.gameId === game.id && account.categoryId === category.id).length}</span></button>)}</div>)}</div></div>
       </aside>
@@ -606,9 +630,9 @@ function App() {
           {activeView === 'sessions' && <SessionsView accounts={accounts} games={games} sessions={sessionSnapshot} onSelect={(id) => { setSelectedId(id); setActiveView('accounts') }} onCopy={handleCopyText} onStop={handleStopSession} onCancelRecovery={handleCancelRecovery} />}
           {activeView === 'servers' && <ServersView selectedAccount={selectedAccount} recentGames={uniqueRecentGames(snapshot?.recentGames ?? [])} launching={launchingAccountId === selectedAccount?.id} onLaunch={(place, job, gameId) => handleLaunch(place, job, undefined, undefined, undefined, gameId ? { gameId } : undefined)} onCopy={handleCopyText} onActivity={pushActivity} onError={(message) => setError(message)} />}
           {activeView === 'utilities' && <UtilitiesView selectedAccount={selectedAccount} onImport={handleImport} onExport={async () => { const path = await window.virgue.app.exportData(); if (path) pushActivity('Export complete', path, 'positive') }} onCookieImport={() => setShowCookieImport(true)} onError={(message) => setError(message)} onActivity={pushActivity} />}
-          {activeView === 'control' && <ControlView accounts={snapshot?.controlAccounts ?? []} commands={snapshot?.controlCommands ?? []} control={snapshot?.control} onError={(message) => setError(message)} onActivity={pushActivity} />}
+          {activeView === 'control' && <ControlView accounts={snapshot?.controlAccounts ?? []} commands={snapshot?.controlCommands ?? []} control={snapshot?.control} settings={snapshot?.settings ?? null} entitlements={entitlements} onSettings={handleSetting} onError={(message) => setError(message)} onActivity={pushActivity} />}
           {activeView === 'activity' && <ActivityCentreView activity={activity} sessions={sessionSnapshot} accounts={accounts} games={games} onSelect={(id) => { setSelectedId(id); setActiveView('accounts') }} onCopy={handleCopyText} onRejoin={async (session) => { await handleLaunch(session.placeId, session.jobId || session.targetJobId, undefined, undefined, session.accountId) }} />}
-          {activeView === 'settings' && <SettingsView settings={snapshot?.settings ?? null} client={snapshot?.client} webApi={snapshot?.webApi} watcher={snapshot?.watcher} control={snapshot?.control} entitlements={entitlements} accountCount={uniqueWorkspaceAccounts.length} gameCount={games.length} onSettings={handleSetting} onClientUpdate={(client) => setSnapshot((current) => current ? { ...current, client } : current)} onControl={handleControlSetting} onBillingRefresh={async () => { try { await window.virgue.billing.refresh(); setSnapshot(await window.virgue.app.getSnapshot()); pushActivity('Plan refreshed', 'Subscription access updated from your Virgue account.', 'positive') } catch (caught) { setErrorFrom(caught, 'Could not refresh your plan.') } }} onMultiInstanceChange={handleMultiInstanceSetting} onError={(message) => setError(message)} onActivity={pushActivity} />}
+          {activeView === 'settings' && <SettingsView settings={snapshot?.settings ?? null} client={snapshot?.client} webApi={snapshot?.webApi} watcher={snapshot?.watcher} control={snapshot?.control} entitlements={entitlements} accountCount={uniqueWorkspaceAccounts.length} gameCount={games.length} onSettings={handleSetting} onClientUpdate={(client) => setSnapshot((current) => current ? { ...current, client } : current)} onWebApiUpdate={(webApi) => setSnapshot((current) => current ? { ...current, webApi } : current)} onControl={handleControlSetting} onMultiInstanceChange={handleMultiInstanceSetting} onError={(message) => setError(message)} onActivity={pushActivity} />}
         </div>
       </main>
 
@@ -1491,13 +1515,288 @@ function UtilitiesView({ selectedAccount, onImport, onExport, onCookieImport, on
   </section>
 }
 
-function ControlView({ accounts, commands, control, onError, onActivity }: { accounts: ControlAccount[]; commands: ControlCommand[]; control?: ControlSettings; onError: (message: string) => void; onActivity: (message: string, detail: string, tone?: ActivityTone) => void }) {
+const WINDOW_INPUT_KEYS: Array<{ code: WindowInputKey; label: string; group: 'movement' | 'arrow' | 'action' | 'hotbar' }> = [
+  { code: 'KeyW', label: 'W', group: 'movement' },
+  { code: 'KeyA', label: 'A', group: 'movement' },
+  { code: 'KeyS', label: 'S', group: 'movement' },
+  { code: 'KeyD', label: 'D', group: 'movement' },
+  { code: 'ArrowUp', label: '↑', group: 'arrow' },
+  { code: 'ArrowLeft', label: '←', group: 'arrow' },
+  { code: 'ArrowDown', label: '↓', group: 'arrow' },
+  { code: 'ArrowRight', label: '→', group: 'arrow' },
+  { code: 'Space', label: 'Space', group: 'action' },
+  { code: 'ShiftLeft', label: 'Shift', group: 'action' },
+  { code: 'KeyE', label: 'E', group: 'action' },
+  { code: 'KeyQ', label: 'Q', group: 'action' },
+  { code: 'KeyR', label: 'R', group: 'action' },
+  { code: 'KeyF', label: 'F', group: 'action' },
+  { code: 'Digit1', label: '1', group: 'hotbar' },
+  { code: 'Digit2', label: '2', group: 'hotbar' },
+  { code: 'Digit3', label: '3', group: 'hotbar' },
+  { code: 'Digit4', label: '4', group: 'hotbar' },
+  { code: 'Digit5', label: '5', group: 'hotbar' },
+  { code: 'Digit6', label: '6', group: 'hotbar' },
+  { code: 'Digit7', label: '7', group: 'hotbar' },
+  { code: 'Digit8', label: '8', group: 'hotbar' },
+  { code: 'Digit9', label: '9', group: 'hotbar' },
+  { code: 'Digit0', label: '0', group: 'hotbar' },
+]
+
+function windowInputLabel(key: WindowInputKey): string {
+  return WINDOW_INPUT_KEYS.find((candidate) => candidate.code === key)?.label ?? key
+}
+
+function WindowInputPad({ disabled, onSend }: { disabled: boolean; onSend: (key: WindowInputKey) => void }) {
+  const movement = WINDOW_INPUT_KEYS.filter((key) => key.group === 'movement')
+  const arrows = WINDOW_INPUT_KEYS.filter((key) => key.group === 'arrow')
+  const actions = WINDOW_INPUT_KEYS.filter((key) => key.group === 'action')
+  const hotbar = WINDOW_INPUT_KEYS.filter((key) => key.group === 'hotbar')
+  const keyButton = (key: { code: WindowInputKey; label: string }) => <button type="button" key={key.code} disabled={disabled} aria-label={`Send ${key.label}`} onClick={() => onSend(key.code)}>{key.label}</button>
+  return <>
+    <div className="background-direction-pads">
+      <div className="worker-movement-pad" aria-label="Movement keys"><span />{keyButton(movement[0]!)}<span />{keyButton(movement[1]!)}{keyButton(movement[2]!)}{keyButton(movement[3]!)}</div>
+      <div className="worker-movement-pad" aria-label="Arrow keys"><span />{keyButton(arrows[0]!)}<span />{keyButton(arrows[1]!)}{keyButton(arrows[2]!)}{keyButton(arrows[3]!)}</div>
+    </div>
+    <div className="worker-action-keys">{actions.map(keyButton)}</div>
+    <div className="background-hotbar-keys" aria-label="Hotbar keys">{hotbar.map(keyButton)}</div>
+  </>
+}
+
+interface ControlViewProps {
+  accounts: ControlAccount[]
+  commands: ControlCommand[]
+  control?: ControlSettings
+  settings: AppSettings | null
+  entitlements: PlanEntitlements
+  onSettings: (input: Partial<AppSettings>, announce?: boolean) => Promise<void>
+  onError: (message: string) => void
+  onActivity: (message: string, detail: string, tone?: ActivityTone) => void
+}
+
+function ControlView({ accounts, commands, control, settings, entitlements, onSettings, onError, onActivity }: ControlViewProps) {
+  const [background, setBackground] = useState<BackgroundInputSnapshot | null>(null)
+  const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([])
+  const [durationMs, setDurationMs] = useState(180)
+  const [loadingSessions, setLoadingSessions] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [loadError, setLoadError] = useState('')
+  const [lastResult, setLastResult] = useState<BackgroundInputCommandResult | null>(null)
+  const proAccess = entitlements.isolatedWorkerInput
+
+  useEffect(() => {
+    if (!proAccess) {
+      setBackground(null)
+      return
+    }
+    let active = true
+    const load = async () => {
+      try {
+        const snapshot = await window.virgue.backgroundInput.getSessions()
+        if (!active) return
+        setBackground(snapshot)
+        setLoadError('')
+        setSelectedSessionIds((current) => current.filter((id) => snapshot.sessions.some((session) => session.id === id && session.state === 'ready')))
+      } catch (caught) {
+        if (active) setLoadError(caught instanceof Error ? caught.message : 'Active Roblox sessions could not be read.')
+      }
+    }
+    setLoadingSessions(true)
+    void load().finally(() => { if (active) setLoadingSessions(false) })
+    const timer = window.setInterval(() => { void load() }, 4000)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [proAccess, settings?.backgroundInputMainAccountId])
+
+  const protectMain = async (accountId: string) => {
+    try {
+      await onSettings({ backgroundInputMainAccountId: accountId }, false)
+      const snapshot = await window.virgue.backgroundInput.getSessions()
+      setBackground(snapshot)
+      setSelectedSessionIds((current) => current.filter((id) => snapshot.sessions.some((session) => session.id === id && session.state === 'ready')))
+      setLastResult(null)
+      onActivity('Main account protected', snapshot.sessions.find((session) => session.accountId === accountId)?.accountLabel ?? 'Virgue will exclude this account from background controls.', 'positive')
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : 'Main account protection could not be saved.')
+    }
+  }
+
+  const toggleSession = (sessionId: string) => {
+    setLastResult(null)
+    setSelectedSessionIds((current) => current.includes(sessionId) ? current.filter((id) => id !== sessionId) : [...current, sessionId].slice(0, 8))
+  }
+
+  const sendBackgroundInput = async (key: WindowInputKey) => {
+    if (!background?.protectedAccountId) return onError('Choose the Roblox account you are actively playing first.')
+    if (selectedSessionIds.length === 0) return onError('Select at least one ready alt client.')
+    setSending(true)
+    try {
+      const result = await window.virgue.backgroundInput.send({ sessionIds: selectedSessionIds, key, durationMs })
+      setLastResult(result)
+      const posted = result.results.filter((item) => item.status === 'posted')
+      const failed = result.results.filter((item) => item.status === 'failed')
+      if (posted.length > 0) onActivity('Background input posted', `${windowInputLabel(key)} → ${formatCount(posted.length, 'alt client')}`, 'positive')
+      if (failed.length > 0) onError(failed.map((item) => `${item.accountLabel}: ${item.message}`).join(' '))
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : 'The background input could not be posted.')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const sessions = background?.sessions ?? []
+  const readySessions = sessions.filter((session) => session.state === 'ready')
+  const protectedSession = sessions.find((session) => session.state === 'protected')
+  const postedCount = lastResult?.results.filter((item) => item.status === 'posted').length ?? 0
+  const failedCount = lastResult?.results.filter((item) => item.status === 'failed').length ?? 0
+  const controlsDisabled = sending || !background?.protectedAccountId || selectedSessionIds.length === 0
+
+  return <section className="control-view">
+    <div className="control-header background-control-header">
+      <div><span className="eyebrow">Background controls</span><h2>Control alts without switching windows</h2><p>Choose your main once, select the Roblox clients you want to control, and send a short key press. Virgue never focuses an alt window in this mode.</p></div>
+      <span className={`worker-plan-badge ${proAccess ? 'ready' : ''}`}><Icon name={proAccess ? 'shield' : 'gem'} size={15} /> {proAccess ? 'Focus-safe mode' : 'Virgue Pro'}</span>
+    </div>
+
+    {!proAccess ? <div className="background-upgrade-card"><div><strong>Background controls are included with Virgue Pro</strong><p>Upgrade to unlock protected-main targeting for your local Roblox sessions.</p></div><button type="button" className="primary-button" onClick={() => void window.virgue.app.openExternal(PRICING_URL)}>View Pro <Icon name="arrow" size={15} /></button></div> : <>
+      <div className={`background-protection-bar ${background?.protectedAccountId ? 'protected' : ''}`}>
+        <span className="background-protection-icon"><Icon name="shield" size={19} /></span>
+        <div><strong>{background?.protectedAccountId ? `${protectedSession?.accountLabel ?? 'Your main account'} is protected` : 'Which account are you playing?'}</strong><p>{background?.protectedAccountId ? 'Virgue excludes it from every local background-control command.' : 'Set one running account as your main before selecting any alts.'}</p></div>
+        <span>{loadingSessions ? 'Finding Roblox clients…' : `${formatCount(readySessions.length, 'alt')} ready`}</span>
+      </div>
+
+      {loadError && <div className="background-inline-error" role="alert"><Icon name="warning" size={15} /> {loadError}</div>}
+
+      <div className="background-console-grid">
+        <article className="background-session-card">
+          <div className="panel-heading"><span>Roblox clients</span><button type="button" className="text-button" disabled={readySessions.length === 0} onClick={() => { setLastResult(null); setSelectedSessionIds(readySessions.slice(0, 8).map((session) => session.id)) }}>Select all alts</button></div>
+          <div className="background-session-list">{sessions.length === 0 ? <div className="worker-empty"><strong>No active Roblox clients</strong><span>Launch your accounts from Virgue. They will appear here automatically.</span></div> : sessions.map((session) => {
+            const selectable = session.state === 'ready'
+            return <div className={`background-session-row ${session.state}`} key={session.id}>
+              <label className="background-session-select"><input type="checkbox" checked={selectedSessionIds.includes(session.id)} disabled={!selectable} onChange={() => toggleSession(session.id)} /><span><strong>{session.accountLabel}</strong><small>{session.experienceName} · {session.windowTitle || 'Waiting for window'}</small></span></label>
+              <button type="button" className={`background-main-button ${session.state === 'protected' ? 'active' : ''}`} disabled={session.state === 'protected'} onClick={() => void protectMain(session.accountId)}>{session.state === 'protected' ? <><Icon name="shield" size={13} /> Main protected</> : 'Set as main'}</button>
+              <span className={`worker-session-status ${selectable ? 'ready' : session.state}`}>{selectable ? 'Ready alt' : session.state === 'protected' ? 'Main' : 'Starting'}</span>
+            </div>
+          })}</div>
+        </article>
+
+        <article className="background-input-card">
+          <div className="panel-heading"><span>Send an input</span><span>{formatCount(selectedSessionIds.length, 'target')}</span></div>
+          <div className="worker-duration-row"><label htmlFor="background-duration">Press length</label><select id="background-duration" value={durationMs} onChange={(event) => { setLastResult(null); setDurationMs(Number(event.target.value)) }}><option value={90}>Tap · 90 ms</option><option value={180}>Short · 180 ms</option><option value={400}>Medium · 400 ms</option><option value={800}>Long · 800 ms</option><option value={1400}>Maximum · 1.4 s</option></select></div>
+          <WindowInputPad disabled={controlsDisabled} onSend={(key) => void sendBackgroundInput(key)} />
+          <p>Windows can accept a background message even when an experience ignores it. Check the selected clients after the first input; Virgue will not steal focus as a fallback.</p>
+        </article>
+      </div>
+
+      {lastResult && <div className={`background-result ${failedCount > 0 ? 'warning' : 'success'}`} role="status"><Icon name={failedCount > 0 ? 'warning' : 'check'} size={17} /><div><strong>{postedCount > 0 ? `${windowInputLabel(lastResult.key)} posted to ${formatCount(postedCount, 'alt')}` : 'Input was not posted'}</strong><p>{failedCount > 0 ? `${formatCount(failedCount, 'client')} rejected the command. See the error above.` : 'Focus stayed under your control. Confirm the selected experience responded before relying on this key.'}</p></div></div>}
+    </>}
+
+    <details className="legacy-control-details background-advanced-details">
+      <summary><span><strong>Advanced connections</strong><small>Optional controls for another Windows device or a compatible experience.</small></span><Icon name="chevron" size={16} /></summary>
+      <div className="advanced-control-stack">
+        <RemoteWorkerBridge entitlements={entitlements} onError={onError} onActivity={onActivity} />
+        <section className="advanced-control-section"><div className="advanced-control-heading"><div><strong>Experience command bridge</strong><p>Send named commands to experiences that explicitly support Virgue's WebSocket bridge.</p></div></div><LegacyControlBridge accounts={accounts} commands={commands} control={control} onError={onError} onActivity={onActivity} /></section>
+      </div>
+    </details>
+  </section>
+}
+
+function RemoteWorkerBridge({ entitlements, onError, onActivity }: { entitlements: PlanEntitlements; onError: (message: string) => void; onActivity: (message: string, detail: string, tone?: ActivityTone) => void }) {
+  const [endpoint, setEndpoint] = useState(() => window.localStorage.getItem('virgue-isolated-worker-endpoint') ?? '')
+  const [password, setPassword] = useState('')
+  const [worker, setWorker] = useState<IsolatedWorkerSnapshot | null>(null)
+  const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([])
+  const [durationMs, setDurationMs] = useState(180)
+  const [connecting, setConnecting] = useState(false)
+  const [sending, setSending] = useState(false)
+  const canConnect = entitlements.isolatedWorkerInput && endpoint.trim().length > 0 && password.length > 0
+
+  const connect = async () => {
+    if (!entitlements.isolatedWorkerInput) return onError(getPlanFeatureError(entitlements, 'isolated-worker-input'))
+    const normalizedEndpoint = endpoint.trim()
+    if (!normalizedEndpoint || !password) return onError('Enter the other PC address and worker password first.')
+    setConnecting(true)
+    try {
+      const snapshot = await window.virgue.isolatedWorker.getSessions({ endpoint: normalizedEndpoint, password })
+      setWorker(snapshot)
+      setSelectedSessionIds((current) => current.filter((id) => snapshot.sessions.some((session) => session.id === id && session.ready)))
+      setEndpoint(normalizedEndpoint)
+      window.localStorage.setItem('virgue-isolated-worker-endpoint', normalizedEndpoint)
+      onActivity('Worker connected', `${snapshot.workerName} · ${formatCount(snapshot.sessions.filter((session) => session.ready).length, 'ready client')}`, 'positive')
+    } catch (caught) {
+      setWorker(null)
+      onError(caught instanceof Error ? caught.message : 'The isolated worker could not be reached.')
+    } finally {
+      setConnecting(false)
+    }
+  }
+
+  const toggleSession = (sessionId: string) => {
+    setSelectedSessionIds((current) => current.includes(sessionId) ? current.filter((id) => id !== sessionId) : [...current, sessionId].slice(0, 8))
+  }
+
+  const sendInput = async (key: IsolatedWorkerInputKey) => {
+    if (selectedSessionIds.length === 0) return onError('Select at least one ready worker session.')
+    setSending(true)
+    try {
+      for (const sessionId of selectedSessionIds) {
+        await window.virgue.isolatedWorker.sendInput({ endpoint, password, sessionId, key, durationMs })
+      }
+      const label = windowInputLabel(key)
+      onActivity('Worker input sent', `${label} → ${formatCount(selectedSessionIds.length, 'selected client')}`, 'positive')
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : 'The isolated worker input failed.')
+      void connect()
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const readySessions = worker?.sessions.filter((session) => session.ready) ?? []
+  return <section className="advanced-control-section">
+    <div className="advanced-control-heading"><div><strong>Control another Windows device</strong><p>This older connection remains available when you deliberately run alt clients elsewhere.</p></div><span>{worker ? `Connected · ${worker.workerName}` : 'Not connected'}</span></div>
+    <details className="worker-setup-details" open={!worker}>
+      <summary><span><strong>Set up the other PC</strong><small>Three steps the first time you connect.</small></span><Icon name="chevron" size={16} /></summary>
+      <ol className="worker-setup-steps">
+        <li><span className="worker-setup-number">1</span><div><strong>Prepare the worker</strong><p>Install Virgue on the other PC or VM and launch the Roblox alt accounts there.</p></div></li>
+        <li><span className="worker-setup-number">2</span><div><strong>Turn on the worker connection</strong><p>On that PC, open Settings → Privacy &amp; security. Save a 12+ character API password, enable Require password, Allow external API clients, and Isolated worker input, then start the Web API.</p></div></li>
+        <li><span className="worker-setup-number">3</span><div><strong>Connect from here</strong><p>Enter the other PC’s local address below, such as <code>http://192.168.1.40:7963</code>, then connect and choose the clients to control.</p></div></li>
+      </ol>
+    </details>
+
+    <div className="worker-connection-card">
+      <div className="panel-heading"><span>Connect the worker</span><span>{worker ? `Connected · ${worker.workerName}` : 'Waiting for the other PC'}</span></div>
+      <div className="worker-connection-fields">
+        <label className="field-label">Worker address (other PC)<input value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="http://192.168.1.40:7963" autoCapitalize="off" spellCheck={false} /></label>
+        <label className="field-label">Worker password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Web API password" autoComplete="off" /></label>
+        <button type="button" className="primary-button" disabled={connecting || !canConnect} onClick={() => void connect()}><Icon name={connecting ? 'clock' : worker ? 'refresh' : 'server'} size={15} /> {connecting ? 'Connecting…' : worker ? 'Refresh worker' : 'Connect worker'}</button>
+      </div>
+      <p className="worker-safety-note"><Icon name="shield" size={14} /> Keep the worker on a trusted local network. Never expose port 7963 to the public internet.</p>
+    </div>
+
+    {worker && <div className="worker-console-grid">
+      <article className="worker-session-card">
+        <div className="panel-heading"><span>Alt clients</span><button type="button" className="text-button" onClick={() => setSelectedSessionIds(readySessions.slice(0, 8).map((session) => session.id))}>Select ready</button></div>
+        <div className="worker-session-list">{worker.sessions.length === 0 ? <div className="worker-empty"><strong>No managed Roblox clients</strong><span>Launch an alt from Virgue on the worker, then refresh this connection.</span></div> : worker.sessions.map((session) => <label className={`worker-session-row ${session.ready ? '' : 'unavailable'}`} key={session.id}><input type="checkbox" checked={selectedSessionIds.includes(session.id)} disabled={!session.ready} onChange={() => toggleSession(session.id)} /><span><strong>{session.accountLabel}</strong><small>{session.experienceName} · {session.windowTitle || 'Waiting for window'}</small></span><span className={`worker-session-status ${session.ready ? 'ready' : ''}`}>{session.ready ? 'Ready' : session.status}</span></label>)}</div>
+      </article>
+
+      <article className="worker-input-card">
+        <div className="panel-heading"><span>One-shot input</span><span>{formatCount(selectedSessionIds.length, 'target')}</span></div>
+        <div className="worker-duration-row"><label htmlFor="worker-duration">Press length</label><select id="worker-duration" value={durationMs} onChange={(event) => setDurationMs(Number(event.target.value))}><option value={90}>Tap · 90 ms</option><option value={180}>Short · 180 ms</option><option value={400}>Medium · 400 ms</option><option value={800}>Long · 800 ms</option><option value={1400}>Maximum · 1.4 s</option></select></div>
+        <WindowInputPad disabled={sending} onSend={(key) => void sendInput(key)} />
+        <p>Each click is bounded and released automatically. There is no recording, looping, scripting, or unattended mode.</p>
+      </article>
+    </div>}
+  </section>
+}
+
+function LegacyControlBridge({ accounts, commands, control, onError, onActivity }: { accounts: ControlAccount[]; commands: ControlCommand[]; control?: ControlSettings; onError: (message: string) => void; onActivity: (message: string, detail: string, tone?: ActivityTone) => void }) {
   const [target, setTarget] = useState('all')
   const [command, setCommand] = useState('')
   const [payload, setPayload] = useState('')
   const [started, setStarted] = useState(control?.enabled ?? false)
   useEffect(() => { setStarted(control?.enabled ?? false) }, [control?.enabled])
-  return <section className="control-view"><div className="control-header"><div><span className="eyebrow">Control bridge</span><h2>Control Roblox clients from one panel</h2><p>Connected clients can receive Execute, Teleport, Rejoin, Mute, Unmute, Performance, and custom commands. Listening on {control?.allowExternalConnections ? 'all interfaces' : 'localhost'}:{control?.port ?? 5242}.</p></div><button type="button" className={started ? 'outline-button' : 'primary-button'} onClick={() => void (started ? window.virgue.control.stop().then(() => { setStarted(false); onActivity('Control server stopped', 'Client connections are paused', 'warning') }) : window.virgue.control.start().then(() => { setStarted(true); onActivity('Control server started', 'Waiting for control clients', 'positive') })).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Control server failed.'))}><Icon name={started ? 'square' : 'play'} size={16} /> {started ? 'Stop server' : 'Start control server'}</button></div><div className="control-grid"><div className="control-accounts">{accounts.map((account) => <div className="control-account-row" key={account.accountId}><span className={`status-dot ${account.connected ? 'running' : 'offline'}`} /><span className="control-account-name"><strong>{account.username}</strong><small>{account.placeId || 'No place'} / {account.jobId || 'No job'}</small></span><span>{account.connected ? 'Connected' : 'Waiting'}</span><label className="check-label"><input type="checkbox" checked={account.autoRelaunch} onChange={(event) => void window.virgue.control.setAutoRelaunch(account.accountId, event.target.checked, 1800)} /> Relaunch</label></div>)}</div><div className="command-card"><div className="panel-heading"><span>Send command</span><span>Default control commands</span></div><label className="field-label">Target<select value={target} onChange={(event) => setTarget(event.target.value)}><option value="all">All connected accounts</option>{accounts.map((account) => <option value={account.accountId} key={account.accountId}>{account.username}</option>)}</select></label><label className="field-label">Command<input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="Execute, Teleport, Rejoin, Mute…" /></label><label className="field-label">Payload <span className="muted-label">Optional</span><textarea rows={3} value={payload} onChange={(event) => setPayload(event.target.value)} placeholder="Script, PlaceId JobId, or command payload" /></label><button type="button" className="primary-button" disabled={!command.trim()} onClick={() => void window.virgue.control.send({ target, command, payload }).then((item) => { setCommand(''); setPayload(''); onActivity('Command queued', `${item.command} → ${item.target}`, 'positive') }).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Command failed.'))}>Send command <Icon name="arrow" size={16} /></button></div></div><div className="command-log"><div className="panel-heading"><span>Command log</span><span>{commands.length}</span></div>{commands.slice(0, 12).map((item) => <div className="command-log-row" key={item.id}><span className={`command-status ${item.status}`} /> <strong>{item.command}</strong><span>{item.target}</span><small>{new Date(item.createdAt).toLocaleTimeString()}</small></div>)}</div></section>
+  return <div className="legacy-control-body"><div className="legacy-control-toolbar"><span>Listening on {control?.allowExternalConnections ? 'all interfaces' : 'localhost'}:{control?.port ?? 5242}</span><button type="button" className={started ? 'outline-button' : 'primary-button'} onClick={() => void (started ? window.virgue.control.stop().then(() => { setStarted(false); onActivity('Control server stopped', 'Client connections are paused', 'warning') }) : window.virgue.control.start().then(() => { setStarted(true); onActivity('Control server started', 'Waiting for control clients', 'positive') })).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Control server failed.'))}><Icon name={started ? 'square' : 'play'} size={16} /> {started ? 'Stop server' : 'Start control server'}</button></div><div className="control-grid"><div className="control-accounts">{accounts.map((account) => <div className="control-account-row" key={account.accountId}><span className={`status-dot ${account.connected ? 'running' : 'offline'}`} /><span className="control-account-name"><strong>{account.username}</strong><small>{account.placeId || 'No place'} / {account.jobId || 'No job'}</small></span><span>{account.connected ? 'Connected' : 'Waiting'}</span><label className="check-label"><input type="checkbox" checked={account.autoRelaunch} onChange={(event) => void window.virgue.control.setAutoRelaunch(account.accountId, event.target.checked, 1800)} /> Relaunch</label></div>)}</div><div className="command-card"><div className="panel-heading"><span>Send command</span><span>Compatible clients only</span></div><label className="field-label">Target<select value={target} onChange={(event) => setTarget(event.target.value)}><option value="all">All connected accounts</option>{accounts.map((account) => <option value={account.accountId} key={account.accountId}>{account.username}</option>)}</select></label><label className="field-label">Command<input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="Teleport, Rejoin, Mute…" /></label><label className="field-label">Payload <span className="muted-label">Optional</span><textarea rows={3} value={payload} onChange={(event) => setPayload(event.target.value)} placeholder="Command payload" /></label><button type="button" className="primary-button" disabled={!command.trim()} onClick={() => void window.virgue.control.send({ target, command, payload }).then((item) => { setCommand(''); setPayload(''); onActivity('Command queued', `${item.command} → ${item.target}`, 'positive') }).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Command failed.'))}>Send command <Icon name="arrow" size={16} /></button></div></div><div className="command-log"><div className="panel-heading"><span>Command log</span><span>{commands.length}</span></div>{commands.slice(0, 12).map((item) => <div className="command-log-row" key={item.id}><span className={`command-status ${item.status}`} /> <strong>{item.command}</strong><span>{item.target}</span><small>{new Date(item.createdAt).toLocaleTimeString()}</small></div>)}</div></div>
 }
 
 const SETTING_HELP: Record<string, string> = {
@@ -1517,9 +1816,10 @@ const SETTING_HELP: Record<string, string> = {
   'Allow cookie route': 'Allows integrations to request secure cookie data. Keep this off unless required.',
   'Allow account editing': 'Allows integrations to change local profile metadata through the Web API.',
   'Allow external API clients': 'Binds the Web API beyond localhost. Only enable this on a trusted network.',
+  'Enable isolated worker input': 'Exposes bounded input controls for managed Roblox clients on this installation. Only enable this inside a VM or secondary Windows PC dedicated to alt clients.',
 }
 
-function SettingsView({ settings, client, webApi, watcher, control, entitlements, accountCount, gameCount, onSettings, onClientUpdate, onControl, onBillingRefresh, onMultiInstanceChange, onError, onActivity }: { settings: AppSettings | null; client?: AppSnapshot['client']; webApi?: WebApiSettings; watcher?: WatcherSettings; control?: ControlSettings; entitlements: PlanEntitlements; accountCount: number; gameCount: number; onSettings: (input: Partial<AppSettings>) => void; onClientUpdate: (client: AppSnapshot['client']) => void; onControl: (input: Partial<ControlSettings>) => void; onBillingRefresh: () => Promise<void>; onMultiInstanceChange: (enabled: boolean) => Promise<MultiInstanceChangeResult>; onError: (message: string) => void; onActivity: (message: string, detail: string, tone?: ActivityTone) => void }) {
+function SettingsView({ settings, client, webApi, watcher, control, entitlements, accountCount, gameCount, onSettings, onClientUpdate, onWebApiUpdate, onControl, onMultiInstanceChange, onError, onActivity }: { settings: AppSettings | null; client?: AppSnapshot['client']; webApi?: WebApiSettings; watcher?: WatcherSettings; control?: ControlSettings; entitlements: PlanEntitlements; accountCount: number; gameCount: number; onSettings: (input: Partial<AppSettings>) => void; onClientUpdate: (client: AppSnapshot['client']) => void; onWebApiUpdate: (webApi: WebApiSettings) => void; onControl: (input: Partial<ControlSettings>) => void; onMultiInstanceChange: (enabled: boolean) => Promise<MultiInstanceChangeResult>; onError: (message: string) => void; onActivity: (message: string, detail: string, tone?: ActivityTone) => void }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('features')
   const [multiInstanceIssue, setMultiInstanceIssue] = useState<'clients' | 'guard' | null>(null)
   const [closingRoblox, setClosingRoblox] = useState(false)
@@ -1589,29 +1889,50 @@ function SettingsView({ settings, client, webApi, watcher, control, entitlements
         <ControlSettingsPanel control={control} onChange={onControl} />
       </>}
 
-        {activeTab === 'privacy' && <WebApiSettingsCard webApi={webApi} onError={onError} onActivity={onActivity} />}
+        {activeTab === 'privacy' && <WebApiSettingsCard webApi={webApi} isolatedWorkerAllowed={entitlements.isolatedWorkerInput} onUpdate={onWebApiUpdate} onError={onError} onActivity={onActivity} />}
 
-        {activeTab === 'billing' && <BillingSettingsPanel entitlements={entitlements} accountCount={accountCount} gameCount={gameCount} onRefresh={onBillingRefresh} />}
+        {activeTab === 'billing' && <BillingSettingsPanel entitlements={entitlements} accountCount={accountCount} gameCount={gameCount} onError={onError} />}
       </div>
     </div>
   </section>
 }
 
-function WebApiSettingsCard({ webApi, onError, onActivity }: { webApi?: WebApiSettings; onError: (message: string) => void; onActivity: (message: string, detail: string, tone?: ActivityTone) => void }) {
-  const updateWebApi = (input: WebApiUpdateInput) => void window.virgue.webApi.update(input).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Web API settings could not be saved.'))
+function WebApiSettingsCard({ webApi, isolatedWorkerAllowed, onUpdate, onError, onActivity }: { webApi?: WebApiSettings; isolatedWorkerAllowed: boolean; onUpdate: (webApi: WebApiSettings) => void; onError: (message: string) => void; onActivity: (message: string, detail: string, tone?: ActivityTone) => void }) {
+  const [password, setPassword] = useState('')
+  const updateWebApi = async (input: WebApiUpdateInput) => {
+    try {
+      onUpdate(await window.virgue.webApi.update(input))
+      onError('')
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : 'Web API settings could not be saved.')
+    }
+  }
+  const toggleWorker = (enabled: boolean) => {
+    if (enabled && !isolatedWorkerAllowed) return onError('Isolated worker controls are available with Virgue Pro.')
+    if (enabled && (!webApi?.requirePassword || !webApi.passwordSet)) return onError('Save an API password and enable Require password before turning on isolated worker input.')
+    void updateWebApi({ allowSessionInput: enabled })
+  }
+  const savePassword = async () => {
+    if (!password.trim()) return onError('Enter a Web API password before saving it.')
+    if (password.trim().length < 12) return onError('Use at least 12 characters for an isolated worker password.')
+    await updateWebApi({ password })
+    setPassword('')
+    onActivity('Web API password saved', 'The password is stored in Windows credential encryption.', 'positive')
+  }
   return <article className="settings-card settings-card-wide">
     <div className="panel-heading"><span>Local Web API</span><Icon name="globe" size={16} /></div>
     <p className="settings-copy">Keep integrations local by default. Only expose routes that a trusted tool needs.</p>
-    <SettingToggle label="Enable Web API" checked={webApi?.enabled ?? false} onChange={(value) => updateWebApi({ enabled: value })} />
-    <SettingToggle label="Require password" checked={webApi?.requirePassword ?? false} onChange={(value) => updateWebApi({ requirePassword: value })} />
-    <SettingToggle label="Allow account listing" checked={webApi?.allowGetAccounts ?? true} onChange={(value) => updateWebApi({ allowGetAccounts: value })} />
-    <SettingToggle label="Allow launch route" checked={webApi?.allowLaunchAccount ?? false} onChange={(value) => updateWebApi({ allowLaunchAccount: value })} />
-    <SettingToggle label="Allow cookie route" checked={webApi?.allowGetCookie ?? false} onChange={(value) => updateWebApi({ allowGetCookie: value })} />
-    <SettingToggle label="Allow account editing" checked={webApi?.allowAccountEditing ?? false} onChange={(value) => updateWebApi({ allowAccountEditing: value })} />
-    <SettingToggle label="Allow external API clients" checked={webApi?.allowExternalConnections ?? false} onChange={(value) => updateWebApi({ allowExternalConnections: value })} />
-    <SettingField label="Port" description="Local port used by the Web API. It must stay between 1024 and 65535."><input type="number" min="1024" max="65535" value={webApi?.port ?? 7963} onChange={(event) => updateWebApi({ port: Number(event.target.value) })} /></SettingField>
-    <SettingField label="API password" description="Password sent by clients when password protection is enabled. Leave blank to keep the current password."><input type="password" placeholder="Leave blank to keep current" onChange={(event) => updateWebApi({ password: event.target.value })} /></SettingField>
-    <button type="button" className="outline-button" onClick={() => void window.virgue.webApi.start().then(() => onActivity('Web API started', 'Listening on localhost:' + (webApi?.port ?? 7963), 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Web API failed.'))}><Icon name="play" size={15} /> Start API</button>
+    <SettingToggle label="Enable Web API" checked={webApi?.enabled ?? false} onChange={(value) => void updateWebApi({ enabled: value })} />
+    <SettingToggle label="Require password" checked={webApi?.requirePassword ?? false} onChange={(value) => void updateWebApi({ requirePassword: value })} />
+    <SettingToggle label="Allow account listing" checked={webApi?.allowGetAccounts ?? true} onChange={(value) => void updateWebApi({ allowGetAccounts: value })} />
+    <SettingToggle label="Allow launch route" checked={webApi?.allowLaunchAccount ?? false} onChange={(value) => void updateWebApi({ allowLaunchAccount: value })} />
+    <SettingToggle label="Allow cookie route" checked={webApi?.allowGetCookie ?? false} onChange={(value) => void updateWebApi({ allowGetCookie: value })} />
+    <SettingToggle label="Allow account editing" checked={webApi?.allowAccountEditing ?? false} onChange={(value) => void updateWebApi({ allowAccountEditing: value })} />
+    <SettingToggle label="Allow external API clients" checked={webApi?.allowExternalConnections ?? false} onChange={(value) => void updateWebApi({ allowExternalConnections: value })} />
+    <SettingToggle label="Enable isolated worker input" checked={webApi?.allowSessionInput ?? false} onChange={toggleWorker} />
+    <SettingField label="Port" description="Local port used by the Web API. It must stay between 1024 and 65535."><input type="number" min="1024" max="65535" value={webApi?.port ?? 7963} onChange={(event) => void updateWebApi({ port: Number(event.target.value) })} /></SettingField>
+    <SettingField label="API password" description={webApi?.passwordSet ? 'A password is saved. Enter a replacement only when you want to change it.' : 'Use at least 12 characters before enabling isolated worker input.'}><div className="web-api-password-control"><input type="password" value={password} placeholder={webApi?.passwordSet ? 'Password saved' : 'At least 12 characters'} onChange={(event) => setPassword(event.target.value)} /><button type="button" className="outline-button" disabled={!password.trim()} onClick={() => void savePassword()}>Save</button></div></SettingField>
+    <div className="web-api-actions">{webApi?.enabled ? <><span className="web-api-running"><span className="status-dot running" /> Running on {webApi.allowExternalConnections ? 'private network' : 'localhost'}:{webApi.port}</span><button type="button" className="text-button danger" onClick={() => void window.virgue.webApi.stop().then((updated) => { onUpdate(updated); onActivity('Web API stopped', 'Local integrations are paused.', 'warning') }).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Web API could not be stopped.'))}>Stop API</button></> : <button type="button" className="outline-button" onClick={() => void window.virgue.webApi.start().then((updated) => { onUpdate(updated); onActivity('Web API started', `${updated.allowExternalConnections ? 'Network' : 'Localhost'}:${updated.port}`, 'positive') }).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Web API failed.'))}><Icon name="play" size={15} /> Start API</button>}</div>
   </article>
 }
 
@@ -1633,13 +1954,18 @@ function PlanUsageMeter({ label, singular, icon, current, maximum }: { label: st
   </div>
 }
 
-function BillingSettingsPanel({ entitlements, accountCount, gameCount, onRefresh }: { entitlements: PlanEntitlements; accountCount: number; gameCount: number; onRefresh: () => Promise<void> }) {
+function BillingSettingsPanel({ entitlements, accountCount, gameCount, onError }: { entitlements: PlanEntitlements; accountCount: number; gameCount: number; onError: (message: string) => void }) {
+  const isPro = entitlements.planKey === 'pro'
+  const openPricing = () => {
+    void window.virgue.app.openExternal(PRICING_URL).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'The pricing page could not be opened.'))
+  }
+
   return <div className="settings-billing-layout">
-    <article className="settings-card settings-billing-current settings-billing-overview">
+    <article className={`settings-card settings-billing-current settings-billing-overview ${isPro ? 'settings-billing-current-full' : ''}`}>
       <div className="settings-billing-heading">
         <span className="eyebrow">Current plan</span>
         <h2>{entitlements.displayName}</h2>
-        <p className="settings-copy">Core workspace access for local account management.</p>
+        <p className="settings-copy">{isPro ? 'Unlimited workspace access is active on this installation.' : 'Core workspace access for local account management.'}</p>
       </div>
       <div className="settings-billing-section settings-billing-capacity">
         <div className="settings-section-heading"><span>Workspace capacity</span><small>What you get and what you have used</small></div>
@@ -1649,25 +1975,32 @@ function BillingSettingsPanel({ entitlements, accountCount, gameCount, onRefresh
         </div>
       </div>
       <div className="settings-billing-section settings-billing-includes">
-        <div className="settings-section-heading"><span>Included with Free</span></div>
+        <div className="settings-section-heading"><span>Included with {isPro ? 'Virgue Pro' : 'Free'}</span></div>
         <ul className="settings-included-list">
-          <li><Icon name="check" size={14} /> Local encrypted storage</li>
-          <li><Icon name="check" size={14} /> Account and game organization</li>
-          <li><Icon name="check" size={14} /> Single-account launches</li>
-          <li><Icon name="check" size={14} /> Basic server browsing and filters</li>
+          {isPro ? <>
+            <li><Icon name="check" size={14} /> Unlimited Roblox account slots</li>
+            <li><Icon name="check" size={14} /> Unlimited game collection slots</li>
+            <li><Icon name="check" size={14} /> Bulk launch and isolated worker input</li>
+            <li><Icon name="check" size={14} /> Local encrypted storage and organization</li>
+          </> : <>
+            <li><Icon name="check" size={14} /> Local encrypted storage</li>
+            <li><Icon name="check" size={14} /> Account and game organization</li>
+            <li><Icon name="check" size={14} /> Single-account launches</li>
+            <li><Icon name="check" size={14} /> Basic server browsing and filters</li>
+          </>}
         </ul>
       </div>
     </article>
-    <article className="settings-card settings-billing-next">
-      <div className="settings-billing-next-heading"><div><span className="eyebrow">Next plan</span><h2>Virgue Pro</h2></div><Icon name="gem" size={20} /></div>
-      <p className="settings-copy">More room for larger workspaces, with unlimited account and game slots.</p>
+    {!isPro && <article className="settings-card settings-billing-upgrade">
+      <div className="settings-billing-upgrade-heading"><div><span className="eyebrow">Want to upgrade?</span><h2>Virgue Pro</h2></div><Icon name="gem" size={20} /></div>
+      <p className="settings-copy">Unlock unlimited account and game slots, bulk launch, and isolated worker input.</p>
       <div className="settings-billing-pro-list">
-        <div><Icon name="check" size={14} /> <span>Unlimited Roblox account slots</span></div>
-        <div><Icon name="check" size={14} /> <span>Unlimited game collection slots</span></div>
-        <div><Icon name="check" size={14} /> <span>Premium tools as they launch</span></div>
+        <div><Icon name="check" size={14} /> <span>Unlimited workspace capacity</span></div>
+        <div><Icon name="check" size={14} /> <span>Bulk workflows for alt clients</span></div>
+        <div><Icon name="check" size={14} /> <span>Worker input from your main PC</span></div>
       </div>
-      <button type="button" className="outline-button" onClick={() => void onRefresh()}>Refresh plan <Icon name="refresh" size={14} /></button>
-    </article>
+      <button type="button" className="primary-button" onClick={openPricing}>Compare Pro plans <Icon name="arrow" size={15} /></button>
+    </article>}
   </div>
 }
 

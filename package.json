@@ -70,6 +70,10 @@
       {
         "from": "native/bin/process-memory-helper.exe",
         "to": "native/process-memory-helper.exe"
+      },
+      {
+        "from": "native/bin/window-input-helper.exe",
+        "to": "native/window-input-helper.exe"
       }
     ],
     "asar": true,

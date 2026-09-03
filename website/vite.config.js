@@ -22,6 +22,7 @@ export default defineConfig({
         pricing: resolve(websiteRoot, 'pricing.html'),
         download: resolve(websiteRoot, 'download.html'),
         account: resolve(websiteRoot, 'account.html'),
+        admin: resolve(websiteRoot, 'admin.html'),
         privacy: resolve(websiteRoot, 'privacy.html'),
         terms: resolve(websiteRoot, 'terms.html'),
         refunds: resolve(websiteRoot, 'refunds.html'),

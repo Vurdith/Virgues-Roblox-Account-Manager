@@ -51,7 +51,7 @@ React renderer
   -> window.virgue typed API
 Secure preload (allow-listed IPC)
   -> Electron main process
-AccountStore + RobloxClient + SessionGuardian + ControlServer + WebApiService + WatcherService
+AccountStore + RobloxClient + SessionGuardian + BackgroundInputService + InputWorkerService + WebApiService + WatcherService
   -> local app data and Windows secure credential storage
 ```
 
@@ -64,6 +64,56 @@ The renderer has no Node.js or raw `ipcRenderer` access. Profile metadata is per
 - Place ID, Job ID, recent games, paginated server browsing, Job ID/region/player/ping filters, region lookup, server joins, game search, favorites, player finder, Universe Viewer, Outfit Viewer, per-account presence refresh, and general or account-specific FPS/ClientAppSettings patching.
 - Themes, Windows startup, a held Roblox multi-instance mutex with a manual close-all recovery action, launch delay, async joining, stale-cookie refresh, Roblox watcher, network/low-memory/window-title protection, a permissioned local Web API, and a WebSocket Roblox Control Bridge with command delivery and auto-relaunch.
 - Session Guardian: launch-correlated Roblox process records, exact PID/path checks, process and presence state separation, stale Job ID expiry, safe managed-session stopping, persisted session history, and live Activity Centre events.
+- Virgue Pro background controls: zero-configuration, focus-safe key messages for selected local alt windows, with persistent main-account protection, foreground-window rejection, an allowlisted key set, and a hard 1.5-second action limit.
+- Optional isolated-worker controls: password-authenticated controller-to-worker input for managed Roblox windows on another Windows installation, with target re-verification and no recording or unattended loops.
+
+## Local background controls
+
+Open **Control**, mark the Roblox account you are actively playing as the main,
+and select up to eight ready alt clients. Virgue posts one bounded key-down and
+key-up message to each selected window without activating it. The native helper
+revalidates the PID, executable path, and window ownership for every command. It
+also refuses whichever Roblox window is currently in the foreground, while the
+persisted main-account selection prevents accidental targeting when Virgue has
+focus.
+
+Background messages are deliberately reported as **posted**, not as successful
+gameplay. Windows accepting a message does not guarantee that a Roblox client or
+experience consumes it. Virgue never falls back to stealing focus, injecting
+code, modifying the client, or emulating a system-wide input device.
+
+## Isolated worker controls
+
+Windows directs keyboard input to the foreground window on each interactive
+desktop. Virgue therefore keeps alt-client focus changes off the main PC:
+
+1. Install Virgue on a Windows VM or secondary PC, sign in to Virgue Pro, and
+   launch the alt accounts from that worker installation.
+2. On the worker, open **Settings → Privacy & security**. Save a strong Web API
+   password of at least 12 characters, enable **Require password**, **Allow external API clients**,
+   **Enable isolated worker input**, and then start the Web API.
+3. Keep the worker on a trusted private network. Allow its selected TCP port in
+   Windows Firewall for private networks only; do not port-forward it or expose
+   it to the public internet.
+4. On the main PC, open **Control**, enter the worker address (for example,
+   `http://192.168.1.40:7963`) and password, then connect. Select up to eight
+   ready alt sessions and click an allowlisted key.
+
+Every click is a separate, bounded action. The native helper validates that the
+recorded window still belongs to `RobloxPlayerBeta.exe`, focuses it inside the
+worker, sends one key-down/key-up pair, and releases it automatically. The
+worker desktop must remain signed in, unlocked, and interactive; a disconnected
+Remote Desktop session may not accept foreground input.
+
+Controller requests use a timestamped HMAC-SHA256 signature and a one-use nonce.
+The shared password is encrypted at rest and is never sent across the network;
+captured requests expire after 60 seconds and cannot be replayed.
+
+This feature intentionally has no macros, schedules, input recording, stealth,
+client injection, or unattended mode. Only use it where the experience creator
+and Roblox rules permit the behavior. Roblox's third-party app policy can
+restrict automated in-experience actions:
+https://en.help.roblox.com/hc/en-us/articles/37924211313044-Creator-Third-Party-App-Policy
 
 The supported build target is the Electron app at the repository root.
 

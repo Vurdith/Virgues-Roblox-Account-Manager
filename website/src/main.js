@@ -28,6 +28,11 @@ const currentPage = document.body.dataset.page || 'home'
 let accountSessionHandler = null
 let accountMenuPlan = 'Free plan'
 let accountMenuPlanRequest = 0
+let accountIsAdmin = false
+let accountAdminRequest = 0
+
+const TRIAL_UNIT_SECONDS = Object.freeze({ minute: 60, hour: 60 * 60, day: 24 * 60 * 60, week: 7 * 24 * 60 * 60 })
+const MAX_TRIAL_SECONDS = 90 * TRIAL_UNIT_SECONDS.day
 
 registerAccountMenuElement()
 
@@ -64,6 +69,8 @@ function updateAccountNavigation(session) {
   accountMenu.email = email
   accountMenu.plan = accountMenuPlan
   accountMenu.signedInState = Boolean(session)
+  accountMenu.adminState = accountIsAdmin
+  accountMenu.adminHref = `${SITE_BASE}admin.html`
   accountMenu.busyState = false
 }
 
@@ -93,6 +100,8 @@ function initializeAccountMenu() {
 
 function applySiteSession(session) {
   const requestId = ++accountMenuPlanRequest
+  const adminRequestId = ++accountAdminRequest
+  accountIsAdmin = false
   accountMenuPlan = session && BILLING_API_URL ? 'Checking plan' : 'Free plan'
   updateAccountNavigation(session)
   if (session && BILLING_API_URL) {
@@ -106,6 +115,17 @@ function applySiteSession(session) {
       accountMenuPlan = 'Plan unavailable'
       updateAccountNavigation(session)
     })
+    if (!document.getElementById('admin-page')) {
+      void billingRequest('/admin/me', session).then(() => {
+        if (adminRequestId !== accountAdminRequest) return
+        accountIsAdmin = true
+        updateAccountNavigation(session)
+      }).catch(() => {
+        if (adminRequestId !== accountAdminRequest) return
+        accountIsAdmin = false
+        updateAccountNavigation(session)
+      })
+    }
   }
   if (accountSessionHandler) accountSessionHandler(session)
 }
@@ -220,6 +240,31 @@ function formatBillingDate(value) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
   return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' }).format(date)
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[character])
+}
+
+function trialDurationFromForm(value, unit) {
+  const amount = Number(value)
+  const secondsPerUnit = Object.prototype.hasOwnProperty.call(TRIAL_UNIT_SECONDS, unit) ? TRIAL_UNIT_SECONDS[unit] : 0
+  if (!Number.isSafeInteger(amount) || amount < 1 || !secondsPerUnit) return null
+  const seconds = amount * secondsPerUnit
+  if (seconds > MAX_TRIAL_SECONDS) return null
+  return { value: amount, unit, seconds }
+}
+
+function formatTrialDuration(value, unit) {
+  const labels = { minute: 'minute', hour: 'hour', day: 'day', week: 'week' }
+  const label = labels[unit] || 'day'
+  return `${value} ${label}${value === 1 ? '' : 's'}`
 }
 
 function billingStatusText(data) {
@@ -349,6 +394,13 @@ function initializeAccount() {
       setStatus(billingStatus, error instanceof Error ? error.message : 'Could not load billing details.', 'is-error')
     }
   }
+
+  window.setInterval(() => {
+    if (state.session && !document.hidden) void loadBilling()
+  }, 30_000)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && state.session) void loadBilling()
+  })
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -552,9 +604,301 @@ function initializeRegionalPrice() {
   })
 }
 
+function initializeAdmin() {
+  const adminPage = document.getElementById('admin-page')
+  if (!adminPage) return
+
+  const accessPanel = document.getElementById('admin-access-panel')
+  const dashboard = document.getElementById('admin-dashboard')
+  const accessHeading = document.getElementById('admin-access-heading')
+  const accessCopy = document.getElementById('admin-access-copy')
+  const accessStatus = document.getElementById('admin-access-status')
+  const searchForm = document.getElementById('admin-search-form')
+  const searchInput = document.getElementById('admin-search')
+  const searchSubmit = document.getElementById('admin-search-submit')
+  const searchStatus = document.getElementById('admin-search-status')
+  const resultCount = document.getElementById('admin-result-count')
+  const results = document.getElementById('admin-results')
+  const trialPanel = document.getElementById('admin-trial-panel')
+  const trialForm = document.getElementById('admin-trial-form')
+  const trialName = document.getElementById('admin-trial-name')
+  const trialEmail = document.getElementById('admin-trial-email')
+  const trialDetails = document.getElementById('admin-trial-details')
+  const trialClose = document.getElementById('admin-trial-close')
+  const trialValueInput = document.getElementById('admin-trial-value')
+  const trialUnitInput = document.getElementById('admin-trial-unit')
+  const trialNoteInput = document.getElementById('admin-trial-note')
+  const trialStatus = document.getElementById('admin-trial-status')
+  const operator = document.getElementById('admin-operator')
+
+  if (!accessPanel || !dashboard || !accessHeading || !accessCopy || !accessStatus || !searchForm || !searchInput || !searchSubmit || !searchStatus || !resultCount || !results || !trialPanel || !trialForm || !trialName || !trialEmail || !trialDetails || !trialClose || !trialValueInput || !trialUnitInput || !trialNoteInput || !trialStatus || !operator) return
+
+  const state = {
+    session: null,
+    customers: [],
+    selectedCustomer: null,
+    searchBusy: false,
+    trialBusy: false,
+  }
+
+  const canGrantTrial = (customer) => customer.planKey !== 'pro' || customer.entitlementStatus === 'trial'
+
+  const customerStatus = (customer) => {
+    const entitlementStatus = String(customer.entitlementStatus || '').toLowerCase()
+    const subscriptionStatus = String(customer.subscriptionStatus || '').toLowerCase()
+    if (customer.planKey === 'pro') {
+      if (entitlementStatus === 'trial') {
+        const endDate = formatBillingDate(customer.trialEndsAt)
+        return endDate ? `Trial · ends ${endDate}` : 'Pro trial'
+      }
+      if (entitlementStatus === 'grace' || subscriptionStatus === 'past_due') return 'Payment needs attention'
+      if (subscriptionStatus === 'canceled' || subscriptionStatus === 'cancelled') return 'Subscription ending'
+      return 'Virgue Pro'
+    }
+    const latestTrial = customer.trialHistory?.[0]
+    if (latestTrial?.startedAt && new Date(latestTrial.startedAt).getTime() > Date.now()) {
+      const startDate = formatBillingDate(latestTrial.startedAt)
+      return startDate ? `Trial scheduled · starts ${startDate}` : 'Trial scheduled'
+    }
+    if (customer.trialCount) {
+      const endDate = formatBillingDate(latestTrial?.endsAt)
+      return endDate ? `Free plan · last trial ended ${endDate}` : 'Free plan · trial history'
+    }
+    return 'Free plan'
+  }
+
+  const customerName = (customer) => customer.name?.trim() || customer.email?.split('@')[0] || 'Unnamed account'
+
+  const renderResults = () => {
+    resultCount.textContent = state.customers.length ? `${state.customers.length} account${state.customers.length === 1 ? '' : 's'}` : ''
+    if (!state.customers.length) {
+      results.innerHTML = '<p class="admin-empty-state">Search for a customer by email or name.</p>'
+      return
+    }
+
+    results.innerHTML = state.customers.map((customer) => {
+      const grantable = canGrantTrial(customer)
+      const actionLabel = customer.planKey === 'pro'
+        ? customer.entitlementStatus === 'trial' ? 'Extend trial' : 'Already Pro'
+        : customer.trialCount ? 'Grant again' : 'Grant trial'
+      const disabled = grantable ? '' : ' disabled'
+      const accessLabel = customer.planKey === 'pro'
+        ? customer.entitlementStatus === 'trial'
+          ? `${customer.trialCount || 0} trial grant${customer.trialCount === 1 ? '' : 's'} · current access`
+          : 'Current access'
+        : customer.trialCount
+          ? `${customer.trialCount} previous trial${customer.trialCount === 1 ? '' : 's'}`
+          : 'No trial grant'
+      return `<article class="admin-customer-row"><div class="admin-customer-identity"><strong>${escapeHtml(customerName(customer))}</strong><small>${escapeHtml(customer.email)}</small></div><div class="admin-customer-state"><strong>${escapeHtml(customerStatus(customer))}</strong><small>${accessLabel}</small></div><div class="admin-customer-actions"><button class="button button-light" type="button" data-customer-id="${escapeHtml(customer.id)}"${disabled}>${actionLabel}</button></div></article>`
+    }).join('')
+  }
+
+  const showAccess = (heading, copy, status = '', tone = '') => {
+    accessPanel.hidden = false
+    dashboard.hidden = true
+    accessHeading.textContent = heading
+    accessCopy.textContent = copy
+    setStatus(accessStatus, status, tone)
+  }
+
+  const renderTrialDetails = (customer) => {
+    const history = Array.isArray(customer.trialHistory) ? customer.trialHistory.slice(0, 20) : []
+    if (!history.length) {
+      trialDetails.innerHTML = '<h3>Trial history</h3><p class="admin-trial-details-empty">No previous trials.</p>'
+      return
+    }
+
+    const now = Date.now()
+    const historyItems = history.map((trial) => {
+      const start = trial.startedAt ? new Date(trial.startedAt) : null
+      const end = trial.endsAt ? new Date(trial.endsAt) : null
+      const isScheduled = start && !Number.isNaN(start.getTime()) && start.getTime() > now
+      const isActive = !isScheduled && end && !Number.isNaN(end.getTime()) && end.getTime() > now
+      const stateLabel = isScheduled ? 'Scheduled' : isActive ? 'Active now' : 'Ended'
+      const duration = trial.durationValue && trial.durationUnit
+        ? formatTrialDuration(trial.durationValue, trial.durationUnit)
+        : `${trial.durationDays || 'Unknown'} days`
+      const startDate = formatBillingDate(trial.startedAt)
+      const endDate = formatBillingDate(trial.endsAt)
+      const timeline = startDate && endDate
+        ? `${isScheduled ? 'Starts' : 'Started'} ${startDate} · ${isActive ? 'ends' : isScheduled ? 'ends' : 'ended'} ${endDate}`
+        : endDate
+          ? `${isActive ? 'Ends' : 'Ended'} ${endDate}`
+          : 'No end date recorded'
+      const note = typeof trial.note === 'string' && trial.note.trim()
+        ? `<small>Note: ${escapeHtml(trial.note)}</small>`
+        : ''
+      return `<article class="admin-trial-history-item"><strong>${escapeHtml(duration)} <em>${stateLabel}</em></strong><small>${timeline}</small>${note}</article>`
+    }).join('')
+
+    const count = Number(customer.trialCount || history.length)
+    const countLabel = `${count} grant${count === 1 ? '' : 's'}`
+    trialDetails.innerHTML = `<h3>Trial history · ${countLabel}</h3><div class="admin-trial-history">${historyItems}</div>`
+  }
+
+  const showTrialPanel = (customer) => {
+    state.selectedCustomer = customer
+    trialName.textContent = customerName(customer)
+    trialEmail.textContent = customer.email
+    renderTrialDetails(customer)
+    trialValueInput.value = '14'
+    trialUnitInput.value = 'day'
+    trialNoteInput.value = ''
+    setStatus(trialStatus)
+    trialPanel.hidden = false
+    trialClose.focus()
+  }
+
+  const closeTrialPanel = (force = false) => {
+    if (state.trialBusy && !force) return
+    state.selectedCustomer = null
+    trialPanel.hidden = true
+    setStatus(trialStatus)
+  }
+
+  const searchCustomers = async (event) => {
+    event.preventDefault()
+    if (!state.session || state.searchBusy || state.trialBusy) return
+    const query = searchInput.value.trim()
+    if (query.length < 2) {
+      state.customers = []
+      renderResults()
+      setStatus(searchStatus, 'Enter at least 2 characters to search.', 'is-error')
+      return
+    }
+
+    state.searchBusy = true
+    searchSubmit.disabled = true
+    searchSubmit.textContent = 'Searching…'
+    setStatus(searchStatus, 'Searching…')
+    try {
+      const payload = await billingRequest(`/admin/customers?q=${encodeURIComponent(query)}`, state.session)
+      const data = asRecord(unwrap(payload))
+      state.customers = Array.isArray(data.customers) ? data.customers : []
+      renderResults()
+      setStatus(searchStatus, state.customers.length ? `${state.customers.length} matching account${state.customers.length === 1 ? '' : 's'}.` : 'No matching accounts.')
+    } catch (error) {
+      state.customers = []
+      renderResults()
+      setStatus(searchStatus, error instanceof Error ? error.message : 'Could not search accounts.', 'is-error')
+    } finally {
+      state.searchBusy = false
+      searchSubmit.disabled = false
+      searchSubmit.textContent = 'Search'
+    }
+  }
+
+  const selectCustomer = (event) => {
+    if (!(event.target instanceof Element) || state.searchBusy || state.trialBusy) return
+    const button = event.target.closest('[data-customer-id]')
+    if (!(button instanceof HTMLButtonElement) || button.disabled) return
+    const customer = state.customers.find((item) => item.id === button.dataset.customerId)
+    if (customer && canGrantTrial(customer)) showTrialPanel(customer)
+  }
+
+  const grantTrial = async (event) => {
+    event.preventDefault()
+    const customer = state.selectedCustomer
+    if (!state.session || !customer || state.trialBusy) return
+
+    const duration = trialDurationFromForm(trialValueInput.value, trialUnitInput.value)
+    if (!duration) {
+      setStatus(trialStatus, 'Use a whole-number duration between 1 minute and 90 days.', 'is-error')
+      return
+    }
+
+    state.trialBusy = true
+    const submit = trialForm.querySelector('button[type="submit"]')
+    if (submit) {
+      submit.disabled = true
+      submit.textContent = 'Granting…'
+    }
+    setStatus(trialStatus, 'Granting Pro trial…')
+    try {
+      const payload = await billingRequest('/admin/trials', state.session, {
+        method: 'POST',
+        body: JSON.stringify({
+          email: customer.email,
+          durationValue: duration.value,
+          durationUnit: duration.unit,
+          note: trialNoteInput.value.trim(),
+        }),
+      })
+      const data = asRecord(unwrap(payload))
+      const trial = asRecord(data.trial)
+      const updated = state.customers.find((item) => item.id === customer.id)
+      if (updated) {
+        const startsAt = trial.startedAt ? new Date(trial.startedAt).getTime() : Date.now()
+        const isScheduled = Number.isFinite(startsAt) && startsAt > Date.now()
+        const existingActiveTrial = customer.planKey === 'pro' && customer.entitlementStatus === 'trial'
+        const hasCurrentTrial = existingActiveTrial || !isScheduled
+        updated.planKey = hasCurrentTrial ? 'pro' : 'free'
+        updated.planName = hasCurrentTrial ? 'Virgue Pro' : 'Free plan'
+        updated.entitlementStatus = hasCurrentTrial ? 'trial' : 'free'
+        updated.trialEndsAt = hasCurrentTrial
+          ? isScheduled ? customer.trialEndsAt || null : trial.endsAt || null
+          : null
+        updated.trialCount = Number(updated.trialCount || 0) + 1
+        updated.trialHistory = [trial, ...(Array.isArray(updated.trialHistory) ? updated.trialHistory : [])].slice(0, 20)
+        updated.hasTrialGrant = true
+      }
+      closeTrialPanel(true)
+      renderResults()
+      const grantedDuration = trial.durationValue && trial.durationUnit
+        ? ` for ${formatTrialDuration(trial.durationValue, trial.durationUnit)}`
+        : ''
+      setStatus(searchStatus, `Pro trial granted to ${customer.email}${grantedDuration}.`)
+    } catch (error) {
+      setStatus(trialStatus, error instanceof Error ? error.message : 'Could not grant the trial.', 'is-error')
+    } finally {
+      state.trialBusy = false
+      if (submit) {
+        submit.disabled = false
+        submit.innerHTML = 'Grant Pro trial <span aria-hidden="true">→</span>'
+      }
+    }
+  }
+
+  searchForm.addEventListener('submit', searchCustomers)
+  results.addEventListener('click', selectCustomer)
+  trialForm.addEventListener('submit', grantTrial)
+  trialClose.addEventListener('click', closeTrialPanel)
+  renderResults()
+
+  const loadAdmin = async () => {
+    const session = await getSession()
+    applySiteSession(session)
+    if (!session) {
+      showAccess('Sign in to continue', 'Admin access is limited to approved operators.')
+      return
+    }
+
+    try {
+      await billingRequest('/admin/me', session)
+      state.session = session
+      accountIsAdmin = true
+      updateAccountNavigation(session)
+      operator.textContent = `Signed in as ${session.user.email}`
+      accessPanel.hidden = true
+      dashboard.hidden = false
+      searchInput.focus()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : ''
+      if (message === 'Admin access is required.') {
+        showAccess('Admin access required', 'This account is not on the administrator list.')
+      } else {
+        showAccess('Could not verify access', 'The administrator service could not confirm this account.', message || 'Try again in a moment.', 'is-error')
+      }
+    }
+  }
+
+  void loadAdmin()
+}
+
 mountSiteChrome()
 initializeAccountMenu()
 configureDownload()
 initializeAccount()
 initializePricing()
-if (!document.getElementById('auth-form') && !document.querySelector('[data-start-checkout]') && AUTH_URL) void getSession().then(applySiteSession)
+initializeAdmin()
+if (!document.getElementById('auth-form') && !document.querySelector('[data-start-checkout]') && !document.getElementById('admin-page') && AUTH_URL) void getSession().then(applySiteSession)

@@ -13,3 +13,14 @@ fallback when NVAPI is unavailable.
 It sets the launched Roblox process to Windows' low memory priority and trims
 its current working set once. This is an operating-system hint, not Roblox
 memory compression, and the process can allocate pages again as needed.
+
+`window-input-helper.exe` is the bounded executor for Roblox window controls.
+It accepts one allowlisted key action at a time and verifies that the supplied
+window belongs to `RobloxPlayerBeta.exe`. `background-send` posts a key-down and
+key-up pair directly to a non-minimized background window without activating it;
+it refuses the current foreground Roblox window. Windows accepting that message
+does not guarantee that an experience consumes it. The older `send` command is
+retained for deliberately isolated workers: it focuses the worker window, uses
+the normal system input stream, and restores the previous worker window. Both
+paths enforce a 1.5 second limit. Neither injects code, modifies Roblox, records
+input, runs scripts, or repeats actions on its own.

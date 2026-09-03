@@ -44,6 +44,7 @@ export type IconName =
   | 'target'
   | 'trash'
   | 'users'
+  | 'warning'
   | 'watch'
   | 'window'
   | 'wrench'
@@ -150,6 +151,8 @@ export function Icon({ name, size = 18, strokeWidth = 2.2, filled = false, ...pr
       return <svg {...common}><path d="M4 7h16M9 7V4h6v3M7 7l.8 13h8.4L17 7M10 11v5M14 11v5" /></svg>
     case 'users':
       return <svg {...common}><circle cx="9" cy="8" r="3" /><path d="M3.5 19a5.5 5.5 0 0 1 11 0M16 5.5a3 3 0 0 1 0 5.8M17 14a4.5 4.5 0 0 1 3.5 5" /></svg>
+    case 'warning':
+      return <svg {...common}><path d="M12 3.5 21 20H3z" /><path d="M12 9v5M12 17.2h.01" /></svg>
     case 'watch':
       return <svg {...common}><path d="M8 3h8l1 4H7zM7 17h10l-1 4H8z" /><rect x="5" y="7" width="14" height="10" rx="3" /><path d="M12 10v2l1.5 1" /></svg>
     case 'window':

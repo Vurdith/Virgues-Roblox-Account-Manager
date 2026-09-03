@@ -9,6 +9,8 @@ export interface PlanEntitlements {
   maxGames: number | null
   /** Whether the plan can launch the visible account set in one action. */
   bulkLaunch: boolean
+  /** Whether this installation can expose and control an isolated alt-client worker. */
+  isolatedWorkerInput: boolean
 }
 
 export const DEFAULT_PLAN_KEY: PlanKey = 'free'
@@ -20,6 +22,7 @@ const PLAN_ENTITLEMENTS: Record<PlanKey, PlanEntitlements> = {
     maxAccounts: 2,
     maxGames: 2,
     bulkLaunch: false,
+    isolatedWorkerInput: false,
   },
   pro: {
     planKey: 'pro',
@@ -27,6 +30,7 @@ const PLAN_ENTITLEMENTS: Record<PlanKey, PlanEntitlements> = {
     maxAccounts: null,
     maxGames: null,
     bulkLaunch: true,
+    isolatedWorkerInput: true,
   },
 }
 
@@ -43,7 +47,8 @@ export function getPlanLimitError(entitlements: PlanEntitlements, resource: 'acc
   return `${entitlements.displayName} includes up to ${limit} ${label}. Remove one before adding another.`
 }
 
-export function getPlanFeatureError(entitlements: PlanEntitlements, feature: 'bulk-launch'): string {
+export function getPlanFeatureError(entitlements: PlanEntitlements, feature: 'bulk-launch' | 'isolated-worker-input'): string {
   if (feature === 'bulk-launch' && !entitlements.bulkLaunch) return `Bulk launch is available with Virgue Pro. Launch accounts individually on the ${entitlements.displayName}.`
+  if (feature === 'isolated-worker-input' && !entitlements.isolatedWorkerInput) return `Isolated worker controls are available with Virgue Pro.`
   return ''
 }

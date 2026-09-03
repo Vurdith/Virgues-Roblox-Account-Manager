@@ -66,6 +66,7 @@ export const defaultSettings: AppSettings = {
   showPresence: true,
   presenceUpdateRate: 30,
   maxRecentGames: 8,
+  backgroundInputMainAccountId: null,
   theme: 'neo',
 }
 
@@ -79,6 +80,7 @@ export const defaultWebApi: WebApiSettings = {
   allowLaunchAccount: false,
   allowAccountEditing: false,
   allowExternalConnections: false,
+  allowSessionInput: false,
 }
 
 export const defaultControl: ControlSettings = {
@@ -299,6 +301,9 @@ function normalizeSettings(value: unknown): AppSettings {
     showPresence: source.showPresence !== false,
     presenceUpdateRate: Math.min(300, Math.max(5, Math.round(number(source.presenceUpdateRate, defaultSettings.presenceUpdateRate)))),
     maxRecentGames: Math.min(50, Math.max(1, Math.round(number(source.maxRecentGames, defaultSettings.maxRecentGames)))),
+    backgroundInputMainAccountId: typeof source.backgroundInputMainAccountId === 'string' && source.backgroundInputMainAccountId.trim()
+      ? source.backgroundInputMainAccountId.trim()
+      : null,
     theme: source.theme === 'dark' || source.theme === 'light' ? source.theme : 'neo',
   }
 }
@@ -1035,7 +1040,7 @@ export class AccountStore {
 
   private normalizeWebApi(value: unknown): WebApiSettings {
     const source = isRecord(value) ? value : {}
-    return { ...defaultWebApi, enabled: source.enabled === true, port: Math.min(65535, Math.max(1024, Math.round(number(source.port, defaultWebApi.port)))), requirePassword: source.requirePassword === true, passwordSet: source.passwordSet === true, allowGetCookie: source.allowGetCookie === true, allowGetAccounts: source.allowGetAccounts !== false, allowLaunchAccount: source.allowLaunchAccount === true, allowAccountEditing: source.allowAccountEditing === true, allowExternalConnections: source.allowExternalConnections === true }
+    return { ...defaultWebApi, enabled: source.enabled === true, port: Math.min(65535, Math.max(1024, Math.round(number(source.port, defaultWebApi.port)))), requirePassword: source.requirePassword === true, passwordSet: source.passwordSet === true, allowGetCookie: source.allowGetCookie === true, allowGetAccounts: source.allowGetAccounts !== false, allowLaunchAccount: source.allowLaunchAccount === true, allowAccountEditing: source.allowAccountEditing === true, allowExternalConnections: source.allowExternalConnections === true, allowSessionInput: source.allowSessionInput === true }
   }
 
   private normalizeControl(value: unknown): ControlSettings {

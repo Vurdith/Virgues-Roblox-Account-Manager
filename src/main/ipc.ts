@@ -1,10 +1,12 @@
 import { app, clipboard, ipcMain, type BrowserWindow } from 'electron'
 import { IPC_CHANNELS } from '../shared/ipc'
-import type { AccountTransferInput, AppSettings, AuthCredentialsInput, AuthSignUpInput, ClientSettingsUpdateInput, ControlCommandInput, ControlSettings, JoinServerInput, ServerQuery, UpdateAccountInput, UpdateGameInput, WebApiUpdateInput, WatcherUpdateInput } from '../shared/types'
+import type { AccountTransferInput, AppSettings, AuthCredentialsInput, AuthSignUpInput, BackgroundInputCommandInput, ClientSettingsUpdateInput, ControlCommandInput, ControlSettings, IsolatedWorkerCommandInput, IsolatedWorkerConnectionInput, JoinServerInput, ServerQuery, UpdateAccountInput, UpdateGameInput, WebApiUpdateInput, WatcherUpdateInput } from '../shared/types'
 import { AccountStore } from './account-store'
 import { AuthService } from './auth-service'
 import { BillingService } from './billing-service'
+import { BackgroundInputService } from './background-input'
 import { ControlServer } from './control-server'
+import { InputWorkerClient } from './input-worker-client'
 import { SecretStore } from './secret-store'
 import { SessionGuardian } from './session-guardian'
 import { RobloxClient } from './roblox-client'
@@ -19,6 +21,8 @@ interface IpcServices {
   watcher: WatcherService
   sessions: SessionGuardian
   control: ControlServer
+  inputWorkerClient: InputWorkerClient
+  backgroundInput: BackgroundInputService
   secrets: SecretStore
   auth: AuthService
   billing: BillingService
@@ -27,7 +31,7 @@ interface IpcServices {
 }
 
 export function registerIpcHandlers(services: IpcServices): void {
-  const { store, roblox, webApi, watcher, sessions, control, secrets, auth, billing, updates, getWindow } = services
+  const { store, roblox, webApi, watcher, sessions, control, inputWorkerClient, backgroundInput, secrets, auth, billing, updates, getWindow } = services
   ipcMain.handle(IPC_CHANNELS.appGetSnapshot, () => store.getSnapshot())
   ipcMain.handle(IPC_CHANNELS.appImportData, async () => { await store.importData(); return store.getSnapshot() })
   ipcMain.handle(IPC_CHANNELS.appOpenDataFolder, () => store.openDataFolder())
@@ -100,6 +104,21 @@ export function registerIpcHandlers(services: IpcServices): void {
   ipcMain.handle(IPC_CHANNELS.webApiUpdate, (_event, input: WebApiUpdateInput) => webApi.update(input))
   ipcMain.handle(IPC_CHANNELS.webApiStart, () => webApi.start())
   ipcMain.handle(IPC_CHANNELS.webApiStop, () => webApi.stop())
+  const assertIsolatedWorkerAccess = () => {
+    if (!store.getSnapshot().entitlements.isolatedWorkerInput) {
+      throw new Error('Isolated worker controls are available with Virgue Pro.')
+    }
+  }
+  ipcMain.handle(IPC_CHANNELS.isolatedWorkerGetSessions, (_event, input: IsolatedWorkerConnectionInput) => {
+    assertIsolatedWorkerAccess()
+    return inputWorkerClient.getSessions(input)
+  })
+  ipcMain.handle(IPC_CHANNELS.isolatedWorkerSendInput, (_event, input: IsolatedWorkerCommandInput) => {
+    assertIsolatedWorkerAccess()
+    return inputWorkerClient.sendInput(input)
+  })
+  ipcMain.handle(IPC_CHANNELS.backgroundInputGetSessions, () => backgroundInput.getSnapshot())
+  ipcMain.handle(IPC_CHANNELS.backgroundInputSend, (_event, input: BackgroundInputCommandInput) => backgroundInput.send(input))
   ipcMain.handle(IPC_CHANNELS.watcherUpdate, (_event, input: WatcherUpdateInput) => watcher.update(input))
   ipcMain.handle(IPC_CHANNELS.watcherCheck, () => watcher.check())
 

@@ -138,7 +138,7 @@ function iconMarkup(name: 'arrow' | 'chevron' | 'close' | 'settings', size: numb
 }
 
 export class VirgueAccountMenuElement extends HTMLElement {
-  static observedAttributes = ['name', 'email', 'plan', 'signed-in', 'busy', 'open']
+  static observedAttributes = ['name', 'email', 'plan', 'signed-in', 'busy', 'open', 'admin', 'admin-href']
 
   private accountName = ''
   private accountEmail = ''
@@ -146,6 +146,8 @@ export class VirgueAccountMenuElement extends HTMLElement {
   private signedIn = false
   private busy = false
   private isOpen = false
+  private isAdmin = false
+  private adminLink = ''
 
   connectedCallback(): void {
     this.accountName = this.getAttribute('name') ?? this.accountName
@@ -154,6 +156,8 @@ export class VirgueAccountMenuElement extends HTMLElement {
     this.signedIn = this.hasAttribute('signed-in')
     this.busy = this.hasAttribute('busy')
     this.isOpen = this.hasAttribute('open')
+    this.isAdmin = this.hasAttribute('admin')
+    this.adminLink = this.getAttribute('admin-href') ?? ''
     const shadowRoot = this.shadowRoot ?? this.attachShadow({ mode: 'open' })
     shadowRoot.addEventListener('click', this.handleClick)
     shadowRoot.addEventListener('keydown', this.handleKeyDown)
@@ -175,6 +179,8 @@ export class VirgueAccountMenuElement extends HTMLElement {
     if (attribute === 'signed-in') this.signedIn = newValue !== null
     if (attribute === 'busy') this.busy = newValue !== null
     if (attribute === 'open') this.isOpen = newValue !== null
+    if (attribute === 'admin') this.isAdmin = newValue !== null
+    if (attribute === 'admin-href') this.adminLink = newValue ?? ''
     this.render()
   }
 
@@ -195,6 +201,12 @@ export class VirgueAccountMenuElement extends HTMLElement {
 
   get busyState(): boolean { return this.busy }
   set busyState(value: boolean) { this.busy = value; this.render() }
+
+  get adminState(): boolean { return this.isAdmin }
+  set adminState(value: boolean) { this.isAdmin = value; this.render() }
+
+  get adminHref(): string { return this.adminLink }
+  set adminHref(value: string) { this.adminLink = value; this.render() }
 
   private handleClick = (event: Event): void => {
     const target = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-account-action]') : null
@@ -275,7 +287,7 @@ export class VirgueAccountMenuElement extends HTMLElement {
     if (!shadowRoot) return
     if (!shadowRoot.querySelector('[data-account-menu-root]')) {
       const panelId = `virgue-account-menu-panel-${++accountMenuInstanceCount}`
-      shadowRoot.innerHTML = `<style>${ACCOUNT_MENU_STYLES}</style><div class="account-menu" data-account-menu-root><button type="button" class="account-menu-trigger" data-account-action="toggle" aria-haspopup="menu" aria-expanded="false" aria-controls="${panelId}"><span class="account-menu-avatar" aria-hidden="true"></span><span class="account-menu-copy"><span class="account-menu-label"></span><strong data-account-name></strong></span><span class="account-menu-chevron" aria-hidden="true">${iconMarkup('chevron', 16)}</span></button><div class="account-menu-popover" id="${panelId}" role="menu" hidden><div class="account-menu-summary" data-signed-in-summary><div class="account-menu-summary-top"><span class="account-menu-eyebrow">Account</span></div><strong data-account-email></strong><div class="account-menu-plan"><span>Plan</span><strong data-account-plan></strong></div></div><div class="account-menu-signed-out-summary" data-signed-out-summary hidden><span class="account-menu-eyebrow">Welcome back</span><strong>Sign in to your workspace</strong><p>Manage your plan and download the app.</p></div><div class="account-menu-actions" data-signed-in-actions><button type="button" class="account-menu-item" data-account-action="settings" role="menuitem"><span class="account-menu-item-icon">${iconMarkup('settings', 15)}</span><strong>Settings</strong>${iconMarkup('arrow', 14)}</button><button type="button" class="account-menu-signout" data-account-action="signout" role="menuitem"><span>${iconMarkup('close', 15)}</span><span data-signout-label>Sign out</span></button></div><div class="account-menu-actions" data-signed-out-actions hidden><a class="account-menu-item" data-account-action="signin" role="menuitem" href="./account.html"><strong>Sign in</strong>${iconMarkup('arrow', 14)}</a><a class="account-menu-item" data-account-action="signup" role="menuitem" href="./account.html?mode=signup"><strong>Create account</strong>${iconMarkup('arrow', 14)}</a></div></div></div>`
+      shadowRoot.innerHTML = `<style>${ACCOUNT_MENU_STYLES}</style><div class="account-menu" data-account-menu-root><button type="button" class="account-menu-trigger" data-account-action="toggle" aria-haspopup="menu" aria-expanded="false" aria-controls="${panelId}"><span class="account-menu-avatar" aria-hidden="true"></span><span class="account-menu-copy"><span class="account-menu-label"></span><strong data-account-name></strong></span><span class="account-menu-chevron" aria-hidden="true">${iconMarkup('chevron', 16)}</span></button><div class="account-menu-popover" id="${panelId}" role="menu" hidden><div class="account-menu-summary" data-signed-in-summary><div class="account-menu-summary-top"><span class="account-menu-eyebrow">Account</span></div><strong data-account-email></strong><div class="account-menu-plan"><span>Plan</span><strong data-account-plan></strong></div></div><div class="account-menu-signed-out-summary" data-signed-out-summary hidden><span class="account-menu-eyebrow">Welcome back</span><strong>Sign in to your workspace</strong><p>Manage your plan and download the app.</p></div><div class="account-menu-actions" data-signed-in-actions><a class="account-menu-item" data-account-action="admin" role="menuitem" href=""><strong>Admin</strong>${iconMarkup('arrow', 14)}</a><button type="button" class="account-menu-item" data-account-action="settings" role="menuitem"><span class="account-menu-item-icon">${iconMarkup('settings', 15)}</span><strong>Settings</strong>${iconMarkup('arrow', 14)}</button><button type="button" class="account-menu-signout" data-account-action="signout" role="menuitem"><span>${iconMarkup('close', 15)}</span><span data-signout-label>Sign out</span></button></div><div class="account-menu-actions" data-signed-out-actions hidden><a class="account-menu-item" data-account-action="signin" role="menuitem" href="./account.html"><strong>Sign in</strong>${iconMarkup('arrow', 14)}</a><a class="account-menu-item" data-account-action="signup" role="menuitem" href="./account.html?mode=signup"><strong>Create account</strong>${iconMarkup('arrow', 14)}</a></div></div></div>`
     }
 
     const displayName = this.accountName.trim() || this.accountEmail.trim().split('@')[0] || 'Account'
@@ -290,11 +302,12 @@ export class VirgueAccountMenuElement extends HTMLElement {
     const signedOutSummary = shadowRoot.querySelector<HTMLElement>('[data-signed-out-summary]')
     const signedInActions = shadowRoot.querySelector<HTMLElement>('[data-signed-in-actions]')
     const signedOutActions = shadowRoot.querySelector<HTMLElement>('[data-signed-out-actions]')
+    const adminLink = shadowRoot.querySelector<HTMLAnchorElement>('[data-account-action="admin"]')
     const email = shadowRoot.querySelector<HTMLElement>('[data-account-email]')
     const plan = shadowRoot.querySelector<HTMLElement>('[data-account-plan]')
     const signOutButton = shadowRoot.querySelector<HTMLButtonElement>('[data-account-action="signout"]')
     const signOutLabel = shadowRoot.querySelector<HTMLElement>('[data-signout-label]')
-    if (!trigger || !avatar || !label || !accountName || !panel || !chevron || !signedInSummary || !signedOutSummary || !signedInActions || !signedOutActions || !email || !plan || !signOutButton || !signOutLabel) return
+    if (!trigger || !avatar || !label || !accountName || !panel || !chevron || !signedInSummary || !signedOutSummary || !signedInActions || !signedOutActions || !adminLink || !email || !plan || !signOutButton || !signOutLabel) return
 
     avatar.textContent = initial
     label.textContent = this.signedIn ? 'Account' : 'Sign in'
@@ -309,6 +322,8 @@ export class VirgueAccountMenuElement extends HTMLElement {
     signedOutSummary.hidden = this.signedIn
     signedInActions.hidden = !this.signedIn
     signedOutActions.hidden = this.signedIn
+    adminLink.hidden = !this.signedIn || !this.isAdmin || !this.adminLink
+    adminLink.href = this.adminLink || '#'
     email.textContent = this.accountEmail
     plan.textContent = this.accountPlan
     signOutButton.disabled = this.busy

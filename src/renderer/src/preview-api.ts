@@ -73,6 +73,7 @@ const previewSettings: AppSettings = {
   showPresence: true,
   presenceUpdateRate: 60,
   maxRecentGames: 8,
+  backgroundInputMainAccountId: null,
   theme: 'neo',
 }
 
@@ -86,6 +87,7 @@ const previewWebApi: WebApiSettings = {
   allowLaunchAccount: false,
   allowAccountEditing: false,
   allowExternalConnections: false,
+  allowSessionInput: false,
 }
 
 const previewWatcher: WatcherSettings = {
@@ -146,9 +148,12 @@ function createControlAccounts(accounts: Account[], connected = false): ControlA
 }
 
 function createPreviewApi(): VirgueApi {
+  const previewParams = new URLSearchParams(window.location.search)
   let accounts = clone(previewAccounts)
   let games = clone(previewGames)
   let settings = clone(previewSettings)
+  const showControlPreview = previewParams.get('controlPreview') === '1'
+  if (showControlPreview) settings.backgroundInputMainAccountId = 'preview-main'
   let recentGames = clone(seedRecentGames)
   let webApi = clone(previewWebApi)
   let watcher = clone(previewWatcher)
@@ -162,7 +167,7 @@ function createPreviewApi(): VirgueApi {
   let sessionSnapshot: SessionSnapshot = { active: [], history: [], events: [], recoveryJobs: [], checkedAt: now() }
   let authSession: VirgueAuthSession | null = null
   const sessionListeners = new Set<(event: SessionEvent) => void>()
-  const entitlements = getPlanEntitlements()
+  const entitlements = getPlanEntitlements(previewParams.get('plan') === 'pro' ? 'pro' : undefined)
   const accountSlotCount = () => new Set(accounts.map((account) => account.username.trim().toLowerCase()).filter(Boolean)).size
   const assertAccountCapacity = (additional = 1) => {
     if (entitlements.maxAccounts !== null && accountSlotCount() + additional > entitlements.maxAccounts) throw new Error(getPlanLimitError(entitlements, 'accounts'))
@@ -184,7 +189,7 @@ function createPreviewApi(): VirgueApi {
     client: clone(client),
     settings: clone(settings),
     entitlements: clone(entitlements),
-    info: { name: "Virgue's Roblox Account Manager", version: '1.0.2', platform: 'Browser preview', dataPath: 'Preview only' },
+    info: { name: "Virgue's Roblox Account Manager", version: '1.0.3', platform: 'Browser preview', dataPath: 'Preview only' },
   })
 
   const firstAssignment = () => ({ gameId: games[0]?.id ?? '', categoryId: games[0]?.categories[0]?.id ?? '' })
@@ -195,6 +200,15 @@ function createPreviewApi(): VirgueApi {
     return { presets: clone(serverPresets.filter((item) => item.gameId === gameId && (item.accountId === null || item.accountId === scope))), history: clone(history), preferences: clone(serverPreferences.filter((item) => item.gameId === gameId && (item.accountId === null || item.accountId === scope))), lastKnown: clone(history.find((item) => item.lastJoinedAt) ?? history[0] ?? null) }
   }
   const previewServers = () => [0, 1, 2, 3].map((index) => makeServer(`preview-server-${index + 1}`, index))
+  const backgroundInputSnapshot = () => {
+    const protectedAccountId = settings.backgroundInputMainAccountId
+    const sessions = showControlPreview ? [
+      { id: 'preview-session-main', accountId: 'preview-main', accountLabel: 'Main account', experienceName: 'Dungeon Quest Reborn', windowTitle: 'Roblox', state: protectedAccountId === 'preview-main' ? 'protected' as const : 'ready' as const },
+      { id: 'preview-session-alt-one', accountId: 'preview-alt-one', accountLabel: 'Storage alt', experienceName: 'Dungeon Quest Reborn', windowTitle: 'Roblox', state: protectedAccountId === 'preview-alt-one' ? 'protected' as const : 'ready' as const },
+      { id: 'preview-session-alt-two', accountId: 'preview-alt-two', accountLabel: 'Fighter alt', experienceName: 'Dungeon Quest Reborn', windowTitle: 'Roblox', state: protectedAccountId === 'preview-alt-two' ? 'protected' as const : 'ready' as const },
+    ] : []
+    return { sessions, protectedAccountId, checkedAt: now() }
+  }
   const updateAccount = (id: string, input: Partial<Account> | UpdateAccountInput) => {
     const current = findAccount(id)
     if (!current) throw new Error('Account not found.')
@@ -521,6 +535,25 @@ function createPreviewApi(): VirgueApi {
       update: async (input) => { const { password: _password, ...rest } = input; webApi = { ...webApi, ...rest, passwordSet: Boolean(input.password) || webApi.passwordSet }; return clone(webApi) },
       start: async () => { webApi = { ...webApi, enabled: true }; return clone(webApi) },
       stop: async () => { webApi = { ...webApi, enabled: false }; return clone(webApi) },
+    },
+    isolatedWorker: {
+      getSessions: async () => ({ workerName: 'Preview worker', sessions: [], checkedAt: now() }),
+      sendInput: async (input) => ({ sessionId: input.sessionId, accountId: 'preview-account', accountLabel: 'Preview account', key: input.key, durationMs: input.durationMs, sentAt: now(), restoredPreviousWindow: true }),
+    },
+    backgroundInput: {
+      getSessions: async () => backgroundInputSnapshot(),
+      send: async (input) => {
+        const snapshot = backgroundInputSnapshot()
+        if (!snapshot.protectedAccountId) throw new Error('Choose which Roblox account is your main before sending background controls.')
+        const targets = snapshot.sessions.filter((session) => input.sessionIds.includes(session.id))
+        if (targets.some((session) => session.state === 'protected')) throw new Error('Virgue blocked an input directed at your protected main account.')
+        return {
+          key: input.key,
+          durationMs: input.durationMs,
+          issuedAt: now(),
+          results: targets.map((session) => ({ sessionId: session.id, accountId: session.accountId, accountLabel: session.accountLabel, status: 'posted' as const, message: 'Preview accepted the background key message without changing focus.' })),
+        }
+      },
     },
     watcher: {
       update: async (input) => { watcher = { ...watcher, ...input }; return clone(watcher) },

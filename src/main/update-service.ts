@@ -1,9 +1,10 @@
 import { app, type BrowserWindow } from 'electron'
-import { autoUpdater } from 'electron-updater'
+import electronUpdater from 'electron-updater'
 import { IPC_CHANNELS } from '../shared/ipc'
 import type { AppUpdateEvent } from '../shared/types'
 
 const INITIAL_CHECK_DELAY_MS = 15_000
+const { autoUpdater } = electronUpdater
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'The update service returned an unknown error.'

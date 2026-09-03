@@ -324,6 +324,110 @@ export interface WebApiSettings {
   allowLaunchAccount: boolean
   allowAccountEditing: boolean
   allowExternalConnections: boolean
+  allowSessionInput: boolean
+}
+
+export type WindowInputKey =
+  | 'KeyW'
+  | 'KeyA'
+  | 'KeyS'
+  | 'KeyD'
+  | 'Space'
+  | 'ShiftLeft'
+  | 'KeyE'
+  | 'KeyQ'
+  | 'KeyR'
+  | 'KeyF'
+  | 'Digit1'
+  | 'Digit2'
+  | 'Digit3'
+  | 'Digit4'
+  | 'Digit5'
+  | 'Digit6'
+  | 'Digit7'
+  | 'Digit8'
+  | 'Digit9'
+  | 'Digit0'
+  | 'ArrowUp'
+  | 'ArrowDown'
+  | 'ArrowLeft'
+  | 'ArrowRight'
+
+export type IsolatedWorkerInputKey = WindowInputKey
+
+export interface IsolatedWorkerSession {
+  id: string
+  accountId: string
+  accountLabel: string
+  experienceName: string
+  windowTitle: string
+  status: SessionStatus
+  ready: boolean
+}
+
+export interface IsolatedWorkerSnapshot {
+  workerName: string
+  sessions: IsolatedWorkerSession[]
+  checkedAt: string
+}
+
+export interface IsolatedWorkerConnectionInput {
+  endpoint: string
+  password: string
+}
+
+export interface IsolatedWorkerCommandInput extends IsolatedWorkerConnectionInput {
+  sessionId: string
+  key: IsolatedWorkerInputKey
+  durationMs: number
+}
+
+export interface IsolatedWorkerCommandResult {
+  sessionId: string
+  accountId: string
+  accountLabel: string
+  key: IsolatedWorkerInputKey
+  durationMs: number
+  sentAt: string
+  restoredPreviousWindow: boolean
+}
+
+export type BackgroundInputSessionState = 'ready' | 'protected' | 'waiting'
+
+export interface BackgroundInputSession {
+  id: string
+  accountId: string
+  accountLabel: string
+  experienceName: string
+  windowTitle: string
+  state: BackgroundInputSessionState
+}
+
+export interface BackgroundInputSnapshot {
+  sessions: BackgroundInputSession[]
+  protectedAccountId: string | null
+  checkedAt: string
+}
+
+export interface BackgroundInputCommandInput {
+  sessionIds: string[]
+  key: WindowInputKey
+  durationMs: number
+}
+
+export interface BackgroundInputTargetResult {
+  sessionId: string
+  accountId: string
+  accountLabel: string
+  status: 'posted' | 'failed'
+  message: string
+}
+
+export interface BackgroundInputCommandResult {
+  key: WindowInputKey
+  durationMs: number
+  issuedAt: string
+  results: BackgroundInputTargetResult[]
 }
 
 export interface WatcherSettings {
@@ -380,6 +484,7 @@ export interface AppSettings {
   showPresence: boolean
   presenceUpdateRate: number
   maxRecentGames: number
+  backgroundInputMainAccountId: string | null
   theme: 'neo' | 'dark' | 'light'
 }
 
@@ -688,6 +793,14 @@ export interface VirgueApi {
     update(input: WebApiUpdateInput): Promise<WebApiSettings>
     start(): Promise<WebApiSettings>
     stop(): Promise<WebApiSettings>
+  }
+  isolatedWorker: {
+    getSessions(input: IsolatedWorkerConnectionInput): Promise<IsolatedWorkerSnapshot>
+    sendInput(input: IsolatedWorkerCommandInput): Promise<IsolatedWorkerCommandResult>
+  }
+  backgroundInput: {
+    getSessions(): Promise<BackgroundInputSnapshot>
+    send(input: BackgroundInputCommandInput): Promise<BackgroundInputCommandResult>
   }
   watcher: {
     update(input: WatcherUpdateInput): Promise<WatcherSettings>
