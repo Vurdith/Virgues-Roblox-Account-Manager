@@ -74,6 +74,10 @@
       {
         "from": "native/bin/window-input-helper.exe",
         "to": "native/window-input-helper.exe"
+      },
+      {
+        "from": "native/bin/protected-session-helper.exe",
+        "to": "native/protected-session-helper.exe"
       }
     ],
     "asar": true,

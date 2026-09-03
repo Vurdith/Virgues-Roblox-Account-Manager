@@ -7,6 +7,7 @@ import { BackgroundInputService } from './background-input'
 import { ControlServer } from './control-server'
 import { InputWorkerClient } from './input-worker-client'
 import { InputWorkerService } from './input-worker'
+import { ProtectedSessionService } from './protected-session'
 import { registerIpcHandlers } from './ipc'
 import { RobloxClient } from './roblox-client'
 import { SecretStore } from './secret-store'
@@ -79,7 +80,9 @@ app.whenReady().then(async () => {
   app.setLoginItemSettings({ openAtLogin: store.getSnapshot().settings.runOnStartup })
   const sessions = new SessionGuardian(store, app.getPath('userData'))
   await sessions.initialize()
+  const protectedSession = new ProtectedSessionService(store)
   const roblox = new RobloxClient(store, secrets, shell, sessions)
+  roblox.setProtectedSession(protectedSession)
   sessions.setPresenceResolver((userId) => roblox.getPresence(userId))
   sessions.setRecoveryLauncher((job) => roblox.launch(job.accountId, job.placeId, job.jobId, undefined, undefined, job.id))
   sessions.start()
@@ -87,7 +90,7 @@ app.whenReady().then(async () => {
   const control = new ControlServer(store, roblox)
   const inputWorker = new InputWorkerService(store, sessions)
   const inputWorkerClient = new InputWorkerClient()
-  const backgroundInput = new BackgroundInputService(store, sessions)
+  const backgroundInput = new BackgroundInputService(store, protectedSession)
   const webApi = new WebApiService(store, roblox, secrets, inputWorker)
   if (store.getWebApi().enabled) {
     try {
@@ -100,14 +103,17 @@ app.whenReady().then(async () => {
   const watcher = new WatcherService(store)
   watcher.start()
   if (store.getControl().autoStart) void control.start()
-  registerIpcHandlers({ store, roblox, webApi, watcher, sessions, control, inputWorkerClient, backgroundInput, secrets, auth, billing, updates, getWindow: () => mainWindow })
+  if (store.getSnapshot().settings.protectedSessionEnabled && store.getSnapshot().entitlements.isolatedWorkerInput) {
+    void protectedSession.start().catch((error) => console.warn('Protected Session could not start automatically.', error))
+  }
+  registerIpcHandlers({ store, roblox, webApi, watcher, sessions, control, inputWorkerClient, backgroundInput, protectedSession, secrets, auth, billing, updates, getWindow: () => mainWindow })
 
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     callback(permission === 'notifications')
   })
   createWindow()
 
-  app.on('before-quit', () => { updates.dispose(); void Promise.all([webApi.dispose(), control.dispose(), watcher.dispose()]); sessions.dispose(); roblox.dispose() })
+  app.on('before-quit', () => { updates.dispose(); void Promise.all([webApi.dispose(), control.dispose(), watcher.dispose(), protectedSession.dispose()]); sessions.dispose(); roblox.dispose() })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

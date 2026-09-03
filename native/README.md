@@ -24,3 +24,12 @@ retained for deliberately isolated workers: it focuses the worker window, uses
 the normal system input stream, and restores the previous worker window. Both
 paths enforce a 1.5 second limit. Neither injects code, modifies Roblox, records
 input, runs scripts, or repeats actions on its own.
+
+`protected-session-helper.exe` hosts Microsoft's Remote Desktop ActiveX control
+in child-session mode and starts a small, same-user agent inside that Windows
+session. The agent only launches an installed `RobloxPlayerBeta.exe`, enumerates
+its own session's Roblox windows, and sends one allowlisted key press at a time.
+This keeps the user's main desktop in a different Windows input session without
+patching Windows, installing RDP Wrapper, injecting Roblox, or opening a custom
+network service. Protected Session requires Windows Firewall to remain enabled;
+Virgue never enables the Remote Desktop firewall group.

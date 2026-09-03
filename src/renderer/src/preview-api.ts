@@ -74,6 +74,7 @@ const previewSettings: AppSettings = {
   presenceUpdateRate: 60,
   maxRecentGames: 8,
   backgroundInputMainAccountId: null,
+  protectedSessionEnabled: false,
   theme: 'neo',
 }
 
@@ -161,6 +162,7 @@ function createPreviewApi(): VirgueApi {
   let controlAccounts = createControlAccounts(accounts)
   let controlCommands: ControlCommand[] = []
   let control = clone(previewControl)
+  let protectedSessionRunning = showControlPreview
   let serverPresets: ServerFinderState['presets'] = []
   let serverHistory: ServerHistoryRecord[] = []
   let serverPreferences: ServerPreference[] = []
@@ -553,6 +555,25 @@ function createPreviewApi(): VirgueApi {
           issuedAt: now(),
           results: targets.map((session) => ({ sessionId: session.id, accountId: session.accountId, accountLabel: session.accountLabel, status: 'posted' as const, message: 'Preview accepted the background key message without changing focus.' })),
         }
+      },
+    },
+    protectedSession: {
+      getStatus: async () => ({ supported: true, configured: true, firewallEnabled: true, phase: protectedSessionRunning ? 'ready' as const : 'stopped' as const, childSessionId: protectedSessionRunning ? 2 : null, message: protectedSessionRunning ? 'Protected Session is ready. Alt launches and inputs stay off your main desktop.' : 'Protected Session is ready to start.' }),
+      setup: async () => {
+        protectedSessionRunning = true
+        settings.protectedSessionEnabled = true
+        const status = { supported: true, configured: true, firewallEnabled: true, phase: 'ready' as const, childSessionId: 2, message: 'Protected Session is ready. Alt launches and inputs stay off your main desktop.' }
+        return { ok: true, message: 'Protected Session is configured.', status }
+      },
+      start: async () => {
+        protectedSessionRunning = true
+        settings.protectedSessionEnabled = true
+        return { supported: true, configured: true, firewallEnabled: true, phase: 'ready' as const, childSessionId: 2, message: 'Protected Session is ready. Alt launches and inputs stay off your main desktop.' }
+      },
+      stop: async () => {
+        protectedSessionRunning = false
+        settings.protectedSessionEnabled = false
+        return { supported: true, configured: true, firewallEnabled: true, phase: 'stopped' as const, childSessionId: null, message: 'Protected Session is stopped. Your main desktop is unchanged.' }
       },
     },
     watcher: {

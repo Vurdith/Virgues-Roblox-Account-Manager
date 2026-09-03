@@ -7,6 +7,7 @@ import { BillingService } from './billing-service'
 import { BackgroundInputService } from './background-input'
 import { ControlServer } from './control-server'
 import { InputWorkerClient } from './input-worker-client'
+import { ProtectedSessionService } from './protected-session'
 import { SecretStore } from './secret-store'
 import { SessionGuardian } from './session-guardian'
 import { RobloxClient } from './roblox-client'
@@ -23,6 +24,7 @@ interface IpcServices {
   control: ControlServer
   inputWorkerClient: InputWorkerClient
   backgroundInput: BackgroundInputService
+  protectedSession: ProtectedSessionService
   secrets: SecretStore
   auth: AuthService
   billing: BillingService
@@ -31,7 +33,7 @@ interface IpcServices {
 }
 
 export function registerIpcHandlers(services: IpcServices): void {
-  const { store, roblox, webApi, watcher, sessions, control, inputWorkerClient, backgroundInput, secrets, auth, billing, updates, getWindow } = services
+  const { store, roblox, webApi, watcher, sessions, control, inputWorkerClient, backgroundInput, protectedSession, secrets, auth, billing, updates, getWindow } = services
   ipcMain.handle(IPC_CHANNELS.appGetSnapshot, () => store.getSnapshot())
   ipcMain.handle(IPC_CHANNELS.appImportData, async () => { await store.importData(); return store.getSnapshot() })
   ipcMain.handle(IPC_CHANNELS.appOpenDataFolder, () => store.openDataFolder())
@@ -119,6 +121,10 @@ export function registerIpcHandlers(services: IpcServices): void {
   })
   ipcMain.handle(IPC_CHANNELS.backgroundInputGetSessions, () => backgroundInput.getSnapshot())
   ipcMain.handle(IPC_CHANNELS.backgroundInputSend, (_event, input: BackgroundInputCommandInput) => backgroundInput.send(input))
+  ipcMain.handle(IPC_CHANNELS.protectedSessionGetStatus, () => protectedSession.getStatus())
+  ipcMain.handle(IPC_CHANNELS.protectedSessionSetup, () => protectedSession.setup())
+  ipcMain.handle(IPC_CHANNELS.protectedSessionStart, () => protectedSession.start())
+  ipcMain.handle(IPC_CHANNELS.protectedSessionStop, () => protectedSession.stop())
   ipcMain.handle(IPC_CHANNELS.watcherUpdate, (_event, input: WatcherUpdateInput) => watcher.update(input))
   ipcMain.handle(IPC_CHANNELS.watcherCheck, () => watcher.check())
 

@@ -1,22 +1,15 @@
-import { execFile } from 'node:child_process'
-import { join } from 'node:path'
-import { promisify } from 'node:util'
-import { app } from 'electron'
 import type {
   BackgroundInputCommandInput,
   BackgroundInputCommandResult,
   BackgroundInputSnapshot,
   BackgroundInputTargetResult,
-  SessionRecord,
   WindowInputKey,
 } from '../shared/types'
 import { AccountStore } from './account-store'
-import { SessionGuardian } from './session-guardian'
+import { ProtectedSessionService, type ProtectedWindow } from './protected-session'
 
-const execFileAsync = promisify(execFile)
 const MINIMUM_INPUT_DURATION_MS = 40
 const MAXIMUM_INPUT_DURATION_MS = 1500
-const HELPER_TIMEOUT_MS = 5000
 const MAXIMUM_TARGETS = 8
 const MAXIMUM_QUEUED_COMMANDS = 12
 
@@ -47,48 +40,35 @@ export const BACKGROUND_INPUT_KEYS: readonly WindowInputKey[] = [
   'ArrowRight',
 ]
 
-interface HelperOutput {
-  ok?: boolean
-  transport?: string
-  foregroundUnchanged?: boolean
-}
-
-function helperError(error: unknown): string {
-  if (typeof error === 'object' && error !== null && 'stderr' in error) {
-    const stderr = String((error as { stderr?: unknown }).stderr ?? '').trim()
-    if (stderr) return stderr
-  }
-  return error instanceof Error ? error.message : 'Windows could not post the background input.'
-}
-
-function isReadySession(session: SessionRecord): boolean {
-  return session.managed && session.processState === 'alive' && session.processId !== null && session.windowHandle !== null
+function windowId(window: ProtectedWindow): string {
+  return `protected:${window.processId}:${window.windowHandle}`
 }
 
 export class BackgroundInputService {
   private queue: Promise<void> = Promise.resolve()
   private queuedCommands = 0
 
-  constructor(private readonly store: AccountStore, private readonly sessions: SessionGuardian) {}
+  constructor(private readonly store: AccountStore, private readonly protectedSession: ProtectedSessionService) {}
 
   async getSnapshot(): Promise<BackgroundInputSnapshot> {
     this.assertPlanAccess()
-    const snapshot = await this.sessions.refresh()
-    const storeSnapshot = this.store.getSnapshot()
-    const protectedAccountId = storeSnapshot.settings.backgroundInputMainAccountId
-    const accounts = new Map(storeSnapshot.accounts.map((account) => [account.id, account]))
+    const protectedAccountId = this.store.getSnapshot().settings.backgroundInputMainAccountId
+    const status = await this.protectedSession.getStatus()
+    if (status.phase !== 'ready') return { protectedAccountId, sessions: [], checkedAt: new Date().toISOString() }
+
+    const windows = await this.protectedSession.getWindows()
+    const accounts = new Map(this.store.getSnapshot().accounts.map((account) => [account.id, account]))
     return {
       protectedAccountId,
-      sessions: snapshot.active.map((session) => {
-        const account = accounts.get(session.accountId)
-        const protectedSession = Boolean(protectedAccountId && session.accountId === protectedAccountId)
+      sessions: windows.map((window) => {
+        const account = window.accountId ? accounts.get(window.accountId) : undefined
         return {
-          id: session.id,
-          accountId: session.accountId,
-          accountLabel: account?.alias || account?.username || 'Unknown account',
-          experienceName: session.experienceName || 'Roblox',
-          windowTitle: session.windowTitle,
-          state: protectedSession ? 'protected' as const : isReadySession(session) ? 'ready' as const : 'waiting' as const,
+          id: windowId(window),
+          accountId: window.accountId || `protected-process-${window.processId}`,
+          accountLabel: account?.alias || account?.username || `Alt Roblox · PID ${window.processId}`,
+          experienceName: 'Protected Session',
+          windowTitle: window.windowTitle || 'Roblox',
+          state: 'ready' as const,
         }
       }),
       checkedAt: new Date().toISOString(),
@@ -97,7 +77,7 @@ export class BackgroundInputService {
 
   send(input: BackgroundInputCommandInput): Promise<BackgroundInputCommandResult> {
     if (this.queuedCommands >= MAXIMUM_QUEUED_COMMANDS) {
-      throw new Error('The background-control queue is full. Wait for the current inputs to finish.')
+      throw new Error('The protected-control queue is full. Wait for the current inputs to finish.')
     }
     this.queuedCommands += 1
     const task = this.queue.then(() => this.execute(input), () => this.execute(input))
@@ -110,8 +90,8 @@ export class BackgroundInputService {
 
   private async execute(input: BackgroundInputCommandInput): Promise<BackgroundInputCommandResult> {
     this.assertPlanAccess()
-    if (process.platform !== 'win32') throw new Error('Background controls are available only on Windows.')
-    if (!BACKGROUND_INPUT_KEYS.includes(input.key)) throw new Error('That key is not available for background controls.')
+    if (process.platform !== 'win32') throw new Error('Protected controls are available only on Windows.')
+    if (!BACKGROUND_INPUT_KEYS.includes(input.key)) throw new Error('That key is not available for protected controls.')
     if (!Number.isInteger(input.durationMs) || input.durationMs < MINIMUM_INPUT_DURATION_MS || input.durationMs > MAXIMUM_INPUT_DURATION_MS) {
       throw new Error(`Input duration must be between ${MINIMUM_INPUT_DURATION_MS} and ${MAXIMUM_INPUT_DURATION_MS} milliseconds.`)
     }
@@ -119,65 +99,48 @@ export class BackgroundInputService {
     const sessionIds = [...new Set(input.sessionIds.map((sessionId) => sessionId.trim()).filter(Boolean))]
     if (sessionIds.length === 0) throw new Error('Select at least one alt client.')
     if (sessionIds.length > MAXIMUM_TARGETS) throw new Error(`Select no more than ${MAXIMUM_TARGETS} alt clients at once.`)
+    if (!this.store.getSnapshot().settings.backgroundInputMainAccountId) throw new Error('Choose which Roblox account is your main before sending protected controls.')
 
-    const protectedAccountId = this.store.getSnapshot().settings.backgroundInputMainAccountId
-    if (!protectedAccountId) throw new Error('Choose which Roblox account is your main before sending background controls.')
-
-    const snapshot = await this.sessions.refresh()
-    const byId = new Map(snapshot.active.map((session) => [session.id, session]))
+    const windows = await this.protectedSession.getWindows()
+    const byId = new Map(windows.map((window) => [windowId(window), window]))
     const targets = sessionIds.map((sessionId) => {
-      const session = byId.get(sessionId)
-      if (!session) throw new Error('One of the selected Roblox sessions is no longer active.')
-      if (session.accountId === protectedAccountId) throw new Error('Virgue blocked an input directed at your protected main account.')
-      if (!isReadySession(session)) throw new Error('One of the selected sessions does not have a verified, ready Roblox window.')
-      return session
+      const window = byId.get(sessionId)
+      if (!window) throw new Error('One of the selected alt sessions is no longer active.')
+      return window
     })
 
-    const results = await Promise.all(targets.map((session) => this.executeTarget(session, input.key, input.durationMs)))
+    const results: BackgroundInputTargetResult[] = []
+    for (const target of targets) results.push(await this.executeTarget(target, input.key, input.durationMs))
     return { key: input.key, durationMs: input.durationMs, issuedAt: new Date().toISOString(), results }
   }
 
-  private async executeTarget(session: SessionRecord, key: WindowInputKey, durationMs: number): Promise<BackgroundInputTargetResult> {
-    const account = this.store.getSnapshot().accounts.find((candidate) => candidate.id === session.accountId)
-    const accountLabel = account?.alias || account?.username || 'Unknown account'
-    const helperPath = app.isPackaged
-      ? join(process.resourcesPath, 'native', 'window-input-helper.exe')
-      : join(process.cwd(), 'native', 'bin', 'window-input-helper.exe')
-
+  private async executeTarget(window: ProtectedWindow, key: WindowInputKey, durationMs: number): Promise<BackgroundInputTargetResult> {
+    const account = window.accountId ? this.store.getSnapshot().accounts.find((candidate) => candidate.id === window.accountId) : undefined
+    const accountLabel = account?.alias || account?.username || `Alt Roblox · PID ${window.processId}`
+    const sessionId = windowId(window)
     try {
-      const result = await execFileAsync(helperPath, [
-        'background-send',
-        String(session.processId),
-        String(session.windowHandle),
-        key,
-        String(durationMs),
-      ], { windowsHide: true, timeout: HELPER_TIMEOUT_MS, maxBuffer: 64 * 1024 })
-      let helper: HelperOutput = {}
-      try { helper = JSON.parse(result.stdout.trim()) as HelperOutput } catch { /* The exit code remains authoritative. */ }
-      const foregroundSafe = helper.foregroundUnchanged !== false
+      await this.protectedSession.sendInput(window.processId, window.windowHandle, key, durationMs)
       return {
-        sessionId: session.id,
-        accountId: session.accountId,
+        sessionId,
+        accountId: window.accountId || `protected-process-${window.processId}`,
         accountLabel,
         status: 'posted',
-        message: foregroundSafe
-          ? 'Windows accepted the background key message without Virgue changing focus.'
-          : 'Windows accepted the key message, but the foreground window changed independently.',
+        message: 'The key was sent through the alt-only Windows session. Your main desktop was not focused.',
       }
     } catch (error) {
       return {
-        sessionId: session.id,
-        accountId: session.accountId,
+        sessionId,
+        accountId: window.accountId || `protected-process-${window.processId}`,
         accountLabel,
         status: 'failed',
-        message: helperError(error),
+        message: error instanceof Error ? error.message : 'Protected Session could not send the input.',
       }
     }
   }
 
   private assertPlanAccess(): void {
     if (!this.store.getSnapshot().entitlements.isolatedWorkerInput) {
-      throw new Error('Background controls are available with Virgue Pro.')
+      throw new Error('Protected Session controls are available with Virgue Pro.')
     }
   }
 }

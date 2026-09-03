@@ -80,6 +80,10 @@ export const IPC_CHANNELS = {
   isolatedWorkerSendInput: 'isolated-worker:send-input',
   backgroundInputGetSessions: 'background-input:get-sessions',
   backgroundInputSend: 'background-input:send',
+  protectedSessionGetStatus: 'protected-session:get-status',
+  protectedSessionSetup: 'protected-session:setup',
+  protectedSessionStart: 'protected-session:start',
+  protectedSessionStop: 'protected-session:stop',
   watcherUpdate: 'watcher:update',
   watcherCheck: 'watcher:check',
   sessionsGetSnapshot: 'sessions:get-snapshot',
@@ -157,6 +161,10 @@ export interface IpcPayloads {
   [IPC_CHANNELS.isolatedWorkerSendInput]: IsolatedWorkerCommandInput
   [IPC_CHANNELS.backgroundInputGetSessions]: undefined
   [IPC_CHANNELS.backgroundInputSend]: BackgroundInputCommandInput
+  [IPC_CHANNELS.protectedSessionGetStatus]: undefined
+  [IPC_CHANNELS.protectedSessionSetup]: undefined
+  [IPC_CHANNELS.protectedSessionStart]: undefined
+  [IPC_CHANNELS.protectedSessionStop]: undefined
   [IPC_CHANNELS.watcherUpdate]: WatcherUpdateInput
   [IPC_CHANNELS.watcherCheck]: undefined
   [IPC_CHANNELS.sessionsGetSnapshot]: undefined

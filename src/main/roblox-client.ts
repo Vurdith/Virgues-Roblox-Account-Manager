@@ -35,6 +35,7 @@ import { getPlanFeatureError } from '../shared/entitlements'
 import { AccountStore, parseGameSearchResult } from './account-store'
 import { SecretStore } from './secret-store'
 import type { SessionGuardian } from './session-guardian'
+import type { ProtectedSessionService } from './protected-session'
 
 const ROBLOX_USER_AGENT = "Virgue's Roblox Account Manager/1.0"
 const SERVER_CACHE_TTL_MS = 10 * 60 * 1000
@@ -242,8 +243,13 @@ export class RobloxClient {
   private readonly launchSettings = new Set<LaunchGlobalSettings>()
   private readonly launchedRobloxProcesses = new Map<number, TrackedRobloxProcess>()
   private cleanupInFlight = false
+  private protectedSession: ProtectedSessionService | null = null
 
   constructor(private readonly store: AccountStore, private readonly secrets: SecretStore, private readonly electronShell: Shell, private readonly sessionGuardian: SessionGuardian | null = null) {}
+
+  setProtectedSession(service: ProtectedSessionService): void {
+    this.protectedSession = service
+  }
 
   startBackgroundTasks(): void {
     if (this.backgroundTimer) return
@@ -1014,18 +1020,26 @@ export class RobloxClient {
         const launchArgs = launchSettings
           ? ['-g', launchSettings.path, '--app', '-t', ticket, '-j', launcherUrl]
           : ['--app', '-t', ticket, '-j', launcherUrl]
-        launchedProcessId = await new Promise<number | null>((resolve, reject) => {
-          const child = spawn(executable, launchArgs, { detached: true, windowsHide: true, stdio: 'ignore' })
-          child.once('error', reject)
-          child.once('spawn', () => {
-            if (launchSettings) {
-              this.watchLaunchGlobalSettings(launchSettings, child)
-              launchSettingsWatched = true
-            }
-            child.unref()
-            resolve(child.pid ?? null)
-          })
-        }).catch(() => { throw new Error('Roblox Player could not be started. Close any Roblox installer or update window and try again.') })
+        if (this.protectedSession?.shouldRouteLaunch(launchInput.accountId)) {
+          launchedProcessId = await this.protectedSession.launch(executable, launchArgs, launchInput.accountId, launchInput.launchRequestId)
+          if (launchSettings) {
+            this.launchSettings.add(launchSettings)
+            launchSettingsWatched = true
+          }
+        } else {
+          launchedProcessId = await new Promise<number | null>((resolve, reject) => {
+            const child = spawn(executable, launchArgs, { detached: true, windowsHide: true, stdio: 'ignore' })
+            child.once('error', reject)
+            child.once('spawn', () => {
+              if (launchSettings) {
+                this.watchLaunchGlobalSettings(launchSettings, child)
+                launchSettingsWatched = true
+              }
+              child.unref()
+              resolve(child.pid ?? null)
+            })
+          }).catch(() => { throw new Error('Roblox Player could not be started. Close any Roblox installer or update window and try again.') })
+        }
         if (launchedProcessId) this.launchedRobloxProcesses.set(launchedProcessId, { startedAt: Date.now(), launchSettings })
         if (this.sessionGuardian && guardianSessionId) {
           try {

@@ -126,6 +126,12 @@ const api: VirgueApi = {
     getSessions: () => ipcRenderer.invoke(IPC_CHANNELS.backgroundInputGetSessions),
     send: (input: BackgroundInputCommandInput) => ipcRenderer.invoke(IPC_CHANNELS.backgroundInputSend, input),
   },
+  protectedSession: {
+    getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.protectedSessionGetStatus),
+    setup: () => ipcRenderer.invoke(IPC_CHANNELS.protectedSessionSetup),
+    start: () => ipcRenderer.invoke(IPC_CHANNELS.protectedSessionStart),
+    stop: () => ipcRenderer.invoke(IPC_CHANNELS.protectedSessionStop),
+  },
   watcher: {
     update: (input: WatcherUpdateInput) => ipcRenderer.invoke(IPC_CHANNELS.watcherUpdate, input),
     check: () => ipcRenderer.invoke(IPC_CHANNELS.watcherCheck),

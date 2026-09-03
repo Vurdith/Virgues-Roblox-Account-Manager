@@ -702,19 +702,30 @@ h1, h2, p { margin: 0; }
 .background-upgrade-card > div { display: grid; gap: 4px; }
 .background-upgrade-card strong { font-size: 14px; }
 .background-upgrade-card p { color: var(--ink-muted); font-size: 11px; line-height: 1.45; }
+.protected-session-gate, .protected-session-live { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 13px; padding: 14px; border: 3px solid var(--ink); box-shadow: var(--shadow-small); }
+.protected-session-gate { background: var(--blue); }
+.protected-session-gate.warning { background: #f2c7bc; }
+.protected-session-live { background: var(--green); }
+.protected-session-gate-icon { display: grid; width: 40px; height: 40px; place-items: center; border: 2px solid var(--ink); background: var(--panel-strong); }
+.protected-session-gate > div, .protected-session-live > div { display: grid; min-width: 0; gap: 3px; }
+.protected-session-gate strong, .protected-session-live strong { font-size: 13px; }
+.protected-session-gate p, .protected-session-live p { max-width: 68ch; color: #39464a; font-size: 10px; line-height: 1.42; }
+.protected-session-gate .primary-button { min-width: 150px; }
 .background-protection-bar { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 14px; border: 3px solid var(--ink); background: var(--yellow); box-shadow: var(--shadow-small); }
 .background-protection-bar.protected { background: var(--green); }
 .background-protection-icon { display: grid; width: 34px; height: 34px; place-items: center; border: 2px solid var(--ink); background: var(--panel-strong); }
 .background-protection-bar > div { display: grid; min-width: 0; gap: 3px; }
 .background-protection-bar strong { font-size: 13px; }
 .background-protection-bar p { color: #4d514c; font-size: 10px; line-height: 1.4; }
-.background-protection-bar > span:last-child { color: #3d4b42; font-size: 10px; font-weight: 800; white-space: nowrap; }
+.protected-main-select { display: grid; min-width: 176px; gap: 4px; }
+.protected-main-select > span { color: #3d4b42; font-size: 8px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
+.protected-main-select select { min-height: 34px; padding: 0 30px 0 9px; border: 2px solid var(--ink); background: var(--panel-strong); font: inherit; font-size: 10px; font-weight: 750; }
 .background-inline-error { display: flex; align-items: center; gap: 8px; padding: 9px 11px; border: 2px solid var(--ink); background: #f2c7bc; font-size: 11px; font-weight: 650; }
 .background-console-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(310px, .75fr); gap: 14px; align-items: start; }
 .background-session-card, .background-input-card { display: grid; gap: 11px; padding: 14px; border: 3px solid var(--ink); background: var(--panel-strong); box-shadow: var(--shadow-small); }
 .background-session-card > .panel-heading, .background-input-card > .panel-heading { padding-bottom: 9px; border-bottom: 2px solid var(--line); }
 .background-session-list { display: grid; border: 2px solid var(--ink); }
-.background-session-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 9px; min-height: 64px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.background-session-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 9px; min-height: 64px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
 .background-session-row:last-child { border-bottom: 0; }
 .background-session-row:has(input:checked) { background: #edf7f0; }
 .background-session-row.protected { background: #f7e4ad; }
@@ -1364,8 +1375,10 @@ h1, h2, p { margin: 0; }
   .control-header .primary-button, .control-header .outline-button { width: 100%; }
   .worker-plan-badge { width: 100%; }
   .background-upgrade-card { align-items: stretch; flex-direction: column; }
+  .protected-session-gate, .protected-session-live { grid-template-columns: auto minmax(0, 1fr); }
+  .protected-session-gate .primary-button, .protected-session-live .text-button { grid-column: 2; justify-self: stretch; }
   .background-protection-bar { grid-template-columns: auto minmax(0, 1fr); }
-  .background-protection-bar > span:last-child { grid-column: 2; }
+  .protected-main-select { grid-column: 2; width: 100%; }
   .background-session-row { grid-template-columns: minmax(0, 1fr) auto; }
   .background-session-row > .worker-session-status { grid-column: 2; }
   .background-direction-pads { grid-template-columns: 1fr; }

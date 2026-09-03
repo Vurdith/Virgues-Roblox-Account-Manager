@@ -40,6 +40,7 @@ import type {
   UpdateAccountInput,
   UpdateCategoryInput,
   PlanEntitlements,
+  ProtectedSessionStatus,
   WindowInputKey,
   VirgueAuthSession,
   AppUpdateEvent,
@@ -1596,10 +1597,11 @@ interface ControlViewProps {
 
 function ControlView({ accounts, commands, control, settings, entitlements, onSettings, onError, onActivity }: ControlViewProps) {
   const [background, setBackground] = useState<BackgroundInputSnapshot | null>(null)
+  const [protectedStatus, setProtectedStatus] = useState<ProtectedSessionStatus | null>(null)
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([])
   const [durationMs, setDurationMs] = useState(180)
-  const [loadingSessions, setLoadingSessions] = useState(false)
   const [sending, setSending] = useState(false)
+  const [sessionAction, setSessionAction] = useState<'setup' | 'start' | 'stop' | null>(null)
   const [loadError, setLoadError] = useState('')
   const [lastResult, setLastResult] = useState<BackgroundInputCommandResult | null>(null)
   const proAccess = entitlements.isolatedWorkerInput
@@ -1612,8 +1614,12 @@ function ControlView({ accounts, commands, control, settings, entitlements, onSe
     let active = true
     const load = async () => {
       try {
-        const snapshot = await window.virgue.backgroundInput.getSessions()
+        const [status, snapshot] = await Promise.all([
+          window.virgue.protectedSession.getStatus(),
+          window.virgue.backgroundInput.getSessions(),
+        ])
         if (!active) return
+        setProtectedStatus(status)
         setBackground(snapshot)
         setLoadError('')
         setSelectedSessionIds((current) => current.filter((id) => snapshot.sessions.some((session) => session.id === id && session.state === 'ready')))
@@ -1621,14 +1627,40 @@ function ControlView({ accounts, commands, control, settings, entitlements, onSe
         if (active) setLoadError(caught instanceof Error ? caught.message : 'Active Roblox sessions could not be read.')
       }
     }
-    setLoadingSessions(true)
-    void load().finally(() => { if (active) setLoadingSessions(false) })
-    const timer = window.setInterval(() => { void load() }, 4000)
+    void load()
+    const timer = window.setInterval(() => { void load() }, 3000)
     return () => {
       active = false
       window.clearInterval(timer)
     }
   }, [proAccess, settings?.backgroundInputMainAccountId])
+
+  const runSessionAction = async (action: 'setup' | 'start' | 'stop') => {
+    setSessionAction(action)
+    setLastResult(null)
+    try {
+      const status = action === 'setup'
+        ? (await window.virgue.protectedSession.setup()).status
+        : action === 'start'
+          ? await window.virgue.protectedSession.start()
+          : await window.virgue.protectedSession.stop()
+      setProtectedStatus(status)
+      const snapshot = await window.virgue.backgroundInput.getSessions()
+      setBackground(snapshot)
+      setSelectedSessionIds([])
+      onActivity(
+        status.phase === 'ready' ? 'Protected Session ready' : 'Protected Session stopped',
+        status.message,
+        status.phase === 'ready' ? 'positive' : 'normal',
+      )
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : 'Protected Session could not be updated.')
+      const status = await window.virgue.protectedSession.getStatus().catch(() => null)
+      if (status) setProtectedStatus(status)
+    } finally {
+      setSessionAction(null)
+    }
+  }
 
   const protectMain = async (accountId: string) => {
     try {
@@ -1657,10 +1689,10 @@ function ControlView({ accounts, commands, control, settings, entitlements, onSe
       setLastResult(result)
       const posted = result.results.filter((item) => item.status === 'posted')
       const failed = result.results.filter((item) => item.status === 'failed')
-      if (posted.length > 0) onActivity('Background input posted', `${windowInputLabel(key)} → ${formatCount(posted.length, 'alt client')}`, 'positive')
+      if (posted.length > 0) onActivity('Protected input sent', `${windowInputLabel(key)} → ${formatCount(posted.length, 'alt client')}`, 'positive')
       if (failed.length > 0) onError(failed.map((item) => `${item.accountLabel}: ${item.message}`).join(' '))
     } catch (caught) {
-      onError(caught instanceof Error ? caught.message : 'The background input could not be posted.')
+      onError(caught instanceof Error ? caught.message : 'The protected input could not be sent.')
     } finally {
       setSending(false)
     }
@@ -1668,35 +1700,45 @@ function ControlView({ accounts, commands, control, settings, entitlements, onSe
 
   const sessions = background?.sessions ?? []
   const readySessions = sessions.filter((session) => session.state === 'ready')
-  const protectedSession = sessions.find((session) => session.state === 'protected')
+  const mainAccount = accounts.find((account) => account.accountId === background?.protectedAccountId)
   const postedCount = lastResult?.results.filter((item) => item.status === 'posted').length ?? 0
   const failedCount = lastResult?.results.filter((item) => item.status === 'failed').length ?? 0
-  const controlsDisabled = sending || !background?.protectedAccountId || selectedSessionIds.length === 0
+  const sessionReady = protectedStatus?.phase === 'ready'
+  const controlsDisabled = sending || !sessionReady || !background?.protectedAccountId || selectedSessionIds.length === 0
 
   return <section className="control-view">
     <div className="control-header background-control-header">
-      <div><span className="eyebrow">Background controls</span><h2>Control alts without switching windows</h2><p>Choose your main once, select the Roblox clients you want to control, and send a short key press. Virgue never focuses an alt window in this mode.</p></div>
-      <span className={`worker-plan-badge ${proAccess ? 'ready' : ''}`}><Icon name={proAccess ? 'shield' : 'gem'} size={15} /> {proAccess ? 'Focus-safe mode' : 'Virgue Pro'}</span>
+      <div><span className="eyebrow">Protected controls</span><h2>Play on your main. Control your alts.</h2><p>Virgue opens alt clients on a separate Windows desktop and sends normal, bounded key presses there. Your main game keeps focus on this desktop.</p></div>
+      <span className={`worker-plan-badge ${sessionReady ? 'ready' : ''}`}><Icon name={proAccess ? 'shield' : 'gem'} size={15} /> {sessionReady ? 'Session active' : 'Virgue Pro'}</span>
     </div>
 
-    {!proAccess ? <div className="background-upgrade-card"><div><strong>Background controls are included with Virgue Pro</strong><p>Upgrade to unlock protected-main targeting for your local Roblox sessions.</p></div><button type="button" className="primary-button" onClick={() => void window.virgue.app.openExternal(PRICING_URL)}>View Pro <Icon name="arrow" size={15} /></button></div> : <>
-      <div className={`background-protection-bar ${background?.protectedAccountId ? 'protected' : ''}`}>
+    {!proAccess ? <div className="background-upgrade-card"><div><strong>Protected Session is included with Virgue Pro</strong><p>Keep alt input on a separate Windows desktop while your main game remains uninterrupted.</p></div><button type="button" className="primary-button" onClick={() => void window.virgue.app.openExternal(PRICING_URL)}>View Pro <Icon name="arrow" size={15} /></button></div> : <>
+      {!protectedStatus || protectedStatus.phase !== 'ready' ? <div className={`protected-session-gate ${protectedStatus?.phase === 'error' || protectedStatus?.phase === 'unavailable' ? 'warning' : ''}`}>
+        <span className="protected-session-gate-icon"><Icon name={protectedStatus?.phase === 'error' || protectedStatus?.phase === 'unavailable' ? 'warning' : 'shield'} size={22} /></span>
+        <div><strong>{protectedStatus?.phase === 'starting' ? 'Opening your alt desktop…' : protectedStatus?.phase === 'error' ? 'Protected Session needs attention' : protectedStatus?.phase === 'unavailable' ? 'Protected Session is unavailable' : protectedStatus?.configured ? 'Your alt desktop is ready to start' : 'Set up once. Use it every day.'}</strong><p>{protectedStatus?.message ?? 'Checking this Windows installation…'}</p></div>
+        {protectedStatus?.phase !== 'unavailable' && <button type="button" className="primary-button" disabled={sessionAction !== null || protectedStatus?.phase === 'starting'} onClick={() => void runSessionAction(protectedStatus?.configured ? 'start' : 'setup')}>{sessionAction === 'setup' ? 'Setting up…' : sessionAction === 'start' || protectedStatus?.phase === 'starting' ? 'Starting…' : protectedStatus?.configured ? 'Start session' : 'Set up Protected Session'} <Icon name="arrow" size={15} /></button>}
+      </div> : <div className="protected-session-live">
         <span className="background-protection-icon"><Icon name="shield" size={19} /></span>
-        <div><strong>{background?.protectedAccountId ? `${protectedSession?.accountLabel ?? 'Your main account'} is protected` : 'Which account are you playing?'}</strong><p>{background?.protectedAccountId ? 'Virgue excludes it from every local background-control command.' : 'Set one running account as your main before selecting any alts.'}</p></div>
-        <span>{loadingSessions ? 'Finding Roblox clients…' : `${formatCount(readySessions.length, 'alt')} ready`}</span>
+        <div><strong>Alt desktop active</strong><p>Windows session {protectedStatus.childSessionId ?? 'ready'} is isolated from the desktop where you play.</p></div>
+        <button type="button" className="text-button" disabled={sessionAction !== null} onClick={() => void runSessionAction('stop')}>{sessionAction === 'stop' ? 'Stopping…' : 'Stop session'}</button>
+      </div>}
+
+      <div className={`background-protection-bar ${background?.protectedAccountId ? 'protected' : ''}`}>
+        <span className="background-protection-icon"><Icon name="users" size={19} /></span>
+        <div><strong>{background?.protectedAccountId ? `${mainAccount?.username ?? 'Main account'} stays on this desktop` : 'Choose the account you will play'}</strong><p>Every other account you launch while Protected Session is active opens on the alt desktop.</p></div>
+        <label className="protected-main-select"><span>Main account</span><select value={background?.protectedAccountId ?? ''} onChange={(event) => void protectMain(event.target.value)}><option value="" disabled>Choose account</option>{accounts.map((account) => <option value={account.accountId} key={account.accountId}>{account.username}</option>)}</select></label>
       </div>
 
       {loadError && <div className="background-inline-error" role="alert"><Icon name="warning" size={15} /> {loadError}</div>}
 
       <div className="background-console-grid">
         <article className="background-session-card">
-          <div className="panel-heading"><span>Roblox clients</span><button type="button" className="text-button" disabled={readySessions.length === 0} onClick={() => { setLastResult(null); setSelectedSessionIds(readySessions.slice(0, 8).map((session) => session.id)) }}>Select all alts</button></div>
-          <div className="background-session-list">{sessions.length === 0 ? <div className="worker-empty"><strong>No active Roblox clients</strong><span>Launch your accounts from Virgue. They will appear here automatically.</span></div> : sessions.map((session) => {
+          <div className="panel-heading"><span>Alt clients</span><button type="button" className="text-button" disabled={!sessionReady || readySessions.length === 0} onClick={() => { setLastResult(null); setSelectedSessionIds(readySessions.slice(0, 8).map((session) => session.id)) }}>Select all</button></div>
+          <div className="background-session-list">{sessions.length === 0 ? <div className="worker-empty"><strong>{sessionReady ? 'No alts running yet' : 'Start Protected Session first'}</strong><span>{sessionReady ? 'Launch any account except your main. It will appear here automatically.' : 'Your alt clients will appear here once the separate Windows session is active.'}</span></div> : sessions.map((session) => {
             const selectable = session.state === 'ready'
             return <div className={`background-session-row ${session.state}`} key={session.id}>
               <label className="background-session-select"><input type="checkbox" checked={selectedSessionIds.includes(session.id)} disabled={!selectable} onChange={() => toggleSession(session.id)} /><span><strong>{session.accountLabel}</strong><small>{session.experienceName} · {session.windowTitle || 'Waiting for window'}</small></span></label>
-              <button type="button" className={`background-main-button ${session.state === 'protected' ? 'active' : ''}`} disabled={session.state === 'protected'} onClick={() => void protectMain(session.accountId)}>{session.state === 'protected' ? <><Icon name="shield" size={13} /> Main protected</> : 'Set as main'}</button>
-              <span className={`worker-session-status ${selectable ? 'ready' : session.state}`}>{selectable ? 'Ready alt' : session.state === 'protected' ? 'Main' : 'Starting'}</span>
+              <span className={`worker-session-status ${selectable ? 'ready' : session.state}`}>{selectable ? 'Ready' : 'Starting'}</span>
             </div>
           })}</div>
         </article>
@@ -1705,11 +1747,11 @@ function ControlView({ accounts, commands, control, settings, entitlements, onSe
           <div className="panel-heading"><span>Send an input</span><span>{formatCount(selectedSessionIds.length, 'target')}</span></div>
           <div className="worker-duration-row"><label htmlFor="background-duration">Press length</label><select id="background-duration" value={durationMs} onChange={(event) => { setLastResult(null); setDurationMs(Number(event.target.value)) }}><option value={90}>Tap · 90 ms</option><option value={180}>Short · 180 ms</option><option value={400}>Medium · 400 ms</option><option value={800}>Long · 800 ms</option><option value={1400}>Maximum · 1.4 s</option></select></div>
           <WindowInputPad disabled={controlsDisabled} onSend={(key) => void sendBackgroundInput(key)} />
-          <p>Windows can accept a background message even when an experience ignores it. Check the selected clients after the first input; Virgue will not steal focus as a fallback.</p>
+          <p>Each click sends one normal key press inside the alt-only Windows session. Nothing is injected into Roblox and your main desktop never changes focus.</p>
         </article>
       </div>
 
-      {lastResult && <div className={`background-result ${failedCount > 0 ? 'warning' : 'success'}`} role="status"><Icon name={failedCount > 0 ? 'warning' : 'check'} size={17} /><div><strong>{postedCount > 0 ? `${windowInputLabel(lastResult.key)} posted to ${formatCount(postedCount, 'alt')}` : 'Input was not posted'}</strong><p>{failedCount > 0 ? `${formatCount(failedCount, 'client')} rejected the command. See the error above.` : 'Focus stayed under your control. Confirm the selected experience responded before relying on this key.'}</p></div></div>}
+      {lastResult && <div className={`background-result ${failedCount > 0 ? 'warning' : 'success'}`} role="status"><Icon name={failedCount > 0 ? 'warning' : 'check'} size={17} /><div><strong>{postedCount > 0 ? `${windowInputLabel(lastResult.key)} sent to ${formatCount(postedCount, 'alt')}` : 'Input was not sent'}</strong><p>{failedCount > 0 ? `${formatCount(failedCount, 'client')} rejected the command. See the error above.` : 'The key stayed inside the alt desktop; your main game kept focus.'}</p></div></div>}
     </>}
 
     <details className="legacy-control-details background-advanced-details">

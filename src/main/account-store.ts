@@ -67,6 +67,7 @@ export const defaultSettings: AppSettings = {
   presenceUpdateRate: 30,
   maxRecentGames: 8,
   backgroundInputMainAccountId: null,
+  protectedSessionEnabled: false,
   theme: 'neo',
 }
 
@@ -304,6 +305,7 @@ function normalizeSettings(value: unknown): AppSettings {
     backgroundInputMainAccountId: typeof source.backgroundInputMainAccountId === 'string' && source.backgroundInputMainAccountId.trim()
       ? source.backgroundInputMainAccountId.trim()
       : null,
+    protectedSessionEnabled: source.protectedSessionEnabled === true,
     theme: source.theme === 'dark' || source.theme === 'light' ? source.theme : 'neo',
   }
 }

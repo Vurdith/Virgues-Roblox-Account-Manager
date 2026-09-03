@@ -430,6 +430,23 @@ export interface BackgroundInputCommandResult {
   results: BackgroundInputTargetResult[]
 }
 
+export type ProtectedSessionPhase = 'unavailable' | 'setup-required' | 'stopped' | 'starting' | 'ready' | 'error'
+
+export interface ProtectedSessionStatus {
+  supported: boolean
+  configured: boolean
+  firewallEnabled: boolean
+  phase: ProtectedSessionPhase
+  childSessionId: number | null
+  message: string
+}
+
+export interface ProtectedSessionSetupResult {
+  ok: boolean
+  message: string
+  status: ProtectedSessionStatus
+}
+
 export interface WatcherSettings {
   enabled: boolean
   closeIfNoConnection: boolean
@@ -485,6 +502,7 @@ export interface AppSettings {
   presenceUpdateRate: number
   maxRecentGames: number
   backgroundInputMainAccountId: string | null
+  protectedSessionEnabled: boolean
   theme: 'neo' | 'dark' | 'light'
 }
 
@@ -801,6 +819,12 @@ export interface VirgueApi {
   backgroundInput: {
     getSessions(): Promise<BackgroundInputSnapshot>
     send(input: BackgroundInputCommandInput): Promise<BackgroundInputCommandResult>
+  }
+  protectedSession: {
+    getStatus(): Promise<ProtectedSessionStatus>
+    setup(): Promise<ProtectedSessionSetupResult>
+    start(): Promise<ProtectedSessionStatus>
+    stop(): Promise<ProtectedSessionStatus>
   }
   watcher: {
     update(input: WatcherUpdateInput): Promise<WatcherSettings>
