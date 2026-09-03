@@ -189,7 +189,7 @@ function createPreviewApi(): VirgueApi {
     client: clone(client),
     settings: clone(settings),
     entitlements: clone(entitlements),
-    info: { name: "Virgue's Roblox Account Manager", version: '1.0.4', platform: 'Browser preview', dataPath: 'Preview only' },
+    info: { name: "Virgue's Roblox Account Manager", version: '1.0.5', platform: 'Browser preview', dataPath: 'Preview only' },
   })
 
   const firstAssignment = () => ({ gameId: games[0]?.id ?? '', categoryId: games[0]?.categories[0]?.id ?? '' })

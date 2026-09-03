@@ -99,6 +99,14 @@ function formatRetryTime(value: string): string {
 
 function formatMetric(value: number): string { return value.toLocaleString() }
 
+function userFacingError(caught: unknown, fallback: string): string {
+  const message = caught instanceof Error ? caught.message : fallback
+  return message
+    .replace(/^Error invoking remote method '[^']+':\s*/i, '')
+    .replace(/^Error:\s*/i, '')
+    .trim() || fallback
+}
+
 function getInitials(account: Account): string {
   const source = account.alias || account.username
   return source.split(/\s|_/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? '').join('') || 'VR'
@@ -321,7 +329,7 @@ function App() {
   }, [authSession?.user.id])
 
   const pushActivity = (message: string, detail: string, tone: ActivityTone = 'normal') => setActivity((current) => [{ id: Date.now(), message, detail, tone }, ...current].slice(0, 40))
-  const setErrorFrom = (caught: unknown, fallback: string) => setError(caught instanceof Error ? caught.message : fallback)
+  const setErrorFrom = (caught: unknown, fallback: string) => setError(userFacingError(caught, fallback))
   const updateSnapshot = (next: AppSnapshot) => setSnapshot(next)
   const updateAccount = (updated: Account) => setSnapshot((current) => current ? { ...current, accounts: current.accounts.map((account) => account.id === updated.id ? updated : account) } : current)
   const updateGame = (updated: GameCollection) => setSnapshot((current) => current ? { ...current, games: current.games.map((game) => game.id === updated.id ? updated : game) } : current)
@@ -479,7 +487,14 @@ function App() {
       updateAccount(result.account)
       pushActivity(`Launched Roblox for ${result.account.alias || result.account.username}`, `Place ${result.account.placeId || placeId} opened with this account`, 'positive')
       return true
-    } catch (caught) { setErrorFrom(caught, 'Roblox could not be launched for this account.') ; return false } finally {
+    } catch (caught) {
+      const message = userFacingError(caught, 'Roblox could not be launched for this account.')
+      if (/reconnect this profile/i.test(message)) {
+        try { setSnapshot(await window.virgue.app.getSnapshot()) } catch { /* Keep the current workspace if refresh also fails. */ }
+      }
+      setError(message)
+      return false
+    } finally {
       if (launchingAccountRef.current === accountId) launchingAccountRef.current = null
       setLaunchingAccountId((current) => current === accountId ? null : current)
     }
@@ -496,7 +511,13 @@ function App() {
       const results = await window.virgue.accounts.launchMany({ targets })
       results.forEach((result) => updateAccount(result.account))
       pushActivity(`Launched ${results.length} profiles`, snapshot?.settings.asyncJoin ? 'Async launching enabled' : `Launch delay ${snapshot?.settings.launchDelay ?? 0}s`, 'positive')
-    } catch (caught) { setErrorFrom(caught, 'The profiles could not be launched.') } finally { setLaunchingMany(false) }
+    } catch (caught) {
+      const message = userFacingError(caught, 'The profiles could not be launched.')
+      if (/reconnect this profile/i.test(message)) {
+        try { setSnapshot(await window.virgue.app.getSnapshot()) } catch { /* Keep the current workspace if refresh also fails. */ }
+      }
+      setError(message)
+    } finally { setLaunchingMany(false) }
   }
   const handleImport = async () => {
     try {
@@ -920,9 +941,9 @@ function AccountDetail({ account, games, launching, onLogin, onLaunch, onUpdate,
       <div><span className="eyebrow">Selected profile</span><h2>{account.alias || account.username}</h2><p>@{account.username}{account.displayName ? ' / ' + account.displayName : ''}</p></div>
       <button type="button" className={'icon-button ' + (showActions ? 'active' : '')} aria-label="Open account actions" aria-expanded={showActions} onClick={openActions}><Icon name="more" size={18} /></button>
     </div>
-    <div className="detail-status"><span className={'status-label ' + account.status}><span className="status-dot" />{STATUS_LABELS[account.status]}</span><span>{account.hasCredentials ? 'Secure session' : 'Not connected'}</span></div>
+    <div className="detail-status"><span className={'status-label ' + account.status}><span className="status-dot" />{STATUS_LABELS[account.status]}</span><span>{account.hasCredentials ? 'Secure session' : account.userId ? 'Reconnect required' : 'Not connected'}</span></div>
     <div className="detail-actions-row">
-      {!account.hasCredentials && <button type="button" className="primary-button compact-button" onClick={() => void onLogin({ gameId: account.gameId, categoryId: account.categoryId })}><Icon name="browser" size={15} /> Connect account</button>}
+      {!account.hasCredentials && <button type="button" className="primary-button compact-button" onClick={() => void onLogin({ gameId: account.gameId, categoryId: account.categoryId })}><Icon name="browser" size={15} /> {account.userId ? 'Reconnect Roblox' : 'Connect Roblox'}</button>}
       <button type="button" className="outline-button compact-button" disabled={!account.hasCredentials} onClick={onOpenBrowser}><Icon name="browser" size={15} /> Open browser</button>
       <button type="button" className={'outline-button compact-button ' + (copied === 'username' ? 'copy-confirmed' : '')} onClick={() => void copy('username')}><Icon name={copied === 'username' ? 'check' : 'copy'} size={15} /> {copied === 'username' ? 'Copied' : 'Copy username'}</button>
       <button type="button" className={'outline-button compact-button ' + (copied === 'profile' ? 'copy-confirmed' : '')} onClick={() => void copy('profile')}><Icon name={copied === 'profile' ? 'check' : 'globe'} size={15} /> {copied === 'profile' ? 'Copied' : 'Profile link'}</button>

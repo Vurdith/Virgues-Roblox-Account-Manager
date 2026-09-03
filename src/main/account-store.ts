@@ -694,7 +694,8 @@ export class AccountStore {
     const account = this.getAccount(id)
     Object.assign(account, input)
     if (input.userId !== undefined && input.userId !== null) account.hasCredentials = true
-    if (input.presence?.type === 'in-game') account.status = 'running'
+    if (input.hasCredentials === false && account.status !== 'running') account.status = 'idle'
+    else if (input.presence?.type === 'in-game') account.status = 'running'
     else if (input.presence?.type === 'offline' && account.status !== 'running') account.status = 'offline'
     else if (input.presence !== undefined && account.status !== 'running') account.status = 'ready'
     else if (input.userId !== undefined) account.status = 'ready'

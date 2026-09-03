@@ -120,6 +120,13 @@ interface AccountBrowserRequestResult {
   body: string
 }
 
+class RobloxAuthenticationTicketError extends Error {
+  constructor(readonly status: number) {
+    super(`Roblox authentication ticket request failed (${status}).`)
+    this.name = 'RobloxAuthenticationTicketError'
+  }
+}
+
 interface TrackedRobloxProcess {
   startedAt: number
   launchSettings: LaunchGlobalSettings | null
@@ -1143,8 +1150,7 @@ export class RobloxClient {
     let launchedDirectly = false
     const launchRequestId = randomUUID()
     if (!isVipLink) {
-      const cookie = this.requireCookie(account)
-      const ticket = await this.getAuthTicket(cookie)
+      const ticket = await this.getLaunchAuthTicket(account)
       const trackerId = this.browserTrackerIds.get(account.id) ?? `${Math.floor(100000 + Math.random() * 800000)}${Math.floor(100000 + Math.random() * 800000)}`
       this.browserTrackerIds.set(account.id, trackerId)
       const launcherUrl = followUserId
@@ -1238,16 +1244,16 @@ export class RobloxClient {
       case 'security-token': value = cookie ?? ''; break
       case 'group': value = this.store.getGame(account.gameId).categories.find((category) => category.id === account.categoryId)?.name ?? ''; break
       case 'details': value = JSON.stringify(account, null, 2); break
-      case 'authentication-ticket': value = await this.getAuthTicket(this.requireCookie(account)); break
+      case 'authentication-ticket': value = await this.getLaunchAuthTicket(account); break
       case 'rbx-player': {
-        const ticket = await this.getAuthTicket(this.requireCookie(account))
+        const ticket = await this.getLaunchAuthTicket(account)
         const trackerId = this.browserTrackerIds.get(account.id) ?? `${Math.floor(100000 + Math.random() * 800000)}${Math.floor(100000 + Math.random() * 800000)}`
         this.browserTrackerIds.set(account.id, trackerId)
         const launcherUrl = `https://assetgame.roblox.com/game/PlaceLauncher.ashx?request=RequestGame${account.jobId ? 'Job' : ''}&browserTrackerId=${trackerId}&placeId=${encodeURIComponent(account.placeId)}${account.jobId ? `&gameId=${encodeURIComponent(account.jobId)}` : ''}&isPlayTogetherGame=false`
         value = `<roblox-player://1/1+launchmode:play+gameinfo:${ticket}+launchtime:${Date.now()}+browsertrackerid:${trackerId}+placelauncherurl:${encodeURIComponent(launcherUrl)}+robloxLocale:en_us+gameLocale:en_us>`
         break
       }
-      case 'app-link': value = `<roblox-player://1/1+launchmode:app+gameinfo:${await this.getAuthTicket(this.requireCookie(account))}+launchtime:${Date.now()}+robloxLocale:en_us+gameLocale:en_us>`; break
+      case 'app-link': value = `<roblox-player://1/1+launchmode:app+gameinfo:${await this.getLaunchAuthTicket(account)}+launchtime:${Date.now()}+robloxLocale:en_us+gameLocale:en_us>`; break
       default: throw new Error('Nothing is available to copy for this profile.')
     }
     if (!value) throw new Error(kind === 'userId' ? 'Verify the profile before copying its User ID.' : 'That secure value is not stored for this profile.')
@@ -1721,8 +1727,67 @@ export class RobloxClient {
     const csrf = response.headers.get('x-csrf-token')
     if (response.status === 403 && csrf) response = await this.rawRequest(url, { ...init, headers: { ...(init.headers as Record<string, string>), 'X-CSRF-TOKEN': csrf } }, cookie)
     const ticket = response.headers.get('rbx-authentication-ticket')
-    if (!response.ok || !ticket) throw new Error(`Roblox authentication ticket request failed (${response.status}).`)
+    if (!response.ok || !ticket) throw new RobloxAuthenticationTicketError(response.status)
     return ticket
+  }
+
+  private async getLaunchAuthTicket(account: Account): Promise<string> {
+    const storedCookie = this.requireCookie(account)
+    try {
+      return await this.getAuthTicket(storedCookie)
+    } catch (error) {
+      if (!(error instanceof RobloxAuthenticationTicketError) || error.status !== 401) throw error
+    }
+
+    // An isolated account browser can receive a rotated Roblox cookie after a
+    // security challenge or re-authentication. Recover that newer cookie only
+    // when it still belongs to this exact profile.
+    const browserCookie = await this.getPersistedAccountBrowserCookie(account.id)
+    if (browserCookie && browserCookie !== storedCookie) {
+      try {
+        const user = await this.getAuthenticated(browserCookie)
+        const matchesAccount = account.userId ? String(user.id) === account.userId : user.name.toLowerCase() === account.username.toLowerCase()
+        if (matchesAccount) {
+          const ticket = await this.getAuthTicket(browserCookie)
+          const checkedAt = new Date().toISOString()
+          await this.secrets.set(account.id, browserCookie)
+          await this.store.setAccountVerification(account.id, { username: user.name, userId: String(user.id), displayName: user.displayName, hasCredentials: true, lastVerified: checkedAt })
+          return ticket
+        }
+      } catch {
+        // Fall through to distinguish an expired cookie from a temporary
+        // authentication-ticket outage using the stored session itself.
+      }
+    }
+
+    let storedSessionValid: boolean | null = null
+    try {
+      const response = await this.rawRequest('https://users.roblox.com/v1/users/authenticated', {}, storedCookie)
+      storedSessionValid = response.ok ? true : response.status === 401 ? false : null
+    } catch {
+      storedSessionValid = null
+    }
+
+    if (storedSessionValid) {
+      throw new Error(`Roblox is not issuing a launch ticket for @${account.username} right now. The saved session is still valid; wait a moment and try again.`)
+    }
+    if (storedSessionValid === null) {
+      throw new Error(`Virgue could not confirm the Roblox session for @${account.username}. Check your connection and try again.`)
+    }
+
+    const checkedAt = new Date().toISOString()
+    await this.store.setAccountVerification(account.id, { hasCredentials: false, lastVerified: null, presence: null, presenceCheckedAt: checkedAt })
+    throw new Error(`Roblox signed @${account.username} out. Reconnect this profile, then launch again.`)
+  }
+
+  private async getPersistedAccountBrowserCookie(accountId: string): Promise<string | null> {
+    try {
+      const browserSession = session.fromPartition(`persist:virgue-account-${accountId}`)
+      const cookies = await browserSession.cookies.get({ url: 'https://www.roblox.com/' })
+      return cookies.find((cookie) => cookie.name === '.ROBLOSECURITY')?.value ?? null
+    } catch {
+      return null
+    }
   }
 
   private parseServer(value: unknown): ServerRecord | null {
