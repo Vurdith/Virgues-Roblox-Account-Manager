@@ -2,14 +2,14 @@
 -- The entitlement view only considers a grant active when its scheduled start
 -- has arrived and its end has not passed.
 
-ALTER TABLE public.virgue_trial_grants
+ALTER TABLE public.Valdor_trial_grants
   ADD COLUMN IF NOT EXISTS id uuid;
 
-UPDATE public.virgue_trial_grants
+UPDATE public.Valdor_trial_grants
 SET id = gen_random_uuid()
 WHERE id IS NULL;
 
-ALTER TABLE public.virgue_trial_grants
+ALTER TABLE public.Valdor_trial_grants
   ALTER COLUMN id SET DEFAULT gen_random_uuid(),
   ALTER COLUMN id SET NOT NULL;
 
@@ -21,42 +21,42 @@ BEGIN
   SELECT c.conname, pg_get_constraintdef(c.oid)
   INTO current_pk_name, current_pk_definition
   FROM pg_constraint c
-  WHERE c.conrelid = 'public.virgue_trial_grants'::regclass
+  WHERE c.conrelid = 'public.Valdor_trial_grants'::regclass
     AND c.contype = 'p'
   LIMIT 1;
 
   IF current_pk_name IS NOT NULL AND current_pk_definition <> 'PRIMARY KEY (id)' THEN
-    EXECUTE format('ALTER TABLE public.virgue_trial_grants DROP CONSTRAINT %I', current_pk_name);
+    EXECUTE format('ALTER TABLE public.Valdor_trial_grants DROP CONSTRAINT %I', current_pk_name);
   END IF;
 
   IF NOT EXISTS (
     SELECT 1
     FROM pg_constraint c
-    WHERE c.conrelid = 'public.virgue_trial_grants'::regclass
+    WHERE c.conrelid = 'public.Valdor_trial_grants'::regclass
       AND c.contype = 'p'
       AND pg_get_constraintdef(c.oid) = 'PRIMARY KEY (id)'
   ) THEN
-    ALTER TABLE public.virgue_trial_grants
-      ADD CONSTRAINT virgue_trial_grants_pkey PRIMARY KEY (id);
+    ALTER TABLE public.Valdor_trial_grants
+      ADD CONSTRAINT Valdor_trial_grants_pkey PRIMARY KEY (id);
   END IF;
 END $$;
 
-CREATE INDEX IF NOT EXISTS virgue_trial_grants_user_id_started_at_idx
-  ON public.virgue_trial_grants (user_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS Valdor_trial_grants_user_id_started_at_idx
+  ON public.Valdor_trial_grants (user_id, started_at DESC);
 
-CREATE INDEX IF NOT EXISTS virgue_trial_grants_user_id_ends_at_idx
-  ON public.virgue_trial_grants (user_id, ends_at DESC);
+CREATE INDEX IF NOT EXISTS Valdor_trial_grants_user_id_ends_at_idx
+  ON public.Valdor_trial_grants (user_id, ends_at DESC);
 
-CREATE OR REPLACE VIEW public.virgue_current_entitlements AS
+CREATE OR REPLACE VIEW public.Valdor_current_entitlements AS
 WITH configured AS (
   SELECT *
-  FROM public.virgue_billing_settings
+  FROM public.Valdor_billing_settings
   WHERE setting_key = 'default'
 ),
 latest_subscription AS (
   SELECT DISTINCT ON (s.user_id)
     s.*
-  FROM public.virgue_subscriptions s
+  FROM public.Valdor_subscriptions s
   ORDER BY
     s.user_id,
     COALESCE(s.current_period_end, s.trial_ends_at, s.updated_at, s.created_at) DESC,
@@ -107,7 +107,7 @@ resolved AS (
   CROSS JOIN configured c
   LEFT JOIN LATERAL (
     SELECT trial.started_at, trial.ends_at
-    FROM public.virgue_trial_grants trial
+    FROM public.Valdor_trial_grants trial
     WHERE trial.user_id = u.id
       AND trial.started_at <= now()
       AND trial.ends_at > now()
@@ -131,4 +131,4 @@ SELECT
   r.subscription_status,
   r.current_period_end
 FROM resolved r
-JOIN public.virgue_plans p ON p.plan_key = r.plan_key;
+JOIN public.Valdor_plans p ON p.plan_key = r.plan_key;

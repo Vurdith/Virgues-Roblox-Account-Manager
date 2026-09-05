@@ -1,8 +1,7 @@
 # Valdor database runbook
 
 Status: completed 2026-09-05. The production billing schema uses the Valdor
-table, view, index, and constraint names. The migration preserved all rows,
-plan keys, identity objects, and privileges.
+table, view, index, and constraint names.
 
 ## Canonical schema
 
@@ -35,10 +34,10 @@ relations and `valdor_*` Stripe metadata keys.
 
 ## Migration policy
 
-The numbered migration files are retained as an auditable record of the
-schema's evolution. Do not reorder or rerun applied migrations against
-production. New schema changes must use a new numbered migration, be tested on
-an isolated branch first, and be applied with stop-on-error behavior.
+The numbered migration files define the Valdor schema from its foundation. Do
+not reorder or rerun applied migrations against production. New schema changes
+must use a new numbered migration, be tested on an isolated branch first, and
+be applied with stop-on-error behavior.
 
 Keep the isolated verification branch until the release evidence is accepted.
 Branch deletion and snapshot cleanup are separate approved operations.

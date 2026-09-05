@@ -17,7 +17,6 @@ import { SessionGuardian } from './session-guardian'
 import { WatcherService } from './watcher'
 import { WebApiService } from './web-api'
 import { UpdateService } from './update-service'
-import { migrateLegacyUserData } from './user-data-migration'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -66,11 +65,6 @@ function createWindow(): void {
 app.setAppUserModelId('com.valdor.robloxaccountmanager')
 
 app.whenReady().then(async () => {
-  try {
-    await migrateLegacyUserData(app)
-  } catch (error) {
-    console.warn('Legacy workspace migration could not complete at startup.', error)
-  }
   const store = new AccountStore(app, shell)
   const secrets = new SecretStore(app)
   await store.initialize()
