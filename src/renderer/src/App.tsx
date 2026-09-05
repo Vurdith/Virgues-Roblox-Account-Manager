@@ -69,7 +69,7 @@ const SETTINGS_TAB_CONTENT: Record<SettingsTab, { title: string; description: st
 }
 
 const DEFAULT_ENTITLEMENTS = getPlanEntitlements()
-const PRICING_URL = 'https://valdors-roblox-account-manager.vercel.app/pricing.html'
+const PRICING_URL = 'https://valdor-roblox-account-manager.vercel.app/pricing.html'
 
 interface ActivityItem { id: number; message: string; detail: string; tone: ActivityTone }
 

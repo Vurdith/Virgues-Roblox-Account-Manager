@@ -161,7 +161,7 @@ export class WebApiService {
   private isAuthorized(request: IncomingMessage, url: URL): boolean {
     const settings = this.store.getWebApi()
     if (!settings.requirePassword) return true
-    const headerValue = this.headerValue(request, 'x-valdor-password') || this.headerValue(request, 'x-virgue-password')
+    const headerValue = this.headerValue(request, 'x-valdor-password')
     const supplied = headerValue || url.searchParams.get('password') || ''
     if (!supplied || !this.password) return false
     const suppliedBytes = Buffer.from(supplied, 'utf8')
@@ -171,9 +171,9 @@ export class WebApiService {
 
   private isWorkerAuthorized(request: IncomingMessage, url: URL, body: string): boolean {
     if (!this.store.getWebApi().requirePassword || !this.password) return false
-    const timestamp = this.headerValue(request, 'x-valdor-timestamp') || this.headerValue(request, 'x-virgue-timestamp')
-    const nonce = this.headerValue(request, 'x-valdor-nonce') || this.headerValue(request, 'x-virgue-nonce')
-    const suppliedSignature = (this.headerValue(request, 'x-valdor-signature') || this.headerValue(request, 'x-virgue-signature')).toLowerCase()
+    const timestamp = this.headerValue(request, 'x-valdor-timestamp')
+    const nonce = this.headerValue(request, 'x-valdor-nonce')
+    const suppliedSignature = this.headerValue(request, 'x-valdor-signature').toLowerCase()
     const parsedTimestamp = Number(timestamp)
     const now = Date.now()
     if (!Number.isFinite(parsedTimestamp) || Math.abs(now - parsedTimestamp) > 60_000) return false

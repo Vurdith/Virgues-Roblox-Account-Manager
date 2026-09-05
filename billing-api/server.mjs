@@ -10,7 +10,7 @@ const PRO_PLAN_NAME = `${BRAND_NAME} Pro`
 const FREE_PLAN_NAME = 'Free plan'
 
 function readEnvironmentVariable(name) {
-  const keys = [`VALDOR_${name}`, `VIRGUE_${name}`, name]
+  const keys = [`VALDOR_${name}`, name]
   for (const key of keys) {
     const value = process.env[key]
     if (typeof value === 'string' && value.trim()) return value
@@ -18,8 +18,8 @@ function readEnvironmentVariable(name) {
   return ''
 }
 
-// VALDOR_* is canonical. VIRGUE_* and the original unprefixed names remain
-// readable during the migration so existing deployments can be rotated safely.
+// VALDOR_* is canonical. The original unprefixed names remain readable for
+// local development and deployments that have not adopted prefixes yet.
 const billingEnv = {
   WEBSITE_ORIGINS: readEnvironmentVariable('WEBSITE_ORIGINS'),
   DATABASE_URL: readEnvironmentVariable('DATABASE_URL'),
@@ -159,7 +159,7 @@ function claimString(...values) {
 
 function metadataValue(metadata, key) {
   const values = asRecord(metadata)
-  return claimString(values[`valdor_${key}`], values[`virgue_${key}`])
+  return claimString(values[`valdor_${key}`])
 }
 
 function metadataUserId(metadata) {
@@ -601,38 +601,7 @@ async function syncSubscription(subscription, userIdHint = null) {
        cancel_at_period_end = EXCLUDED.cancel_at_period_end, canceled_at = EXCLUDED.canceled_at,
        metadata = EXCLUDED.metadata, updated_at = now()`
 
-  try {
-    await database.query(upsert, values)
-  } catch (caught) {
-    // Older databases created by migration 001 had a unique customer ID.
-    // Reuse a historical terminal row until migration 004 removes that
-    // obsolete constraint, so a customer can subscribe again after canceling.
-    const isLegacyCustomerConstraint = caught?.code === '23505'
-      && (caught?.constraint === 'virgue_subscriptions_provider_customer_id_key'
-        || String(caught?.message || '').includes('virgue_subscriptions_provider_customer_id_key'))
-    if (!isLegacyCustomerConstraint) throw caught
-
-    const existing = await database.query(
-      `SELECT id, status
-       FROM public.valdor_subscriptions
-       WHERE provider_customer_id = $1
-       ORDER BY updated_at DESC
-       LIMIT 1`,
-      [customerId],
-    )
-    if (!existing[0] || !['canceled', 'incomplete_expired', 'unpaid', 'paused'].includes(existing[0].status)) throw caught
-
-    await database.query(
-      `UPDATE public.valdor_subscriptions
-       SET user_id = $2, plan_key = $3, provider_subscription_id = $4, status = $5,
-           trial_started_at = to_timestamp($6), trial_ends_at = to_timestamp($7),
-           current_period_start = to_timestamp($8), current_period_end = to_timestamp($9),
-           cancel_at_period_end = $10, canceled_at = to_timestamp($11),
-           metadata = $12::jsonb, updated_at = now()
-       WHERE id = $1`,
-      [existing[0].id, ...values.slice(0, 2), ...values.slice(3)],
-    )
-  }
+  await database.query(upsert, values)
 }
 
 async function processWebhook(event) {

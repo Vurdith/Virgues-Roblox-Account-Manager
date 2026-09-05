@@ -9,8 +9,6 @@ const NEON_AUTH_URL = 'https://ep-morning-frost-zagg2ox8.neonauth.c-2.eu-west-2.
 // uses this trusted origin to resolve the default relative callback safely.
 const NEON_AUTH_ORIGIN = new URL(NEON_AUTH_URL).origin
 const SESSION_SECRET_KEY = 'valdor-neon-auth-session'
-const LEGACY_SESSION_SECRET_KEYS = ['virgue-neon-auth-session'] as const
-const SESSION_SECRET_KEYS = [SESSION_SECRET_KEY, ...LEGACY_SESSION_SECRET_KEYS] as const
 
 interface JsonRecord {
   [key: string]: unknown
@@ -43,13 +41,8 @@ export class AuthService {
 
   async initialize(): Promise<void> {
     try {
-      for (const key of SESSION_SECRET_KEYS) {
-        const stored = this.secrets.get(key)
-        if (!stored) continue
-        this.loadCookieHeader(stored)
-        if (key !== SESSION_SECRET_KEY) await this.secrets.set(SESSION_SECRET_KEY, stored)
-        break
-      }
+      const stored = this.secrets.get(SESSION_SECRET_KEY)
+      if (stored) this.loadCookieHeader(stored)
     } catch {
       this.cookies.clear()
     }
@@ -193,11 +186,11 @@ export class AuthService {
 
     const header = this.cookieHeader()
     if (header) await this.secrets.set(SESSION_SECRET_KEY, header)
-    else for (const key of SESSION_SECRET_KEYS) await this.secrets.remove(key)
+    else await this.secrets.remove(SESSION_SECRET_KEY)
   }
 
   private async clearSession(): Promise<void> {
     this.cookies.clear()
-    for (const key of SESSION_SECRET_KEYS) await this.secrets.remove(key)
+    await this.secrets.remove(SESSION_SECRET_KEY)
   }
 }

@@ -55,7 +55,7 @@ AccountStore + RobloxClient + SessionGuardian + BackgroundInputService + InputWo
   -> local app data and Windows secure credential storage
 ```
 
-The renderer has no Node.js or raw `ipcRenderer` access. Profile metadata is persisted locally in the Electron user-data directory. On first launch after the rebrand, Valdor migrates existing Virgue user-data files and Roblox account partitions into the new directory without deleting the legacy copy. Cookies are encrypted with Electron `safeStorage` in a separate credential store; imported passwords are used for sign-in and are not retained as a manager setting.
+The renderer has no Node.js or raw `ipcRenderer` access. Profile metadata is persisted locally in the Electron user-data directory. On first launch after the rebrand, Valdor migrates existing legacy user-data files and Roblox account partitions into the new directory without deleting the legacy copy. Cookies are encrypted with Electron `safeStorage` in a separate credential store; imported passwords are used for sign-in and are not retained as a manager setting.
 
 ## Feature surface
 
