@@ -108,7 +108,7 @@ export function registerIpcHandlers(services: IpcServices): void {
   ipcMain.handle(IPC_CHANNELS.webApiStop, () => webApi.stop())
   const assertIsolatedWorkerAccess = () => {
     if (!store.getSnapshot().entitlements.isolatedWorkerInput) {
-      throw new Error('Isolated worker controls are available with Virgue Pro.')
+      throw new Error('Isolated worker controls are available with Valdor Pro.')
     }
   }
   ipcMain.handle(IPC_CHANNELS.isolatedWorkerGetSessions, (_event, input: IsolatedWorkerConnectionInput) => {

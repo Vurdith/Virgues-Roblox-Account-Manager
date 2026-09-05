@@ -2,7 +2,11 @@ import { DEFAULT_PLAN_KEY, getPlanEntitlements, type PlanKey, type PlanEntitleme
 import { AccountStore } from './account-store'
 import { AuthService } from './auth-service'
 
-const BILLING_API_URL = (process.env.VIRGUE_BILLING_API_URL || 'https://virgues-roblox-account-manager.vercel.app/api').replace(/\/$/, '')
+const BILLING_API_URL = (
+  process.env.VALDOR_BILLING_API_URL ||
+  process.env.VIRGUE_BILLING_API_URL ||
+  'https://virgues-roblox-account-manager.vercel.app/api'
+).replace(/\/$/, '')
 
 function planKeyFrom(value: unknown): PlanKey {
   return value === 'pro' ? 'pro' : DEFAULT_PLAN_KEY

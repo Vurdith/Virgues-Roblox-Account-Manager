@@ -57,6 +57,9 @@ export class InputWorkerClient {
           Accept: 'application/json',
           'Content-Type': 'application/json',
           ...init.headers,
+          'X-Valdor-Timestamp': timestamp,
+          'X-Valdor-Nonce': nonce,
+          'X-Valdor-Signature': signature,
           'X-Virgue-Timestamp': timestamp,
           'X-Virgue-Nonce': nonce,
           'X-Virgue-Signature': signature,
@@ -67,7 +70,7 @@ export class InputWorkerClient {
     } catch (error) {
       const detail = error instanceof Error && error.name === 'TimeoutError'
         ? 'The isolated worker did not respond in time.'
-        : 'Virgue could not reach that isolated worker. Check its address, firewall, and Web API settings.'
+        : 'Valdor could not reach that isolated worker. Check its address, firewall, and Web API settings.'
       throw new Error(detail)
     }
     if (!response.ok) throw await responseError(response)

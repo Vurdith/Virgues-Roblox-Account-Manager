@@ -112,7 +112,7 @@ export class WebApiService {
         return this.send(response, 401, { error: 'Unauthorized' })
       }
       if (request.method === 'GET' && url.pathname === '/worker/health') {
-        return this.send(response, 200, { ok: true, service: 'virgue-isolated-worker' })
+        return this.send(response, 200, { ok: true, service: 'valdor-isolated-worker' })
       }
       if (request.method === 'GET' && url.pathname === '/worker/sessions') {
         return this.send(response, 200, await this.inputWorker.getSnapshot())
@@ -161,8 +161,7 @@ export class WebApiService {
   private isAuthorized(request: IncomingMessage, url: URL): boolean {
     const settings = this.store.getWebApi()
     if (!settings.requirePassword) return true
-    const header = request.headers['x-virgue-password']
-    const headerValue = Array.isArray(header) ? header[0] ?? '' : header ?? ''
+    const headerValue = this.headerValue(request, 'x-valdor-password') || this.headerValue(request, 'x-virgue-password')
     const supplied = headerValue || url.searchParams.get('password') || ''
     if (!supplied || !this.password) return false
     const suppliedBytes = Buffer.from(supplied, 'utf8')
@@ -172,9 +171,9 @@ export class WebApiService {
 
   private isWorkerAuthorized(request: IncomingMessage, url: URL, body: string): boolean {
     if (!this.store.getWebApi().requirePassword || !this.password) return false
-    const timestamp = this.headerValue(request, 'x-virgue-timestamp')
-    const nonce = this.headerValue(request, 'x-virgue-nonce')
-    const suppliedSignature = this.headerValue(request, 'x-virgue-signature').toLowerCase()
+    const timestamp = this.headerValue(request, 'x-valdor-timestamp') || this.headerValue(request, 'x-virgue-timestamp')
+    const nonce = this.headerValue(request, 'x-valdor-nonce') || this.headerValue(request, 'x-virgue-nonce')
+    const suppliedSignature = (this.headerValue(request, 'x-valdor-signature') || this.headerValue(request, 'x-virgue-signature')).toLowerCase()
     const parsedTimestamp = Number(timestamp)
     const now = Date.now()
     if (!Number.isFinite(parsedTimestamp) || Math.abs(now - parsedTimestamp) > 60_000) return false

@@ -15,6 +15,7 @@ import { SessionGuardian } from './session-guardian'
 import { WatcherService } from './watcher'
 import { WebApiService } from './web-api'
 import { UpdateService } from './update-service'
+import { migrateLegacyUserData } from './user-data-migration'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -27,8 +28,8 @@ function createWindow(): void {
     show: false,
     frame: false,
     backgroundColor: '#e9e7df',
-    title: "Virgue's Roblox Account Manager",
-    icon: join(__dirname, '../renderer/virgue-icon.png'),
+    title: "Valdor — Roblox Account Manager",
+    icon: join(__dirname, '../renderer/valdor-icon.png'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
@@ -60,9 +61,14 @@ function createWindow(): void {
   }
 }
 
-app.setAppUserModelId('com.virgue.robloxaccountmanager')
+app.setAppUserModelId('com.valdor.robloxaccountmanager')
 
 app.whenReady().then(async () => {
+  try {
+    await migrateLegacyUserData(app)
+  } catch (error) {
+    console.warn('Legacy workspace migration could not complete at startup.', error)
+  }
   const store = new AccountStore(app, shell)
   const secrets = new SecretStore(app)
   await store.initialize()
@@ -119,7 +125,7 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 }).catch((error: unknown) => {
-  console.error("Virgue's Roblox Account Manager failed to start", error)
+  console.error("Valdor — Roblox Account Manager failed to start", error)
 })
 
 app.on('window-all-closed', () => {

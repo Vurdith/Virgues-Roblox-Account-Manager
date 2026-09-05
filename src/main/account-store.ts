@@ -41,7 +41,7 @@ import type {
   WebApiSettings,
 } from '../shared/types'
 
-const APP_NAME = "Virgue's Roblox Account Manager"
+const APP_NAME = "Valdor — Roblox Account Manager"
 const DATA_FILE = 'accounts.json'
 
 const DEFAULT_GAME_ID = 'game-dungeon-quest'
@@ -952,7 +952,7 @@ export class AccountStore {
   getCachedPlayers(): PlayerLookup[] { return this.cachedPlayerResults.map((player) => ({ ...player, presence: player.presence ? { ...player.presence } : undefined })) }
 
   async exportData(): Promise<string> {
-    const result = await dialog.showSaveDialog({ title: 'Export Virgue profile data', defaultPath: 'virgue-account-data.json', filters: [{ name: 'JSON files', extensions: ['json'] }] })
+    const result = await dialog.showSaveDialog({ title: 'Export Valdor profile data', defaultPath: 'valdor-account-data.json', filters: [{ name: 'JSON files', extensions: ['json'] }] })
     if (result.canceled || !result.filePath) return ''
     await writeFile(result.filePath, `${JSON.stringify(this.data, null, 2)}\n`, 'utf8')
     return result.filePath

@@ -1,20 +1,20 @@
-# Virgue's Roblox Account Manager — Feature Plan
+# Valdor — Roblox Account Manager — Feature Plan
 
-> A living product, subscription, design, and engineering roadmap for turning Virgue's Roblox Account Manager into a trustworthy premium Windows workspace.
+> A living product, subscription, design, and engineering roadmap for turning Valdor — Roblox Account Manager into a trustworthy premium Windows workspace.
 
 **Document status:** Product strategy and implementation plan<br>
 **Current build status:** Session Guardian foundation implemented and verified in the desktop build; live process correlation, presence freshness, safe stop, and Activity Centre integration are shipped in the current installer.<br>
 **Last updated:** 27 August 2026<br>
-**Product:** Virgue's Roblox Account Manager<br>
+**Product:** Valdor — Roblox Account Manager<br>
 **Target platform:** Windows x64<br>
-**Subscription hypothesis:** Virgue Pro at £9.99 per month<br>
+**Subscription hypothesis:** Valdor Pro at £9.99 per month<br>
 **Primary product promise:** Know which account is actually alive, launch the right account safely, recover your setup, and find the right server without guesswork.
 
 ---
 
 ## 1. Executive summary
 
-Bulk launch profiles already exist and should be reserved for Virgue Pro. The Free plan remains useful with individual launches, while the paid tier can make multi-account routines meaningfully faster.
+Bulk launch profiles already exist and should be reserved for Valdor Pro. The Free plan remains useful with individual launches, while the paid tier can make multi-account routines meaningfully faster.
 
 The subscription should be built around four outcomes:
 
@@ -27,7 +27,7 @@ The strongest premium product is therefore not “more buttons.” It is a depen
 
 ### Recommended initial paid bundle
 
-Virgue Pro should initially contain:
+Valdor Pro should initially contain:
 
 - Session Guardian: accurate per-window status, Job ID, experience, uptime, process health, and cleanup.
 - Encrypted Vault Sync: end-to-end encrypted backup and device migration.
@@ -88,9 +88,9 @@ Every proposed feature should answer:
 
 ## 3. Product definition
 
-### 3.1 What Virgue is
+### 3.1 What Valdor is
 
-Virgue's Roblox Account Manager is a local-first Windows desktop workspace for users who legitimately control multiple Roblox accounts and want to organize, launch, observe, and maintain them from one place.
+Valdor — Roblox Account Manager is a local-first Windows desktop workspace for users who legitimately control multiple Roblox accounts and want to organize, launch, observe, and maintain them from one place.
 
 It combines:
 
@@ -104,9 +104,9 @@ It combines:
 - local integrations;
 - a clean Neo-Brutalist interface.
 
-### 3.2 What Virgue is not
+### 3.2 What Valdor is not
 
-Virgue is not:
+Valdor is not:
 
 - a botting platform;
 - an unattended farming platform;
@@ -121,7 +121,7 @@ Every automation feature must remain focused on legitimate lifecycle management:
 
 ### 3.3 North-star statement
 
-> A Virgue user should be able to open the app and immediately trust the answer to three questions: which account is running, what is it doing, and what should I do next?
+> A Valdor user should be able to open the app and immediately trust the answer to three questions: which account is running, what is it doing, and what should I do next?
 
 ### 3.4 Product pillars
 
@@ -157,7 +157,7 @@ The supported product is the Electron application at the repository root.
 ~~~text
 React renderer
     |
-    | typed window.virgue API
+    | typed window.valdor API
     v
 Secure preload bridge
     |
@@ -245,9 +245,9 @@ Basic launcher functionality is unlikely to support a £10 monthly price on its 
 
 Existing account-management products condition users to expect local account organization, multi-instance launching, session material, server browsing, watcher-style behavior, and local encryption.
 
-The implication is not that Virgue cannot charge. The implication is that Virgue needs a sharper promise:
+The implication is not that Valdor cannot charge. The implication is that Valdor needs a sharper promise:
 
-> Virgue Pro is the dependable, secure operations layer for a multi-account Roblox workspace.
+> Valdor Pro is the dependable, secure operations layer for a multi-account Roblox workspace.
 
 That promise is stronger than:
 
@@ -349,7 +349,7 @@ Do not paywall:
 - local export;
 - local encryption;
 - clear error messages;
-- the ability to stop or clean up a process Virgue launched;
+- the ability to stop or clean up a process Valdor launched;
 - basic login;
 - warnings about risky settings;
 - support for recovering an account workspace;
@@ -636,7 +636,7 @@ The polling interval should be bounded and power-conscious.
 
 The cleanup service should:
 
-- track only processes created or explicitly adopted by Virgue;
+- track only processes created or explicitly adopted by Valdor;
 - distinguish Roblox Player, Roblox installer, Roblox Studio, browser, and unrelated processes;
 - mark a session closing when its window disappears;
 - wait for a small grace period;
@@ -717,7 +717,7 @@ Users who invest time in account metadata, games, categories, settings, and sess
 
 ### 10.2 User outcome
 
-The user can set up a second approved device, restore their workspace after reinstalling Windows, and recover from accidental edits without handing plaintext account access to Virgue's servers.
+The user can set up a second approved device, restore their workspace after reinstalling Windows, and recover from accidental edits without handing plaintext account access to Valdor servers.
 
 ### 10.3 Security position
 
@@ -782,7 +782,7 @@ Default sync should exclude:
 
 New-device flow:
 
-1. User signs into their Virgue account in the desktop app.
+1. User signs into their Valdor account in the desktop app.
 2. The app displays a short-lived approval code or QR code.
 3. The existing trusted device approves the new device.
 4. The new device receives only encrypted vault material.
@@ -1586,7 +1586,7 @@ Never include raw secrets in a normal JSON export.
 
 Support:
 
-- current Virgue schema;
+- current Valdor schema;
 - legacy flat groups;
 - duplicate game identities;
 - duplicate accounts;
@@ -2012,7 +2012,7 @@ The renderer must not be trusted with subscription authority. Entitlements shoul
 
 ### 27.3 Offline behavior
 
-Virgue is a desktop app and must remain useful if the user briefly loses internet:
+Valdor is a desktop app and must remain useful if the user briefly loses internet:
 
 - continue local account management;
 - continue local launching;
@@ -2061,7 +2061,7 @@ A trial should:
 - allow export;
 - not silently downgrade settings;
 - offer cancellation instructions;
-- not require raw Roblox credentials to create a Virgue account.
+- not require raw Roblox credentials to create a Valdor account.
 
 ---
 
@@ -2310,8 +2310,8 @@ Test combinations:
 - three clients;
 - client plus Roblox Studio;
 - client plus Roblox Installer;
-- client started from Virgue;
-- client started outside Virgue;
+- client started from Valdor;
+- client started outside Valdor;
 - client crash;
 - client closes normally;
 - client freezes;
@@ -2867,7 +2867,7 @@ The following backlog is intentionally granular. Each item should become an issu
 ### Billing and Pro
 
 - BILL-001: Select payment provider.
-- BILL-002: Define Virgue account identity separate from Roblox identity.
+- BILL-002: Define Valdor account identity separate from Roblox identity.
 - BILL-003: Define entitlement response.
 - BILL-004: Add signed entitlement validation.
 - BILL-005: Add trial state.
@@ -2946,7 +2946,7 @@ The following backlog is intentionally granular. Each item should become an issu
 
 ### 34.1 New user
 
-1. Install Virgue.
+1. Install Valdor.
 2. See a short explanation of local-first storage.
 3. Add a game by Place ID.
 4. Add an account through the Roblox browser login flow.
@@ -2996,7 +2996,7 @@ The following backlog is intentionally granular. Each item should become an issu
 
 ### 34.5 New device restore
 
-1. User installs Virgue on a new PC.
+1. User installs Valdor on a new PC.
 2. User chooses Restore encrypted vault.
 3. Existing device approves the new device.
 4. Encrypted data is downloaded.
@@ -3025,11 +3025,11 @@ The following backlog is intentionally granular. Each item should become an issu
 
 **Short version:**
 
-> Virgue is the secure Roblox account workspace that keeps every client, server, and setting accounted for.
+> Valdor is the secure Roblox account workspace that keeps every client, server, and setting accounted for.
 
 **Pro version:**
 
-> Virgue Pro adds Session Guardian, encrypted vault recovery, smart server presets, alerts, and long-term performance history so multi-account setups stay reliable instead of becoming a guessing game.
+> Valdor Pro adds Session Guardian, encrypted vault recovery, smart server presets, alerts, and long-term performance history so multi-account setups stay reliable instead of becoming a guessing game.
 
 ### 35.2 Feature names
 
@@ -3330,7 +3330,7 @@ Do not lead with Team workspaces or a remote dashboard while the core app can st
 
 The subscription should be positioned as a reliability and protection layer:
 
-> **Virgue Pro keeps your multi-account Roblox workspace observable, recoverable, and predictable.**
+> **Valdor Pro keeps your multi-account Roblox workspace observable, recoverable, and predictable.**
 
 The first paid release should be intentionally focused:
 
@@ -3343,4 +3343,4 @@ The first paid release should be intentionally focused:
 
 That is enough to justify a serious test of £9.99/month if it works exceptionally well. More features should follow evidence of recurring use, not the desire to make the settings page longer.
 
-The success condition is not that Virgue has the largest feature list. It is that users trust it with the messy parts of a multi-account setup and would genuinely miss it if it disappeared.
+The success condition is not that Valdor has the largest feature list. It is that users trust it with the messy parts of a multi-account setup and would genuinely miss it if it disappeared.
