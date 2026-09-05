@@ -12,7 +12,7 @@ const sameOriginBillingApiUrl = window.location.hostname !== 'localhost' && wind
   ? `${window.location.origin}/api`
   : ''
 const BILLING_API_URL = (configuredBillingApiUrl || sameOriginBillingApiUrl).replace(/\/$/, '')
-const PUBLISHED_DOWNLOAD_URL = 'https://github.com/Vurdith/Valdor/releases/download/v1.0.5/Valdor-Roblox-Account-Manager-Setup-1.0.5.exe'
+const PUBLISHED_DOWNLOAD_URL = 'https://github.com/Vurdith/Valdor/releases/download/v1.0.6/Valdor-Roblox-Account-Manager-Setup-1.0.6.exe'
 const DOWNLOAD_URL = (import.meta.env.VITE_VALDOR_DOWNLOAD_URL || PUBLISHED_DOWNLOAD_URL).trim()
 const SITE_BASE = import.meta.env.BASE_URL
 const REGIONAL_PRICES = Object.freeze({
