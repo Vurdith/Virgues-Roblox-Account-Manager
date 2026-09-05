@@ -51,7 +51,7 @@
     "publish": {
       "provider": "github",
       "owner": "Vurdith",
-      "repo": "Virgues-Roblox-Account-Manager",
+      "repo": "Valdor",
       "releaseType": "release"
     },
     "files": [

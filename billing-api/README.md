@@ -6,7 +6,10 @@ to Neon, and returns resolved entitlements to the website and desktop app.
 
 ## Setup
 
-1. Run database migrations `001` through `004` in Neon.
+1. Run database migrations `001` through `007`, then apply the paused
+   `008_valdor_rebrand.sql` cutover from `database/migrations/` following the
+   Neon runbook. Start this Valdor consumer only after the cutover has been
+   reviewed and the `public.valdor_*` schema validates.
 2. Create a recurring **Valdor Pro** multi-currency Stripe Price with a
    $10/month USD default and fixed £10/month GBP and €10/month EUR options.
    Keep the existing Stripe Product and Price IDs, and put the Price ID in

@@ -217,7 +217,7 @@ async function requireUser(request) {
 async function requireAdmin(request) {
   const user = await requireUser(request)
   const rows = await database.query(
-    'SELECT 1 FROM public.virgue_admins WHERE user_id = $1 LIMIT 1',
+    'SELECT 1 FROM public.valdor_admins WHERE user_id = $1 LIMIT 1',
     [user.id],
   )
   if (!rows[0]) throw new BillingRequestError(403, 'Admin access is required.')
@@ -319,14 +319,14 @@ async function adminCustomers(search) {
             trial_history.trial_history,
             EXISTS (
               SELECT 1
-              FROM public.virgue_trial_grants grant_row
+              FROM public.valdor_trial_grants grant_row
               WHERE grant_row.user_id = u.id
             ) AS has_trial_grant
      FROM neon_auth."user" u
-     LEFT JOIN public.virgue_current_entitlements ent ON ent.user_id = u.id
+     LEFT JOIN public.valdor_current_entitlements ent ON ent.user_id = u.id
      LEFT JOIN LATERAL (
        SELECT count(*)::integer AS trial_count
-       FROM public.virgue_trial_grants grant_row
+       FROM public.valdor_trial_grants grant_row
        WHERE grant_row.user_id = u.id
      ) trial_count ON true
      LEFT JOIN LATERAL (
@@ -345,7 +345,7 @@ async function adminCustomers(search) {
        ) AS trial_history
        FROM (
          SELECT id, started_at, ends_at, duration_days, duration_value, duration_unit, source, note
-         FROM public.virgue_trial_grants
+         FROM public.valdor_trial_grants
          WHERE user_id = u.id
          ORDER BY started_at DESC
          LIMIT 20
@@ -397,11 +397,11 @@ async function grantTrial(admin, payload) {
          now(),
          COALESCE(MAX(grant_row.ends_at) FILTER (WHERE grant_row.ends_at > now()), now())
        ) AS starts_at
-       FROM public.virgue_trial_grants grant_row
+       FROM public.valdor_trial_grants grant_row
        CROSS JOIN locked
        WHERE grant_row.user_id = $1::uuid
      )
-     INSERT INTO public.virgue_trial_grants
+     INSERT INTO public.valdor_trial_grants
        (id, user_id, started_at, ends_at, duration_days, duration_value, duration_unit, source, granted_by, note)
      SELECT gen_random_uuid(), $1::uuid, schedule.starts_at,
             schedule.starts_at + ($3 * interval '1 second'),
@@ -427,7 +427,7 @@ async function grantTrial(admin, payload) {
 }
 
 async function customerFor(user) {
-  const existing = await database.query('SELECT stripe_customer_id FROM public.virgue_billing_customers WHERE user_id = $1', [user.id])
+  const existing = await database.query('SELECT stripe_customer_id FROM public.valdor_billing_customers WHERE user_id = $1', [user.id])
   const existingCustomerId = existing[0]?.stripe_customer_id
   if (existingCustomerId) {
     try {
@@ -447,7 +447,7 @@ async function customerFor(user) {
     metadata: { valdor_user_id: user.id },
   })
   const inserted = await database.query(
-    `INSERT INTO public.virgue_billing_customers (user_id, stripe_customer_id)
+    `INSERT INTO public.valdor_billing_customers (user_id, stripe_customer_id)
      VALUES ($1, $2)
      ON CONFLICT (user_id) DO UPDATE SET stripe_customer_id = EXCLUDED.stripe_customer_id, updated_at = now()
      RETURNING stripe_customer_id`,
@@ -480,13 +480,13 @@ async function entitlementFor(userId) {
             ent.trial_started_at, ent.trial_ends_at,
             ent.subscription_id, ent.subscription_status, ent.current_period_end,
             subscription.provider_customer_id, subscription.provider_subscription_id
-     FROM public.virgue_current_entitlements ent
-     LEFT JOIN public.virgue_subscriptions subscription
+     FROM public.valdor_current_entitlements ent
+     LEFT JOIN public.valdor_subscriptions subscription
        ON subscription.id = ent.subscription_id
      WHERE ent.user_id = $1`,
     [userId],
   )
-  const customer = await database.query('SELECT stripe_customer_id FROM public.virgue_billing_customers WHERE user_id = $1', [userId])
+  const customer = await database.query('SELECT stripe_customer_id FROM public.valdor_billing_customers WHERE user_id = $1', [userId])
   const hasBillingCustomer = Boolean(customer[0]?.stripe_customer_id)
   if (!rows[0]) return { planKey: 'free', planName: FREE_PLAN_NAME, entitlementStatus: 'free', subscriptionStatus: null, currentPeriodEnd: null, features: {}, hasBillingCustomer }
   const row = rows[0]
@@ -526,12 +526,12 @@ async function entitlementFor(userId) {
 
 async function planForPrice(priceId) {
   if (priceId === billingEnv.STRIPE_PRO_PRICE_ID) return 'pro'
-  const rows = await database.query('SELECT plan_key FROM public.virgue_plans WHERE stripe_price_id = $1 AND active = true', [priceId])
+  const rows = await database.query('SELECT plan_key FROM public.valdor_plans WHERE stripe_price_id = $1 AND active = true', [priceId])
   return rows[0]?.plan_key || null
 }
 
 async function userForCustomer(customerId) {
-  const rows = await database.query('SELECT user_id FROM public.virgue_billing_customers WHERE stripe_customer_id = $1', [customerId])
+  const rows = await database.query('SELECT user_id FROM public.valdor_billing_customers WHERE stripe_customer_id = $1', [customerId])
   if (rows[0]?.user_id) return rows[0].user_id
 
   // A subscription created in the Stripe Dashboard may not inherit the
@@ -555,7 +555,7 @@ async function userForCustomer(customerId) {
   if (!userId) return null
 
   await database.query(
-    `INSERT INTO public.virgue_billing_customers (user_id, stripe_customer_id)
+    `INSERT INTO public.valdor_billing_customers (user_id, stripe_customer_id)
      VALUES ($1, $2)
      ON CONFLICT (user_id) DO UPDATE SET stripe_customer_id = EXCLUDED.stripe_customer_id, updated_at = now()` ,
     [userId, customerId],
@@ -588,7 +588,7 @@ async function syncSubscription(subscription, userIdHint = null) {
     subscription.cancel_at_period_end, subscription.canceled_at || null,
     JSON.stringify(subscription.metadata || {}),
   ]
-  const upsert = `INSERT INTO public.virgue_subscriptions (
+  const upsert = `INSERT INTO public.valdor_subscriptions (
        user_id, plan_key, provider, provider_customer_id, provider_subscription_id, status,
        trial_started_at, trial_ends_at, current_period_start, current_period_end,
        cancel_at_period_end, canceled_at, metadata, updated_at
@@ -614,7 +614,7 @@ async function syncSubscription(subscription, userIdHint = null) {
 
     const existing = await database.query(
       `SELECT id, status
-       FROM public.virgue_subscriptions
+       FROM public.valdor_subscriptions
        WHERE provider_customer_id = $1
        ORDER BY updated_at DESC
        LIMIT 1`,
@@ -623,7 +623,7 @@ async function syncSubscription(subscription, userIdHint = null) {
     if (!existing[0] || !['canceled', 'incomplete_expired', 'unpaid', 'paused'].includes(existing[0].status)) throw caught
 
     await database.query(
-      `UPDATE public.virgue_subscriptions
+      `UPDATE public.valdor_subscriptions
        SET user_id = $2, plan_key = $3, provider_subscription_id = $4, status = $5,
            trial_started_at = to_timestamp($6), trial_ends_at = to_timestamp($7),
            current_period_start = to_timestamp($8), current_period_end = to_timestamp($9),
@@ -674,11 +674,11 @@ async function handleWebhook(request, response) {
   }
 
   const eventRows = await database.query(
-    `INSERT INTO public.virgue_billing_events (event_id, event_type, status)
+    `INSERT INTO public.valdor_billing_events (event_id, event_type, status)
      VALUES ($1, $2, 'received')
      ON CONFLICT (event_id) DO UPDATE SET
-       status = CASE WHEN public.virgue_billing_events.status = 'processed' THEN 'processed' ELSE 'received' END,
-       error_message = CASE WHEN public.virgue_billing_events.status = 'processed' THEN public.virgue_billing_events.error_message ELSE NULL END
+       status = CASE WHEN public.valdor_billing_events.status = 'processed' THEN 'processed' ELSE 'received' END,
+       error_message = CASE WHEN public.valdor_billing_events.status = 'processed' THEN public.valdor_billing_events.error_message ELSE NULL END
      RETURNING status`,
     [event.id, event.type],
   )
@@ -686,11 +686,11 @@ async function handleWebhook(request, response) {
 
   try {
     await processWebhook(event)
-    await database.query("UPDATE public.virgue_billing_events SET status = 'processed', processed_at = now(), error_message = NULL WHERE event_id = $1", [event.id])
+    await database.query("UPDATE public.valdor_billing_events SET status = 'processed', processed_at = now(), error_message = NULL WHERE event_id = $1", [event.id])
     send(response, 200, { received: true })
   } catch (caught) {
     const message = caught instanceof Error ? caught.message.slice(0, 1000) : 'Webhook processing failed.'
-    await database.query("UPDATE public.virgue_billing_events SET status = 'failed', error_message = $2 WHERE event_id = $1", [event.id, message])
+    await database.query("UPDATE public.valdor_billing_events SET status = 'failed', error_message = $2 WHERE event_id = $1", [event.id, message])
     throw caught
   }
 }
