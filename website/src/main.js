@@ -7,13 +7,13 @@ import './styles.css'
 import { registerAccountMenuElement } from '../../src/shared/account-menu.ts'
 
 const AUTH_URL = (import.meta.env.VITE_NEON_AUTH_URL || 'https://ep-morning-frost-zagg2ox8.neonauth.c-2.eu-west-2.aws.neon.tech/neondb/auth').replace(/\/$/, '')
-const configuredBillingApiUrl = (import.meta.env.VITE_VIRGUE_BILLING_API_URL || '').trim()
+const configuredBillingApiUrl = (import.meta.env.VITE_VALDOR_BILLING_API_URL || import.meta.env.VITE_VIRGUE_BILLING_API_URL || '').trim()
 const sameOriginBillingApiUrl = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
   ? `${window.location.origin}/api`
   : ''
 const BILLING_API_URL = (configuredBillingApiUrl || sameOriginBillingApiUrl).replace(/\/$/, '')
 const PUBLISHED_DOWNLOAD_URL = 'https://github.com/Vurdith/Virgues-Roblox-Account-Manager/releases/download/v1.0.5/Virgues-Roblox-Account-Manager-Setup-1.0.5.exe'
-const DOWNLOAD_URL = (import.meta.env.VITE_VIRGUE_DOWNLOAD_URL || PUBLISHED_DOWNLOAD_URL).trim()
+const DOWNLOAD_URL = (import.meta.env.VITE_VALDOR_DOWNLOAD_URL || import.meta.env.VITE_VIRGUE_DOWNLOAD_URL || PUBLISHED_DOWNLOAD_URL).trim()
 const SITE_BASE = import.meta.env.BASE_URL
 const REGIONAL_PRICES = Object.freeze({
   GBP: { amount: '£10', period: '/ month' },
@@ -35,6 +35,8 @@ const TRIAL_UNIT_SECONDS = Object.freeze({ minute: 60, hour: 60 * 60, day: 24 * 
 const MAX_TRIAL_SECONDS = 90 * TRIAL_UNIT_SECONDS.day
 
 registerAccountMenuElement()
+const ACCOUNT_MENU_TAG = customElements.get('valdor-account-menu') ? 'valdor-account-menu' : 'virgue-account-menu'
+const ACCOUNT_MENU_MARKUP = '<' + ACCOUNT_MENU_TAG + '></' + ACCOUNT_MENU_TAG + '>'
 
 const pageLinks = [
   { key: 'product', label: 'Product', href: '/product.html' },
@@ -53,15 +55,15 @@ function mountSiteChrome() {
       const className = 'site-nav-link' + (link.className ? ' ' + link.className : '') + activeClass
       return '<a class="' + className + '" href="' + SITE_BASE + link.href.slice(1) + '"' + currentAttribute + '>' + link.label + '</a>'
     }).join('')
-    header.innerHTML = '<header class="site-header"><a class="site-brand" href="' + SITE_BASE + '" aria-label="Virgue\'s Roblox Account Manager home"><img class="site-brand-mark" src="' + SITE_BASE + 'virgue-icon.png" alt="" /><span class="site-brand-copy"><strong>Virgue\'s</strong><small>Roblox Account Manager</small></span></a><nav class="site-nav" aria-label="Main navigation">' + navigation + '<div class="site-account-menu"><virgue-account-menu></virgue-account-menu></div></nav></header>'
+    header.innerHTML = '<header class="site-header"><a class="site-brand" href="' + SITE_BASE + '" aria-label="Valdor — Roblox Account Manager home"><img class="site-brand-mark" src="' + SITE_BASE + 'valdor-icon.png" alt="" /><span class="site-brand-copy"><strong>Valdor</strong><small>Roblox Account Manager</small></span></a><nav class="site-nav" aria-label="Main navigation">' + navigation + '<div class="site-account-menu">' + ACCOUNT_MENU_MARKUP + '</div></nav></header>'
   }
   if (footer) {
-    footer.innerHTML = '<footer class="site-footer section-shell"><a class="site-brand" href="' + SITE_BASE + '" aria-label="Virgue\'s Roblox Account Manager home"><img class="site-brand-mark" src="' + SITE_BASE + 'virgue-icon.png" alt="" /><span class="site-brand-copy"><strong>Virgue\'s</strong><small>Roblox Account Manager</small></span></a><div class="footer-navigation"><nav class="footer-links" aria-label="Product navigation"><a href="' + SITE_BASE + 'product.html">Product</a><a href="' + SITE_BASE + 'pricing.html">Pricing</a><a href="' + SITE_BASE + 'download.html">Download</a></nav><nav class="footer-links footer-legal-links" aria-label="Legal and support"><a href="' + SITE_BASE + 'privacy.html">Privacy</a><a href="' + SITE_BASE + 'terms.html">Terms</a><a href="' + SITE_BASE + 'refunds.html">Refunds</a><a href="' + SITE_BASE + 'support.html">Support</a></nav></div></footer>'
+    footer.innerHTML = '<footer class="site-footer section-shell"><a class="site-brand" href="' + SITE_BASE + '" aria-label="Valdor — Roblox Account Manager home"><img class="site-brand-mark" src="' + SITE_BASE + 'valdor-icon.png" alt="" /><span class="site-brand-copy"><strong>Valdor</strong><small>Roblox Account Manager</small></span></a><div class="footer-navigation"><nav class="footer-links" aria-label="Product navigation"><a href="' + SITE_BASE + 'product.html">Product</a><a href="' + SITE_BASE + 'pricing.html">Pricing</a><a href="' + SITE_BASE + 'download.html">Download</a></nav><nav class="footer-links footer-legal-links" aria-label="Legal and support"><a href="' + SITE_BASE + 'privacy.html">Privacy</a><a href="' + SITE_BASE + 'terms.html">Terms</a><a href="' + SITE_BASE + 'refunds.html">Refunds</a><a href="' + SITE_BASE + 'support.html">Support</a></nav></div></footer>'
   }
 }
 
 function updateAccountNavigation(session) {
-  const accountMenu = document.querySelector('virgue-account-menu')
+  const accountMenu = document.querySelector(ACCOUNT_MENU_TAG)
   if (!accountMenu) return
   const fullName = session?.user?.name?.trim() || ''
   const email = session?.user?.email?.trim() || ''
@@ -75,7 +77,7 @@ function updateAccountNavigation(session) {
 }
 
 function initializeAccountMenu() {
-  const accountMenu = document.querySelector('virgue-account-menu')
+  const accountMenu = document.querySelector(ACCOUNT_MENU_TAG)
   if (!accountMenu) return
   accountMenu.addEventListener('account-menu-settings', () => {
     if (currentPage === 'account') {
@@ -108,7 +110,7 @@ function applySiteSession(session) {
     void billingRequest('/billing/me', session).then((payload) => {
       if (requestId !== accountMenuPlanRequest) return
       const data = asRecord(unwrap(payload))
-      accountMenuPlan = data.planName || data.displayName || data.planKey || 'Free plan'
+      accountMenuPlan = displayPlanName(data.planName || data.displayName || data.planKey)
       updateAccountNavigation(session)
     }).catch(() => {
       if (requestId !== accountMenuPlanRequest) return
@@ -174,7 +176,7 @@ async function authRequest(path, init = {}) {
       },
     })
   } catch {
-    throw new Error('Virgue could not reach the account service. Check your connection and try again.')
+    throw new Error('Valdor could not reach the account service. Check your connection and try again.')
   }
   return readResponse(response)
 }
@@ -193,7 +195,7 @@ async function billingToken(session) {
   try {
     payload = await authRequest('/token')
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith('Virgue could not reach')) throw error
+    if (error instanceof Error && error.message.startsWith('Valdor could not reach')) throw error
     throw new Error('Your sign-in has expired. Sign in again to continue.')
   }
   const token = asRecord(unwrap(payload)).token
@@ -216,7 +218,7 @@ async function billingRequest(path, session, init = {}) {
       },
     })
   } catch {
-    throw new Error('Virgue could not reach billing. Try again in a moment.')
+    throw new Error('Valdor could not reach billing. Try again in a moment.')
   }
   return readResponse(response)
 }
@@ -240,6 +242,11 @@ function formatBillingDate(value) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
   return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' }).format(date)
+}
+
+function displayPlanName(value) {
+  const name = String(value ?? '').trim()
+  return name ? name.replace(/\bVirgue(?:'s)?\b/gi, 'Valdor') : 'Free plan'
 }
 
 function escapeHtml(value) {
@@ -280,7 +287,7 @@ function billingStatusText(data) {
   if (entitlementStatus === 'trial' || subscriptionStatus === 'trialing') return endDate ? `Trial · ends ${endDate}` : 'Trial access'
   if (entitlementStatus === 'grace' || subscriptionStatus === 'past_due') return endDate ? `Payment needs attention · access through ${endDate}` : 'Payment needs attention'
   if (subscriptionStatus === 'canceled' || subscriptionStatus === 'cancelled') return endDate ? `Subscription ends ${endDate}` : 'Subscription ending'
-  return endDate ? `Active · renews ${endDate}` : "You're all set with Virgue Pro"
+  return endDate ? `Active · renews ${endDate}` : "You're all set with Valdor Pro"
 }
 
 function configureDownload() {
@@ -364,7 +371,7 @@ function initializeAccount() {
     authPanel.hidden = true
     signedOut.hidden = true
     signedIn.hidden = false
-    document.getElementById('account-name').textContent = session.user.name || session.user.email?.split('@')[0] || 'Virgue account'
+    document.getElementById('account-name').textContent = session.user.name || session.user.email?.split('@')[0] || 'Valdor account'
     document.getElementById('account-email').textContent = session.user.email || ''
     document.getElementById('account-plan').textContent = BILLING_API_URL ? 'Checking your plan' : 'Free plan'
     document.getElementById('account-subscription').textContent = BILLING_API_URL ? 'Loading billing details' : 'No active subscription'
@@ -382,7 +389,7 @@ function initializeAccount() {
     try {
       const payload = await billingRequest('/billing/me', state.session)
       const data = asRecord(unwrap(payload))
-      document.getElementById('account-plan').textContent = data.planName || data.displayName || data.planKey || 'Free plan'
+      document.getElementById('account-plan').textContent = displayPlanName(data.planName || data.displayName || data.planKey)
       document.getElementById('account-subscription').textContent = billingStatusText(data)
       billingAction.hidden = !data.hasBillingCustomer
       if (plansLink) plansLink.hidden = data.planKey === 'pro'
@@ -653,7 +660,7 @@ function initializeAdmin() {
       }
       if (entitlementStatus === 'grace' || subscriptionStatus === 'past_due') return 'Payment needs attention'
       if (subscriptionStatus === 'canceled' || subscriptionStatus === 'cancelled') return 'Subscription ending'
-      return 'Virgue Pro'
+      return 'Valdor Pro'
     }
     const latestTrial = customer.trialHistory?.[0]
     if (latestTrial?.startedAt && new Date(latestTrial.startedAt).getTime() > Date.now()) {
@@ -833,7 +840,7 @@ function initializeAdmin() {
         const existingActiveTrial = customer.planKey === 'pro' && customer.entitlementStatus === 'trial'
         const hasCurrentTrial = existingActiveTrial || !isScheduled
         updated.planKey = hasCurrentTrial ? 'pro' : 'free'
-        updated.planName = hasCurrentTrial ? 'Virgue Pro' : 'Free plan'
+        updated.planName = hasCurrentTrial ? 'Valdor Pro' : 'Free plan'
         updated.entitlementStatus = hasCurrentTrial ? 'trial' : 'free'
         updated.trialEndsAt = hasCurrentTrial
           ? isScheduled ? customer.trialEndsAt || null : trial.endsAt || null
