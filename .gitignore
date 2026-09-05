@@ -292,6 +292,7 @@ native/bin/*
 !native/bin/nvidia-fps-helper.exe
 !native/bin/process-memory-helper.exe
 !native/bin/window-input-helper.exe
+!native/bin/protected-session-helper.exe
 
 # Electron application output
 out/

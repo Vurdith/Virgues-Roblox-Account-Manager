@@ -35,6 +35,7 @@ import { getPlanFeatureError } from '../shared/entitlements'
 import { AccountStore, parseGameSearchResult } from './account-store'
 import { SecretStore } from './secret-store'
 import type { SessionGuardian } from './session-guardian'
+import type { ProtectedSessionService } from './protected-session'
 
 const ROBLOX_USER_AGENT = "Virgue's Roblox Account Manager/1.0"
 const SERVER_CACHE_TTL_MS = 10 * 60 * 1000
@@ -108,6 +109,11 @@ interface RobloxResponse {
 interface LaunchGlobalSettings {
   path: string
   directory: string
+}
+
+interface TemporarySettingsFile {
+  path: string
+  previous: string | null
 }
 
 interface NvidiaFpsState {
@@ -187,6 +193,32 @@ function setXmlFramerateCap(content: string, value: number): string {
   return content
 }
 
+function setXmlNumericSetting(content: string, name: string, value: number): string {
+  const serialized = String(Math.round(value))
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const existing = new RegExp(`(<(?:int|token)\\s+name=["']${escapedName}["']\\s*>)[^<]*(<\\/(?:int|token)>)`, 'i')
+  if (existing.test(content)) return content.replace(existing, `$1${serialized}$2`)
+  const propertiesEnd = /<\/Properties>/i
+  if (propertiesEnd.test(content)) return content.replace(propertiesEnd, `      <int name="${name}">${serialized}</int>\n    </Properties>`)
+  return content
+}
+
+function setXmlBooleanSetting(content: string, name: string, value: boolean): string {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const existing = new RegExp(`(<bool\\s+name=["']${escapedName}["']\\s*>)[^<]*(<\\/bool>)`, 'i')
+  if (existing.test(content)) return content.replace(existing, `$1${value ? 'true' : 'false'}$2`)
+  const propertiesEnd = /<\/Properties>/i
+  if (propertiesEnd.test(content)) return content.replace(propertiesEnd, `      <bool name="${name}">${value ? 'true' : 'false'}</bool>\n    </Properties>`)
+  return content
+}
+
+function applyProtectedGraphicsProfile(content: string): string {
+  let result = setXmlNumericSetting(content, 'GraphicsQualityLevel', 3)
+  result = setXmlNumericSetting(result, 'SavedQualityLevel', 3)
+  result = setXmlNumericSetting(result, 'QualityResetLevel', 3)
+  return setXmlBooleanSetting(result, 'MaxQualityEnabled', false)
+}
+
 function createGlobalSettingsTemplate(framerateCap: number): string {
   return `<?xml version="1.0" encoding="utf-8"?>
 <roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
@@ -242,8 +274,13 @@ export class RobloxClient {
   private readonly launchSettings = new Set<LaunchGlobalSettings>()
   private readonly launchedRobloxProcesses = new Map<number, TrackedRobloxProcess>()
   private cleanupInFlight = false
+  private protectedSession: ProtectedSessionService | null = null
 
   constructor(private readonly store: AccountStore, private readonly secrets: SecretStore, private readonly electronShell: Shell, private readonly sessionGuardian: SessionGuardian | null = null) {}
+
+  setProtectedSession(service: ProtectedSessionService): void {
+    this.protectedSession = service
+  }
 
   startBackgroundTasks(): void {
     if (this.backgroundTimer) return
@@ -637,6 +674,35 @@ export class RobloxClient {
     return candidates.filter((candidate): candidate is { executable: string; lastWriteMs: number } => candidate !== null).sort((left, right) => right.lastWriteMs - left.lastWriteMs)[0]?.executable ?? null
   }
 
+  private async findProtectedRobloxPlayerCandidate(): Promise<string | null> {
+    if (process.platform !== 'win32') return null
+    const localAppData = process.env.LOCALAPPDATA
+    if (!localAppData) return null
+    const versionsPath = join(localAppData, 'Roblox', 'Versions')
+    try {
+      const folders = (await readdir(versionsPath, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory() && /^version-[^\\/]+$/i.test(entry.name))
+      const candidates = await Promise.all(folders.map(async (folder) => {
+        const executable = join(versionsPath, folder.name, 'RobloxPlayerBeta.exe')
+        try {
+          const [playerInfo, libraryInfo] = await Promise.all([
+            stat(executable),
+            stat(join(dirname(executable), 'RobloxPlayerBeta.dll')),
+          ])
+          if (!playerInfo.isFile() || playerInfo.size <= 0 || !libraryInfo.isFile() || libraryInfo.size <= 0) return null
+          return { executable, lastWriteMs: Math.max(playerInfo.mtimeMs, libraryInfo.mtimeMs) }
+        } catch {
+          return null
+        }
+      }))
+      return candidates
+        .filter((candidate): candidate is { executable: string; lastWriteMs: number } => candidate !== null)
+        .sort((left, right) => right.lastWriteMs - left.lastWriteMs)[0]?.executable ?? null
+    } catch {
+      return null
+    }
+  }
+
   private async isOfficialRobloxPlayer(executable: string): Promise<boolean> {
     if (process.platform !== 'win32') return false
     const localAppData = process.env.LOCALAPPDATA
@@ -651,7 +717,14 @@ export class RobloxClient {
       if (!playerInfo.isFile() || playerInfo.size <= 0 || !libraryInfo.isFile() || libraryInfo.size <= 0) return false
       const escapedPath = target.replace(/'/g, "''")
       const signatureScript = `$signature = Get-AuthenticodeSignature -LiteralPath '${escapedPath}'; if ($signature.Status -eq 'Valid' -and $signature.SignerCertificate.Subject -match 'Roblox Corporation') { 'VIRGUE_ROBLOX_SIGNATURE_VALID' }`
-      const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', signatureScript], { windowsHide: true, timeout: 10000 })
+      // Development shells can prepend bundled PowerShell modules that clash
+      // with Windows' security module. Keep this verification on the inbox
+      // module path so a valid Roblox install is not reported as missing.
+      const powershellEnv = {
+        ...process.env,
+        PSModulePath: join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'Modules'),
+      }
+      const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', signatureScript], { windowsHide: true, timeout: 10000, env: powershellEnv })
       return stdout.includes('VIRGUE_ROBLOX_SIGNATURE_VALID')
     } catch {
       return false
@@ -692,7 +765,7 @@ export class RobloxClient {
     if (process.platform !== 'win32' || this.cleanupInFlight || this.launchedRobloxProcesses.size === 0) return
     this.cleanupInFlight = true
     try {
-      const processScript = "Get-CimInstance Win32_Process -Filter \"Name='RobloxPlayerBeta.exe'\" | ForEach-Object { $p = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue; if ($p) { [pscustomobject]@{ Id = [int]$_.ProcessId; MainWindowHandle = [int64]$p.MainWindowHandle } } } | ConvertTo-Json -Compress"
+      const processScript = "$observerSessionId = [System.Diagnostics.Process]::GetCurrentProcess().SessionId; Get-CimInstance Win32_Process -Filter \"Name='RobloxPlayerBeta.exe'\" | ForEach-Object { $p = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue; if ($p) { [pscustomobject]@{ Id = [int]$_.ProcessId; SessionId = [int]$p.SessionId; ObserverSessionId = [int]$observerSessionId; MainWindowHandle = [int64]$p.MainWindowHandle } } } | ConvertTo-Json -Compress"
       const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', processScript], { windowsHide: true, maxBuffer: 1024 * 1024, timeout: 5000 })
       const raw = stdout.trim()
       const parsed: unknown = raw ? JSON.parse(raw) : []
@@ -700,7 +773,7 @@ export class RobloxClient {
       const runningIds = new Set<number>()
       processes.forEach((value) => {
         if (typeof value !== 'object' || value === null) return
-        const processInfo = value as { Id?: number; MainWindowHandle?: number }
+        const processInfo = value as { Id?: number; SessionId?: number; ObserverSessionId?: number; MainWindowHandle?: number }
         if (typeof processInfo.Id === 'number') runningIds.add(processInfo.Id)
       })
       for (const [processId, tracked] of this.launchedRobloxProcesses) {
@@ -709,8 +782,16 @@ export class RobloxClient {
           if (tracked.launchSettings) await this.removeLaunchGlobalSettings(tracked.launchSettings)
           continue
         }
-        const processInfo = processes.find((value) => typeof value === 'object' && value !== null && (value as { Id?: number }).Id === processId) as { Id?: number; MainWindowHandle?: number } | undefined
+        const processInfo = processes.find((value) => typeof value === 'object' && value !== null && (value as { Id?: number }).Id === processId) as { Id?: number; SessionId?: number; ObserverSessionId?: number; MainWindowHandle?: number } | undefined
         if (!processInfo || Number(processInfo.MainWindowHandle ?? 0) !== 0) continue
+        // MainWindowHandle is scoped to the interactive desktop. A healthy
+        // Roblox window running in Protected Session therefore appears
+        // windowless from Virgue's main Windows session. Never use that value
+        // to reap a process in another session; process disappearance remains
+        // the reliable cross-session lifecycle signal.
+        const processSessionId = Number(processInfo.SessionId)
+        const observerSessionId = Number(processInfo.ObserverSessionId)
+        if (Number.isInteger(processSessionId) && Number.isInteger(observerSessionId) && processSessionId !== observerSessionId) continue
         // Roblox can hide its window briefly while handing off from the
         // launcher to the game. Only reap a managed process that has stayed
         // windowless beyond that handoff grace period.
@@ -841,7 +922,7 @@ export class RobloxClient {
     await writeFile(settingsPath, createGlobalSettingsTemplate(settings.maxFps), 'utf8')
   }
 
-  private async createLaunchGlobalSettings(framerateCap: number): Promise<{ path: string; directory: string }> {
+  private async createLaunchGlobalSettings(framerateCap: number, protectedGraphics = false): Promise<{ path: string; directory: string }> {
     const directory = join(dirname(this.store.getSnapshot().info.dataPath), 'launch-settings', randomUUID())
     await mkdir(directory, { recursive: true })
     const path = join(directory, 'GlobalBasicSettings_13.xml')
@@ -856,8 +937,55 @@ export class RobloxClient {
       }
     }
     const base = sharedSettings && /<roblox\b/i.test(sharedSettings) ? sharedSettings : createGlobalSettingsTemplate(framerateCap)
-    await writeFile(path, setXmlFramerateCap(base, framerateCap), 'utf8')
+    const capped = setXmlFramerateCap(base, framerateCap)
+    await writeFile(path, protectedGraphics ? applyProtectedGraphicsProfile(capped) : capped, 'utf8')
     return { path, directory }
+  }
+
+  private async applyProtectedClientSettings(executable: string): Promise<TemporarySettingsFile> {
+    const settingsFolder = join(dirname(executable), 'ClientSettings')
+    const path = join(settingsFolder, 'ClientAppSettings.json')
+    await mkdir(settingsFolder, { recursive: true })
+    const previous = await this.readOptionalFile(path)
+    let current: Record<string, unknown> = {}
+    if (previous) {
+      try {
+        const parsed: unknown = JSON.parse(previous)
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) current = parsed as Record<string, unknown>
+      } catch {
+        current = {}
+      }
+    }
+
+    // These are the rendering controls on Roblox's official local FastFlag
+    // allowlist. Keep this deliberately small: rejected or undocumented flags
+    // are ignored by current clients and can make future launches brittle.
+    const protectedProfile: Record<string, unknown> = {
+      DFFlagTextureQualityOverrideEnabled: true,
+      DFIntTextureQualityOverride: 0,
+      DFIntDebugFRMQualityLevelOverride: 1,
+      FIntDebugForceMSAASamples: 0,
+      FIntFRMMinGrassDistance: 0,
+      FIntFRMMaxGrassDistance: 0,
+      FFlagDebugGraphicsPreferD3D11: true,
+    }
+    await writeFile(path, `${JSON.stringify({ ...current, ...protectedProfile })}\n`, 'utf8')
+    return { path, previous }
+  }
+
+  private async applyTemporaryGlobalFps(framerateCap: number): Promise<TemporarySettingsFile | null> {
+    const path = this.getGlobalSettingsPath()
+    if (!path) return null
+    const previous = await this.readOptionalFile(path)
+    const base = previous && /<roblox\b/i.test(previous) ? previous : createGlobalSettingsTemplate(framerateCap)
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, setXmlFramerateCap(base, framerateCap), 'utf8')
+    return { path, previous }
+  }
+
+  private async restoreTemporarySettings(file: TemporarySettingsFile): Promise<void> {
+    if (file.previous === null) await unlink(file.path).catch(() => undefined)
+    else await writeFile(file.path, file.previous, 'utf8')
   }
 
   private watchLaunchGlobalSettings(settings: LaunchGlobalSettings, child: ChildProcess): void {
@@ -927,26 +1055,17 @@ export class RobloxClient {
 
   private async queryNvidiaFpsState(executable: string): Promise<NvidiaFpsState | null> {
     try {
-      const { stdout } = await execFileAsync(this.getNvidiaFpsHelperPath(), ['query', executable], {
-        windowsHide: true,
-        timeout: 5000,
-      })
-      const present = /^present=1$/m.test(stdout)
+      const { stdout } = await execFileAsync(this.getNvidiaFpsHelperPath(), ['query', executable], { windowsHide: true, timeout: 5000 })
       const valueMatch = stdout.match(/^value=(\d+)$/m)
-      return { present, value: valueMatch ? Number(valueMatch[1]) : 0 }
+      return { present: /^present=1$/m.test(stdout), value: valueMatch ? Number(valueMatch[1]) : 0 }
     } catch (error) {
-      // This helper intentionally supports NVIDIA only. XML remains the
-      // fallback on other GPUs or if the driver API is unavailable.
       console.warn('NVIDIA launch-time FPS limiter is unavailable; using Roblox settings fallback.', error)
       return null
     }
   }
 
   private async setNvidiaFps(executable: string, fps: number): Promise<void> {
-    await execFileAsync(this.getNvidiaFpsHelperPath(), ['set', executable, String(fps)], {
-      windowsHide: true,
-      timeout: 5000,
-    })
+    await execFileAsync(this.getNvidiaFpsHelperPath(), ['set', executable, String(fps)], { windowsHide: true, timeout: 5000 })
   }
 
   private async restoreNvidiaFps(executable: string, state: NvidiaFpsState): Promise<void> {
@@ -972,12 +1091,37 @@ export class RobloxClient {
     const run = this.windowsLaunchQueue.then(async () => {
       await this.waitForRobloxInstallerToFinish()
       if (this.store.getSnapshot().settings.multiInstance) await this.updateMultiInstance(true)
-      const executable = await this.findInstalledRobloxPlayer()
-      if (!executable) throw new Error('Roblox Player is not installed. Open Roblox.com once and install Roblox Player before launching an account.')
-      await this.syncClientSettings(executable, this.store.getClient(), true)
+      const routeToProtectedSession = this.protectedSession?.shouldRouteLaunch(launchInput.accountId) === true
+      // The earlier protected launches were not exiting because of direct
+      // launch or isolated settings: Virgue's cross-session cleanup mistook
+      // their invisible window handles for closed windows and killed them.
+      // With cleanup now session-aware, use the original fast direct launch so
+      // the account-specific FPS and graphics profile stays isolated.
+      const launchFps = fpsOverride
+      // Trimming the real protected-session process during its app-to-game
+      // transition correlates with the remaining silent exits. The one stable
+      // protected run accidentally targeted a short-lived forwarding PID, so
+      // Memory Saver never touched the game. Keep it available for normal
+      // desktop launches, but do not mutate a protected client at startup.
+      const applyLaunchMemorySaver = memorySaver && !routeToProtectedSession
+      let executable = await this.findInstalledRobloxPlayer()
+      // Protected Session previously launched through its own Versions-folder
+      // resolver when the stricter main-session signature probe returned null.
+      // That made launch succeed but silently skipped every settings write.
+      // Resolve the same concrete installation here; the child helper still
+      // independently confines and validates the supplied path before launch.
+      if (!executable && routeToProtectedSession) executable = await this.findProtectedRobloxPlayerCandidate()
+      if (!executable && !routeToProtectedSession) throw new Error('Roblox Player is not installed. Open Roblox.com once and install Roblox Player before launching an account.')
+      // Protected Session has its own session-local resolver and validates the
+      // resulting executable before launch. A transient miss on the main
+      // desktop must not block a valid installation in the child session.
+      const launchExecutable = executable ?? ''
+      if (executable) await this.syncClientSettings(executable, this.store.getClient(), true)
       const previousPlayerCount = await this.getRobloxPlayerProcessCount().catch(() => 0)
       let launchSettings: LaunchGlobalSettings | null = null
       let launchSettingsWatched = false
+      let protectedClientSettings: TemporarySettingsFile | null = null
+      let temporaryGlobalFps: TemporarySettingsFile | null = null
       let nvidiaFpsState: NvidiaFpsState | null = null
       let nvidiaFpsApplied = false
       let launchedProcessId: number | null = null
@@ -987,7 +1131,7 @@ export class RobloxClient {
       try {
         if (this.sessionGuardian) {
           try {
-            const tracked = await this.sessionGuardian.registerLaunch({ ...launchInput, processId: null, processPath: executable, startedAt: launchStartedAt })
+            const tracked = await this.sessionGuardian.registerLaunch({ ...launchInput, processId: null, processPath: executable ?? '', startedAt: launchStartedAt })
             guardianSessionId = tracked.id
           } catch (error) {
             // Session tracking must never turn a valid Roblox launch into a
@@ -995,16 +1139,31 @@ export class RobloxClient {
             console.warn('Session Guardian could not register the Roblox launch request.', error)
           }
         }
-        if (fpsOverride !== null) {
+        if (launchFps !== null) {
           // Roblox supports an isolated settings path for a client process.
           // Keep this file alive for the lifetime of the launched process so
           // the client cannot fall back to the shared 240 FPS setting after
           // the manager's short launch handshake finishes.
-          launchSettings = await this.createLaunchGlobalSettings(fpsOverride)
-          nvidiaFpsState = await this.queryNvidiaFpsState(executable)
-          if (nvidiaFpsState) {
+          launchSettings = await this.createLaunchGlobalSettings(launchFps, routeToProtectedSession)
+          if (routeToProtectedSession && executable) {
+            // Roblox no longer accepts the old FPS FastFlag. Stage only its
+            // allowlisted low-rendering flags in the install directory that
+            // the child process actually reads, then restore the user's file
+            // once startup has snapshotted it.
+            protectedClientSettings = await this.applyProtectedClientSettings(executable)
             try {
-              await this.setNvidiaFps(executable, fpsOverride)
+              temporaryGlobalFps = await this.applyTemporaryGlobalFps(launchFps)
+            } catch (error) {
+              // A concurrently running main client can lock this shared file.
+              // Keep launch functional; the isolated -g file remains a
+              // fallback, but do not claim that it enforced the cap.
+              console.warn('Roblox global FPS setting is locked; protected launch will use the isolated fallback.', error)
+            }
+          }
+          nvidiaFpsState = executable ? await this.queryNvidiaFpsState(executable) : null
+          if (nvidiaFpsState && executable) {
+            try {
+              await this.setNvidiaFps(executable, launchFps)
               nvidiaFpsApplied = true
             } catch (error) {
               console.warn('NVIDIA launch-time FPS limiter could not be applied; using Roblox settings fallback.', error)
@@ -1014,34 +1173,52 @@ export class RobloxClient {
         const launchArgs = launchSettings
           ? ['-g', launchSettings.path, '--app', '-t', ticket, '-j', launcherUrl]
           : ['--app', '-t', ticket, '-j', launcherUrl]
-        launchedProcessId = await new Promise<number | null>((resolve, reject) => {
-          const child = spawn(executable, launchArgs, { detached: true, windowsHide: true, stdio: 'ignore' })
-          child.once('error', reject)
-          child.once('spawn', () => {
-            if (launchSettings) {
-              this.watchLaunchGlobalSettings(launchSettings, child)
-              launchSettingsWatched = true
-            }
-            child.unref()
-            resolve(child.pid ?? null)
-          })
-        }).catch(() => { throw new Error('Roblox Player could not be started. Close any Roblox installer or update window and try again.') })
+        if (routeToProtectedSession) {
+          launchedProcessId = await this.protectedSession!.launch(launchExecutable, launchArgs, launchInput.accountId, launchInput.launchRequestId)
+          if (launchSettings) {
+            this.launchSettings.add(launchSettings)
+            launchSettingsWatched = true
+          }
+        } else {
+          if (!executable) throw new Error('Roblox Player is not installed. Open Roblox.com once and install Roblox Player before launching an account.')
+          launchedProcessId = await new Promise<number | null>((resolve, reject) => {
+            const child = spawn(executable, launchArgs, { detached: true, windowsHide: true, stdio: 'ignore' })
+            child.once('error', reject)
+            child.once('spawn', () => {
+              if (launchSettings) {
+                this.watchLaunchGlobalSettings(launchSettings, child)
+                launchSettingsWatched = true
+              }
+              child.unref()
+              resolve(child.pid ?? null)
+            })
+          }).catch(() => { throw new Error('Roblox Player could not be started. Close any Roblox installer or update window and try again.') })
+        }
         if (launchedProcessId) this.launchedRobloxProcesses.set(launchedProcessId, { startedAt: Date.now(), launchSettings })
         if (this.sessionGuardian && guardianSessionId) {
           try {
-            await this.sessionGuardian.attachProcess(guardianSessionId, launchedProcessId, executable)
+            await this.sessionGuardian.attachProcess(guardianSessionId, launchedProcessId, launchExecutable)
             guardianProcessAttached = true
           } catch (error) {
             console.warn('Session Guardian could not attach to the Roblox process.', error)
           }
         }
-        if ((nvidiaFpsApplied && nvidiaFpsState) || memorySaver) {
+        if (nvidiaFpsApplied || applyLaunchMemorySaver || protectedClientSettings || temporaryGlobalFps) {
           // NVIDIA snapshots profile settings when the client initializes.
           // A background Roblox tray process can make process-count polling
           // report a false start. Wait for this exact launched process to own
           // its game window before restoring the user's driver profile.
-          await this.waitForRobloxPlayerWindow(launchedProcessId)
-          if (memorySaver) {
+          if (routeToProtectedSession) {
+            // The helper-reported PID can be Roblox's short-lived bootstrap
+            // process. On the protected desktop the persistent player has
+            // recently taken 10-13 seconds to initialize D3D and read its
+            // local settings. Restoring after four seconds meant the real
+            // client logged LoadClientSettingsFromLocal: "{}".
+            // Hold the launch transaction beyond that handoff boundary.
+            await new Promise<void>((resolve) => setTimeout(resolve, 20000))
+          }
+          else await this.waitForRobloxPlayerWindow(launchedProcessId)
+          if (applyLaunchMemorySaver) {
             try {
               await this.applyMemorySaver(launchedProcessId)
             } catch (error) {
@@ -1049,8 +1226,16 @@ export class RobloxClient {
             }
           }
         }
+        if (protectedClientSettings) {
+          await this.restoreTemporarySettings(protectedClientSettings)
+          protectedClientSettings = null
+        }
+        if (temporaryGlobalFps) {
+          await this.restoreTemporarySettings(temporaryGlobalFps)
+          temporaryGlobalFps = null
+        }
         if (nvidiaFpsApplied && nvidiaFpsState) {
-          await this.restoreNvidiaFps(executable, nvidiaFpsState)
+          await this.restoreNvidiaFps(launchExecutable, nvidiaFpsState)
           nvidiaFpsApplied = false
         }
         // An older player can start the installer asynchronously. Hold the queue
@@ -1058,10 +1243,10 @@ export class RobloxClient {
         // RobloxPlayerInstaller process and trigger Roblox's collision dialog.
         await new Promise<void>((resolve) => setTimeout(resolve, 1200))
         await this.waitForRobloxInstallerToFinish()
-        if (fpsOverride !== null) {
+        if (launchFps !== null) {
           await this.waitForRobloxPlayerStart(previousPlayerCount)
         }
-        return { executable, processId: launchedProcessId }
+        return { executable: launchExecutable, processId: launchedProcessId }
       } catch (error) {
         if (this.sessionGuardian && guardianSessionId && !guardianProcessAttached) {
           await this.sessionGuardian.failLaunch(guardianSessionId, error instanceof Error ? error.message : 'Roblox Player could not be started.').catch((guardianError) => {
@@ -1071,8 +1256,18 @@ export class RobloxClient {
         throw error
       } finally {
         if (nvidiaFpsApplied && nvidiaFpsState) {
-          await this.restoreNvidiaFps(executable, nvidiaFpsState).catch((error) => {
+          await this.restoreNvidiaFps(launchExecutable, nvidiaFpsState).catch((error) => {
             console.warn('NVIDIA FPS profile could not be restored after launch.', error)
+          })
+        }
+        if (protectedClientSettings) {
+          await this.restoreTemporarySettings(protectedClientSettings).catch((error) => {
+            console.warn('Roblox protected graphics settings could not be restored after launch.', error)
+          })
+        }
+        if (temporaryGlobalFps) {
+          await this.restoreTemporarySettings(temporaryGlobalFps).catch((error) => {
+            console.warn('Roblox FPS settings could not be restored after launch.', error)
           })
         }
         // The per-account XML is cleaned up by the Roblox child-process
@@ -1722,10 +1917,16 @@ export class RobloxClient {
 
   private async getAuthTicket(cookie: string): Promise<string> {
     const url = 'https://auth.roblox.com/v1/authentication-ticket/'
-    const init: RequestInit = { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json', Origin: 'https://www.roblox.com', Referer: 'https://www.roblox.com/' } }
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Origin: 'https://www.roblox.com',
+      Referer: 'https://www.roblox.com/',
+      'RBX-Authentication-Negotiation': '1',
+    }
+    const init: RequestInit = { method: 'POST', body: '{}', headers }
     let response = await this.rawRequest(url, init, cookie)
     const csrf = response.headers.get('x-csrf-token')
-    if (response.status === 403 && csrf) response = await this.rawRequest(url, { ...init, headers: { ...(init.headers as Record<string, string>), 'X-CSRF-TOKEN': csrf } }, cookie)
+    if (response.status === 403 && csrf) response = await this.rawRequest(url, { ...init, headers: { ...headers, 'X-CSRF-TOKEN': csrf } }, cookie)
     const ticket = response.headers.get('rbx-authentication-ticket')
     if (!response.ok || !ticket) throw new RobloxAuthenticationTicketError(response.status)
     return ticket
@@ -1736,7 +1937,7 @@ export class RobloxClient {
     try {
       return await this.getAuthTicket(storedCookie)
     } catch (error) {
-      if (!(error instanceof RobloxAuthenticationTicketError) || error.status !== 401) throw error
+      if (!(error instanceof RobloxAuthenticationTicketError) || ![401, 403].includes(error.status)) throw error
     }
 
     // An isolated account browser can receive a rotated Roblox cookie after a

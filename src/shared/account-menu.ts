@@ -54,6 +54,7 @@ button { color: inherit; }
   height: 34px;
   flex: none;
   place-items: center;
+  overflow: hidden;
   border: 2px solid var(--account-menu-ink);
   background: var(--account-menu-yellow);
   color: var(--account-menu-ink);
@@ -61,8 +62,9 @@ button { color: inherit; }
   font-weight: 800;
   letter-spacing: -.04em;
 }
+.account-menu-avatar img, .account-menu-summary-avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .account-menu-copy { display: grid; min-width: 0; flex: 1; gap: 2px; }
-.account-menu-label { color: var(--account-menu-muted); font-size: 9px; font-weight: 800; letter-spacing: .1em; line-height: 1; text-transform: uppercase; }
+.account-menu-label { color: var(--account-menu-muted); font-size: 9px; font-weight: 800; letter-spacing: .08em; line-height: 1; text-transform: uppercase; }
 .account-menu-copy strong { overflow: hidden; font-size: 12px; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
 .account-menu-trigger.open .account-menu-label { color: #57312c; }
 .account-menu-chevron { flex: none; transition: transform 240ms cubic-bezier(.22, 1.15, .36, 1); }
@@ -83,9 +85,12 @@ button { color: inherit; }
   animation: account-menu-pop-in 220ms cubic-bezier(.22, 1.15, .36, 1) both;
 }
 .account-menu-summary { display: grid; gap: 8px; padding: 2px 2px 13px; border-bottom: 2px solid var(--account-menu-line); }
-.account-menu-summary-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.account-menu-summary-identity { display: grid; grid-template-columns: 40px minmax(0, 1fr); align-items: center; gap: 10px; min-width: 0; }
+.account-menu-summary-avatar { display: grid; width: 40px; height: 40px; place-items: center; overflow: hidden; border: 2px solid var(--account-menu-ink); background: var(--account-menu-yellow); color: var(--account-menu-ink); font-size: 16px; font-weight: 800; }
+.account-menu-summary-copy { display: grid; min-width: 0; gap: 3px; }
 .account-menu-eyebrow { color: var(--account-menu-muted); font-size: 9px; font-weight: 800; letter-spacing: .1em; line-height: 1; text-transform: uppercase; }
-.account-menu-summary > strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.account-menu-summary-copy strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.account-menu-summary-email { overflow: hidden; color: var(--account-menu-muted); font-size: 10px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
 .account-menu-plan { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 2px solid var(--account-menu-ink); background: var(--account-menu-yellow); }
 .account-menu-plan span { color: var(--account-menu-muted); font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .account-menu-plan strong { font-size: 12px; }
@@ -138,11 +143,12 @@ function iconMarkup(name: 'arrow' | 'chevron' | 'close' | 'settings', size: numb
 }
 
 export class VirgueAccountMenuElement extends HTMLElement {
-  static observedAttributes = ['name', 'email', 'plan', 'signed-in', 'busy', 'open', 'admin', 'admin-href']
+  static observedAttributes = ['name', 'email', 'plan', 'avatar-url', 'signed-in', 'busy', 'open', 'admin', 'admin-href']
 
   private accountName = ''
   private accountEmail = ''
   private accountPlan = 'Free plan'
+  private accountAvatarUrl = ''
   private signedIn = false
   private busy = false
   private isOpen = false
@@ -153,6 +159,7 @@ export class VirgueAccountMenuElement extends HTMLElement {
     this.accountName = this.getAttribute('name') ?? this.accountName
     this.accountEmail = this.getAttribute('email') ?? this.accountEmail
     this.accountPlan = this.getAttribute('plan') ?? this.accountPlan
+    this.accountAvatarUrl = this.getAttribute('avatar-url') ?? this.accountAvatarUrl
     this.signedIn = this.hasAttribute('signed-in')
     this.busy = this.hasAttribute('busy')
     this.isOpen = this.hasAttribute('open')
@@ -176,6 +183,7 @@ export class VirgueAccountMenuElement extends HTMLElement {
     if (attribute === 'name') this.accountName = newValue ?? ''
     if (attribute === 'email') this.accountEmail = newValue ?? ''
     if (attribute === 'plan') this.accountPlan = newValue || 'Free plan'
+    if (attribute === 'avatar-url') this.accountAvatarUrl = newValue ?? ''
     if (attribute === 'signed-in') this.signedIn = newValue !== null
     if (attribute === 'busy') this.busy = newValue !== null
     if (attribute === 'open') this.isOpen = newValue !== null
@@ -192,6 +200,9 @@ export class VirgueAccountMenuElement extends HTMLElement {
 
   get plan(): string { return this.accountPlan }
   set plan(value: string) { this.accountPlan = value || 'Free plan'; this.render() }
+
+  get avatarUrl(): string { return this.accountAvatarUrl }
+  set avatarUrl(value: string) { this.accountAvatarUrl = value || ''; this.render() }
 
   get signedInState(): boolean { return this.signedIn }
   set signedInState(value: boolean) { this.signedIn = value; this.render() }
@@ -287,15 +298,16 @@ export class VirgueAccountMenuElement extends HTMLElement {
     if (!shadowRoot) return
     if (!shadowRoot.querySelector('[data-account-menu-root]')) {
       const panelId = `virgue-account-menu-panel-${++accountMenuInstanceCount}`
-      shadowRoot.innerHTML = `<style>${ACCOUNT_MENU_STYLES}</style><div class="account-menu" data-account-menu-root><button type="button" class="account-menu-trigger" data-account-action="toggle" aria-haspopup="menu" aria-expanded="false" aria-controls="${panelId}"><span class="account-menu-avatar" aria-hidden="true"></span><span class="account-menu-copy"><span class="account-menu-label"></span><strong data-account-name></strong></span><span class="account-menu-chevron" aria-hidden="true">${iconMarkup('chevron', 16)}</span></button><div class="account-menu-popover" id="${panelId}" role="menu" hidden><div class="account-menu-summary" data-signed-in-summary><div class="account-menu-summary-top"><span class="account-menu-eyebrow">Account</span></div><strong data-account-email></strong><div class="account-menu-plan"><span>Plan</span><strong data-account-plan></strong></div></div><div class="account-menu-signed-out-summary" data-signed-out-summary hidden><span class="account-menu-eyebrow">Welcome back</span><strong>Sign in to your workspace</strong><p>Manage your plan and download the app.</p></div><div class="account-menu-actions" data-signed-in-actions><a class="account-menu-item" data-account-action="admin" role="menuitem" href=""><strong>Admin</strong>${iconMarkup('arrow', 14)}</a><button type="button" class="account-menu-item" data-account-action="settings" role="menuitem"><span class="account-menu-item-icon">${iconMarkup('settings', 15)}</span><strong>Settings</strong>${iconMarkup('arrow', 14)}</button><button type="button" class="account-menu-signout" data-account-action="signout" role="menuitem"><span>${iconMarkup('close', 15)}</span><span data-signout-label>Sign out</span></button></div><div class="account-menu-actions" data-signed-out-actions hidden><a class="account-menu-item" data-account-action="signin" role="menuitem" href="./account.html"><strong>Sign in</strong>${iconMarkup('arrow', 14)}</a><a class="account-menu-item" data-account-action="signup" role="menuitem" href="./account.html?mode=signup"><strong>Create account</strong>${iconMarkup('arrow', 14)}</a></div></div></div>`
+      shadowRoot.innerHTML = `<style>${ACCOUNT_MENU_STYLES}</style><div class="account-menu" data-account-menu-root><button type="button" class="account-menu-trigger" data-account-action="toggle" aria-haspopup="menu" aria-expanded="false" aria-controls="${panelId}"><span class="account-menu-avatar" data-account-avatar aria-hidden="true"></span><span class="account-menu-copy"><span class="account-menu-label"></span><strong data-account-name></strong></span><span class="account-menu-chevron" aria-hidden="true">${iconMarkup('chevron', 16)}</span></button><div class="account-menu-popover" id="${panelId}" role="menu" hidden><div class="account-menu-summary" data-signed-in-summary><div class="account-menu-summary-identity"><span class="account-menu-summary-avatar" data-account-avatar aria-hidden="true"></span><div class="account-menu-summary-copy"><span class="account-menu-eyebrow">Signed in</span><strong data-account-display-name></strong><span class="account-menu-summary-email" data-account-email></span></div></div><div class="account-menu-plan"><span>Plan</span><strong data-account-plan></strong></div></div><div class="account-menu-signed-out-summary" data-signed-out-summary hidden><span class="account-menu-eyebrow">Welcome back</span><strong>Sign in to your workspace</strong><p>Manage your plan and download the app.</p></div><div class="account-menu-actions" data-signed-in-actions><a class="account-menu-item" data-account-action="admin" role="menuitem" href=""><strong>Admin</strong>${iconMarkup('arrow', 14)}</a><button type="button" class="account-menu-item" data-account-action="settings" role="menuitem"><span class="account-menu-item-icon">${iconMarkup('settings', 15)}</span><strong>Settings</strong>${iconMarkup('arrow', 14)}</button><button type="button" class="account-menu-signout" data-account-action="signout" role="menuitem"><span>${iconMarkup('close', 15)}</span><span data-signout-label>Sign out</span></button></div><div class="account-menu-actions" data-signed-out-actions hidden><a class="account-menu-item" data-account-action="signin" role="menuitem" href="./account.html"><strong>Sign in</strong>${iconMarkup('arrow', 14)}</a><a class="account-menu-item" data-account-action="signup" role="menuitem" href="./account.html?mode=signup"><strong>Create account</strong>${iconMarkup('arrow', 14)}</a></div></div></div>`
     }
 
     const displayName = this.accountName.trim() || this.accountEmail.trim().split('@')[0] || 'Account'
     const initial = (this.accountName.trim() || this.accountEmail.trim() || 'V').slice(0, 1).toUpperCase()
     const trigger = shadowRoot.querySelector<HTMLButtonElement>('[data-account-action="toggle"]')
-    const avatar = shadowRoot.querySelector<HTMLElement>('.account-menu-avatar')
+    const avatars = Array.from(shadowRoot.querySelectorAll<HTMLElement>('[data-account-avatar]'))
     const label = shadowRoot.querySelector<HTMLElement>('.account-menu-label')
     const accountName = shadowRoot.querySelector<HTMLElement>('[data-account-name]')
+    const accountDisplayName = shadowRoot.querySelector<HTMLElement>('[data-account-display-name]')
     const panel = shadowRoot.querySelector<HTMLElement>('.account-menu-popover')
     const chevron = shadowRoot.querySelector<HTMLElement>('.account-menu-chevron')
     const signedInSummary = shadowRoot.querySelector<HTMLElement>('[data-signed-in-summary]')
@@ -307,12 +319,27 @@ export class VirgueAccountMenuElement extends HTMLElement {
     const plan = shadowRoot.querySelector<HTMLElement>('[data-account-plan]')
     const signOutButton = shadowRoot.querySelector<HTMLButtonElement>('[data-account-action="signout"]')
     const signOutLabel = shadowRoot.querySelector<HTMLElement>('[data-signout-label]')
-    if (!trigger || !avatar || !label || !accountName || !panel || !chevron || !signedInSummary || !signedOutSummary || !signedInActions || !signedOutActions || !adminLink || !email || !plan || !signOutButton || !signOutLabel) return
+    if (!trigger || avatars.length === 0 || !label || !accountName || !accountDisplayName || !panel || !chevron || !signedInSummary || !signedOutSummary || !signedInActions || !signedOutActions || !adminLink || !email || !plan || !signOutButton || !signOutLabel) return
 
-    avatar.textContent = initial
-    label.textContent = this.signedIn ? 'Account' : 'Sign in'
+    const avatarUrl = this.accountAvatarUrl.trim()
+    avatars.forEach((avatar) => {
+      avatar.replaceChildren()
+      if (!avatarUrl) {
+        avatar.textContent = initial
+        return
+      }
+      const image = document.createElement('img')
+      image.src = avatarUrl
+      image.alt = ''
+      image.loading = 'eager'
+      image.decoding = 'async'
+      image.addEventListener('error', () => { if (image.parentElement === avatar) avatar.textContent = initial }, { once: true })
+      avatar.append(image)
+    })
+    label.textContent = this.signedIn ? 'Signed in as' : 'Sign in'
     accountName.textContent = displayName
     accountName.hidden = !this.signedIn
+    accountDisplayName.textContent = displayName
     trigger.classList.toggle('open', this.isOpen)
     trigger.setAttribute('aria-expanded', String(this.isOpen))
     trigger.setAttribute('aria-label', this.signedIn ? `Open the account menu for ${displayName}` : 'Open the sign-in menu')

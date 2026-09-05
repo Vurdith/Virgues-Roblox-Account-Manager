@@ -67,6 +67,7 @@ export const defaultSettings: AppSettings = {
   presenceUpdateRate: 30,
   maxRecentGames: 8,
   backgroundInputMainAccountId: null,
+  protectedSessionEnabled: false,
   theme: 'neo',
 }
 
@@ -268,6 +269,7 @@ function normalizeAccount(value: unknown, index: number, games: GameCollection[]
     gameId,
     categoryId,
     status: value.status === 'running' ? 'ready' : normalizeStatus(value.status),
+    favorite: value.favorite === true,
     lastUsed: typeof value.lastUsed === 'string' ? value.lastUsed : null,
     placeId: text(value.placeId, game.placeId),
     jobId: text(value.jobId),
@@ -304,6 +306,7 @@ function normalizeSettings(value: unknown): AppSettings {
     backgroundInputMainAccountId: typeof source.backgroundInputMainAccountId === 'string' && source.backgroundInputMainAccountId.trim()
       ? source.backgroundInputMainAccountId.trim()
       : null,
+    protectedSessionEnabled: source.protectedSessionEnabled === true,
     theme: source.theme === 'dark' || source.theme === 'light' ? source.theme : 'neo',
   }
 }
@@ -564,7 +567,7 @@ export class AccountStore {
     const game = this.getGame(input.gameId)
     const categoryId = game.categories.some((category) => category.id === input.categoryId) ? input.categoryId : game.categories[0]?.id ?? ''
     const account: Account = {
-      id: randomUUID(), username, alias: input.alias.trim(), description: input.description.trim() || 'Local Roblox profile', gameId: game.id, categoryId, status: 'ready', lastUsed: null, placeId: game.placeId, jobId: '', sessions: 0, accent: game.accent, createdAt: new Date().toISOString(), userId: null, displayName: '', avatarUrl: '', hasCredentials: false, lastVerified: null, presenceCheckedAt: null, presence: null, presenceVisibilityConfigured: false, robuxBalance: null, fpsOverride: null, memorySaver: false, recoveryPolicy: { ...defaultRecoveryPolicy }, fields: {},
+      id: randomUUID(), username, alias: input.alias.trim(), description: input.description.trim() || 'Local Roblox profile', gameId: game.id, categoryId, status: 'ready', favorite: false, lastUsed: null, placeId: game.placeId, jobId: '', sessions: 0, accent: game.accent, createdAt: new Date().toISOString(), userId: null, displayName: '', avatarUrl: '', hasCredentials: false, lastVerified: null, presenceCheckedAt: null, presence: null, presenceVisibilityConfigured: false, robuxBalance: null, fpsOverride: null, memorySaver: false, recoveryPolicy: { ...defaultRecoveryPolicy }, fields: {},
     }
     this.data.accounts.push(account)
     this.syncControlAccounts()
@@ -584,6 +587,7 @@ export class AccountStore {
     const account = this.getAccount(id)
     if (input.alias !== undefined) account.alias = input.alias.trim()
     if (input.description !== undefined) account.description = input.description.trim()
+    if (input.favorite !== undefined) account.favorite = input.favorite === true
     if (input.gameId !== undefined) {
       const game = this.getGame(input.gameId)
       const gameChanged = account.gameId !== game.id

@@ -1,6 +1,6 @@
 {
   "name": "virgues-roblox-account-manager",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "A focused Windows desktop account workspace for Roblox profiles.",
   "productName": "Virgue's Roblox Account Manager",
   "author": "Virgue",
@@ -24,9 +24,11 @@
     "@fontsource/outfit": "5.3.0",
     "@neondatabase/serverless": "^1.1.0",
     "electron-updater": "6.8.9",
+    "node-llama-cpp": "3.20.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "stripe": "^20.4.1",
+    "thinking-orbs": "0.3.1",
     "ws": "^8.21.3"
   },
   "devDependencies": {
@@ -74,9 +76,21 @@
       {
         "from": "native/bin/window-input-helper.exe",
         "to": "native/window-input-helper.exe"
+      },
+      {
+        "from": "native/bin/protected-session-helper.exe",
+        "to": "native/protected-session-helper.exe"
+      },
+      {
+        "from": "native/ahk-ai-worker.cjs",
+        "to": "native/ahk-ai-worker.cjs"
       }
     ],
     "asar": true,
+    "asarUnpack": [
+      "node_modules/node-llama-cpp/**/*",
+      "node_modules/@node-llama-cpp/**/*"
+    ],
     "win": {
       "target": [
         {

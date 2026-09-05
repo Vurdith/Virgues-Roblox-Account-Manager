@@ -406,6 +406,7 @@ export interface BackgroundInputSession {
 export interface BackgroundInputSnapshot {
   sessions: BackgroundInputSession[]
   protectedAccountId: string | null
+  schedules: BackgroundInputSchedule[]
   checkedAt: string
 }
 
@@ -428,6 +429,96 @@ export interface BackgroundInputCommandResult {
   durationMs: number
   issuedAt: string
   results: BackgroundInputTargetResult[]
+}
+
+export interface AutoHotkeyScript {
+  id: string
+  name: string
+  content: string
+  createdAt: string
+  updatedAt: string
+  running: boolean
+}
+
+export interface AutoHotkeySnapshot {
+  installed: boolean
+  version: string
+  sessionReady: boolean
+  scripts: AutoHotkeyScript[]
+}
+
+export interface AutoHotkeyScriptInput {
+  id?: string
+  name: string
+  content: string
+}
+
+export type AhkAiModelTier = 'low-memory' | 'standard'
+
+export interface AhkAiStatus {
+  modelTier: AhkAiModelTier
+  modelName: string
+  totalRamGb: number
+  modelSizeBytes: number
+  downloadedBytes: number
+  installed: boolean
+  downloading: boolean
+  generating: boolean
+  runtimeActive: boolean
+  generationStage?: 'loading-model' | 'reading-request' | 'planning-script' | 'writing-script' | 'validating' | 'unloading'
+  generationDetail?: string
+  generationTrace?: string[]
+  progressPercent: number
+}
+
+export interface AhkAiGenerationResult {
+  script: string
+  explanation: string
+  warnings: string[]
+  modelTier: AhkAiModelTier
+  modelName: string
+  validationMessage: string
+  generationTrace: string[]
+}
+
+export type BackgroundInputScheduleState = 'active' | 'paused' | 'stopped' | 'error'
+
+export interface BackgroundInputScheduleInput {
+  sessionIds: string[]
+  key: WindowInputKey
+  durationMs: number
+  intervalMs: number
+}
+
+export interface BackgroundInputSchedule {
+  id: string
+  sessionIds: string[]
+  key: WindowInputKey
+  durationMs: number
+  intervalMs: number
+  state: BackgroundInputScheduleState
+  startedAt: string
+  nextRunAt: string | null
+  lastRunAt: string | null
+  lastRunMessage: string
+  error: string | null
+}
+
+export type ProtectedSessionPhase = 'unavailable' | 'setup-required' | 'stopped' | 'starting' | 'ready' | 'error'
+
+export interface ProtectedSessionStatus {
+  supported: boolean
+  configured: boolean
+  firewallEnabled: boolean
+  phase: ProtectedSessionPhase
+  childSessionId: number | null
+  message: string
+}
+
+export interface ProtectedSessionSetupResult {
+  ok: boolean
+  message: string
+  status: ProtectedSessionStatus
 }
 
 export interface WatcherSettings {
@@ -454,6 +545,7 @@ export interface Account {
   gameId: string
   categoryId: string
   status: AccountStatus
+  favorite: boolean
   lastUsed: string | null
   placeId: string
   jobId: string
@@ -485,6 +577,7 @@ export interface AppSettings {
   presenceUpdateRate: number
   maxRecentGames: number
   backgroundInputMainAccountId: string | null
+  protectedSessionEnabled: boolean
   theme: 'neo' | 'dark' | 'light'
 }
 
@@ -522,6 +615,7 @@ export interface CreateAccountInput {
 export interface UpdateAccountInput {
   alias?: string
   description?: string
+  favorite?: boolean
   gameId?: string
   categoryId?: string
   placeId?: string
@@ -801,6 +895,30 @@ export interface VirgueApi {
   backgroundInput: {
     getSessions(): Promise<BackgroundInputSnapshot>
     send(input: BackgroundInputCommandInput): Promise<BackgroundInputCommandResult>
+    startSchedule(input: BackgroundInputScheduleInput): Promise<BackgroundInputSchedule>
+    pauseSchedule(id: string): Promise<BackgroundInputSchedule>
+    resumeSchedule(id: string): Promise<BackgroundInputSchedule>
+    stopSchedule(id: string): Promise<BackgroundInputSchedule>
+  }
+  protectedSession: {
+    getStatus(): Promise<ProtectedSessionStatus>
+    setup(): Promise<ProtectedSessionSetupResult>
+    start(): Promise<ProtectedSessionStatus>
+    stop(): Promise<ProtectedSessionStatus>
+    showViewer(): Promise<void>
+  }
+  autoHotkey: {
+    getSnapshot(): Promise<AutoHotkeySnapshot>
+    save(input: AutoHotkeyScriptInput): Promise<AutoHotkeySnapshot>
+    remove(id: string): Promise<AutoHotkeySnapshot>
+    run(id: string): Promise<AutoHotkeySnapshot>
+    stop(id: string): Promise<AutoHotkeySnapshot>
+    openDownload(): Promise<void>
+    getAiStatus(): Promise<AhkAiStatus>
+    downloadAiModel(): Promise<AhkAiStatus>
+    generateAiScript(request: string): Promise<AhkAiGenerationResult>
+    cancelAi(): Promise<AhkAiStatus>
+    removeAiModel(): Promise<AhkAiStatus>
   }
   watcher: {
     update(input: WatcherUpdateInput): Promise<WatcherSettings>
