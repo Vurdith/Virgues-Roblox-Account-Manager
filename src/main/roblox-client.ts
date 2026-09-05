@@ -41,7 +41,6 @@ const ROBLOX_USER_AGENT = "Valdor — Roblox Account Manager/1.0"
 const SERVER_CACHE_TTL_MS = 10 * 60 * 1000
 const execFileAsync = promisify(execFile)
 const ACCOUNT_PARTITION_PREFIX = 'persist:valdor-account-'
-const LEGACY_ACCOUNT_PARTITION_PREFIX = 'persist:virgue-account-'
 
 const defaultServerCriteria: ServerFilterCriteria = {
   minPlayers: null, maxPlayers: null, minPing: null, maxPing: null, regionAllowList: [], regionDenyList: [], serverTypes: ['public'], jobId: '', maxAgeMinutes: null, excludeVisited: false, includeFavoritesOnly: false, sort: 'default',
@@ -502,20 +501,7 @@ export class RobloxClient {
   }
 
   private async getAccountPartition(accountId: string): Promise<string> {
-    const canonical = ACCOUNT_PARTITION_PREFIX + accountId
-    const legacy = LEGACY_ACCOUNT_PARTITION_PREFIX + accountId
-    const partitionsDirectory = join(dirname(this.store.getSnapshot().info.dataPath), 'Partitions')
-    try {
-      await stat(join(partitionsDirectory, canonical.slice('persist:'.length)))
-      return canonical
-    } catch {
-      try {
-        await stat(join(partitionsDirectory, legacy.slice('persist:'.length)))
-        return legacy
-      } catch {
-        return canonical
-      }
-    }
+    return ACCOUNT_PARTITION_PREFIX + accountId
   }
 
   private async requestFromAccountBrowser(account: Account, url: string, payload: Record<string, string>): Promise<AccountBrowserRequestResult> {
@@ -907,10 +893,6 @@ export class RobloxClient {
     return join(dirname(this.store.getSnapshot().info.dataPath), 'valdor-global-settings-backup.xml')
   }
 
-  private getLegacyGlobalSettingsBackupPath(): string {
-    return join(dirname(this.store.getSnapshot().info.dataPath), 'virgue-global-settings-backup.xml')
-  }
-
   private async readOptionalFile(path: string): Promise<string | null> {
     try {
       return await readFile(path, 'utf8')
@@ -924,21 +906,19 @@ export class RobloxClient {
     const settingsPath = this.getGlobalSettingsPath()
     if (!settingsPath) return
     const backupPath = this.getGlobalSettingsBackupPath()
-    const legacyBackupPath = this.getLegacyGlobalSettingsBackupPath()
     const current = await this.readOptionalFile(settingsPath)
 
     if (!settings.unlockFps) {
-      const backup = (await this.readOptionalFile(backupPath)) ?? (await this.readOptionalFile(legacyBackupPath))
+      const backup = await this.readOptionalFile(backupPath)
       if (backup !== null) {
         await writeFile(settingsPath, backup, 'utf8')
         await unlink(backupPath).catch(() => undefined)
-        await unlink(legacyBackupPath).catch(() => undefined)
       }
       return
     }
 
     if (current !== null) {
-      const backup = (await this.readOptionalFile(backupPath)) ?? (await this.readOptionalFile(legacyBackupPath))
+      const backup = await this.readOptionalFile(backupPath)
       if (backup === null) await writeFile(backupPath, current, 'utf8')
       await writeFile(settingsPath, setXmlFramerateCap(current, settings.maxFps), 'utf8')
       return

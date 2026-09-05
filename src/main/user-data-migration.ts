@@ -13,8 +13,9 @@ const PRESERVED_FILE_NAMES = [
   'accounts.json',
   'credentials.bin',
   'session-history.json',
-  'virgue-global-settings-backup.xml',
 ] as const
+const LEGACY_GLOBAL_SETTINGS_BACKUP_NAME = 'virgue-global-settings-backup.xml'
+const CURRENT_GLOBAL_SETTINGS_BACKUP_NAME = 'valdor-global-settings-backup.xml'
 
 const PRESERVED_DIRECTORY_NAMES = ['Partitions', 'Local Storage'] as const
 
@@ -85,6 +86,10 @@ export async function migrateLegacyUserData(electronApp: App): Promise<void> {
     for (const fileName of PRESERVED_FILE_NAMES) {
       await copyIfMissing(join(source, fileName), join(target, fileName))
     }
+    await copyIfMissing(
+      join(source, LEGACY_GLOBAL_SETTINGS_BACKUP_NAME),
+      join(target, CURRENT_GLOBAL_SETTINGS_BACKUP_NAME),
+    )
     for (const directoryName of PRESERVED_DIRECTORY_NAMES) {
       await copyDirectoryContents(join(source, directoryName), join(target, directoryName))
     }

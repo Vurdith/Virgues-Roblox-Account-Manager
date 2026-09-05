@@ -17,9 +17,7 @@ The development server runs at `http://localhost:4173/`.
 The build includes the product, pricing, account, download, privacy, terms,
 refunds, and support pages. The download page points to the latest public
 GitHub Release installer; update `VITE_VALDOR_DOWNLOAD_URL` when using a
-different release channel. During the transition, the website also accepts the
-legacy `VITE_VIRGUE_*` billing and download names when the Valdor variables are
-unset.
+different release channel.
 
 ## Configuration
 

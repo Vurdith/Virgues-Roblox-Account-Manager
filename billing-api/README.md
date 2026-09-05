@@ -26,12 +26,9 @@ to Neon, and returns resolved entitlements to the website and desktop app.
    a public HTTPS origin. Point `VITE_VALDOR_BILLING_API_URL` and
    `VALDOR_BILLING_API_URL` at it.
 
-The server treats `VALDOR_*` variables as canonical and temporarily reads the
-corresponding `VIRGUE_*` aliases plus the original unprefixed names. New
-deployments should set only the `VALDOR_*` names. Stripe metadata written by
-this service uses `valdor_*` keys; webhook processing dual-reads the prior
-`virgue_*` keys so existing Checkout sessions and subscriptions continue to
-reconcile.
+The server treats `VALDOR_*` variables as canonical and also accepts the
+original unprefixed names for local development. Stripe metadata written by
+this service uses `valdor_*` keys.
 
 The website and desktop app request a short-lived Neon Auth JWT from the
 `/token` endpoint and send it as `Authorization: Bearer …`. The API verifies
@@ -53,7 +50,7 @@ override the website's same-origin default. The Stripe webhook URL becomes
 
 Run migrations `005_admin_dashboard.sql`, `006_custom_trial_duration.sql`, and
 `007_repeatable_trial_grants.sql` after migrations `001` through `004`.
-Migration `005` creates the existing `virgue_admins` table,
+Migration `005` creates the existing `valdor_admins` table,
 seeds the first owner by resolving
 `reeceleneveu@gmail.com` in Neon Auth, and adds the operator and note fields to
 manual trial grants. Migration `006` adds the custom trial amount and unit
@@ -73,10 +70,10 @@ its Admin link only after `GET /api/admin/me` succeeds. The dashboard uses:
   remains supported for older clients.
 
 Admin authorization is checked server-side against the Neon Auth user ID in
-`virgue_admins`; an email shown in the browser is never sufficient. A manual
+`valdor_admins`; an email shown in the browser is never sufficient. A manual
 trial changes the resolved entitlement until its expiry, but does not create a
 Stripe subscription or charge the customer. Keep the database URL, Stripe
 secrets, and Neon Auth signing configuration server-side.
 
-The `public.virgue_*` table and view names are legacy Neon schema identifiers;
-they remain unchanged because the database migration set owns that schema.
+The billing tables and entitlement view use the `public.valdor_*` schema
+identifiers established by the rebrand migration.
