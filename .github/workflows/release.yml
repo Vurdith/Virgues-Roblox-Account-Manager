@@ -1,4 +1,4 @@
-name: Release Windows app
+name: Release Valdor Windows app
 
 on:
   push:
@@ -10,9 +10,12 @@ permissions:
 
 jobs:
   publish-windows:
+    name: Build and publish Valdor installer
     runs-on: windows-latest
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      RELEASE_REPOSITORY: Vurdith/Valdor
+      RELEASE_ARTIFACT_PREFIX: Valdor-Roblox-Account-Manager-Setup
     steps:
       - name: Check out release tag
         uses: actions/checkout@v4
@@ -39,7 +42,78 @@ jobs:
           }
           "APP_VERSION=$($Matches.version)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Build and publish installer
+      - name: Verify Valdor release configuration
+        shell: pwsh
+        run: |
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          $publish = $package.build.publish
+          if ("$($publish.provider)" -ne 'github') {
+            throw "The release provider must remain GitHub."
+          }
+          $configuredRepository = "$($publish.owner)/$($publish.repo)"
+          if ($configuredRepository -ne $env:RELEASE_REPOSITORY) {
+            throw "package.json publishes to '$configuredRepository', expected '$env:RELEASE_REPOSITORY'."
+          }
+          if ("$($publish.releaseType)" -ne 'release') {
+            throw "The release type must remain 'release'."
+          }
+          $artifactName = [string]$package.build.artifactName
+          $expectedPattern = '^' + [regex]::Escape($env:RELEASE_ARTIFACT_PREFIX) + '-\$\{version\}\.\$\{ext\}$'
+          if ($artifactName -notmatch $expectedPattern) {
+            throw "artifactName '$artifactName' does not match the Valdor release pattern '$env:RELEASE_ARTIFACT_PREFIX-`${version`}.`${ext`}'."
+          }
+
+      - name: Build and publish Valdor installer
         run: npm run package:publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate Valdor release outputs
+        shell: pwsh
+        run: |
+          $releaseDir = Join-Path $env:GITHUB_WORKSPACE 'release'
+          if (-not (Test-Path -LiteralPath $releaseDir -PathType Container)) {
+            throw "The release directory '$releaseDir' was not created."
+          }
+          $installerName = "$($env:RELEASE_ARTIFACT_PREFIX)-$($env:APP_VERSION).exe"
+          $requiredFiles = @(
+            $installerName
+            "$installerName.blockmap"
+            'latest.yml'
+          )
+          foreach ($fileName in $requiredFiles) {
+            $filePath = Join-Path $releaseDir $fileName
+            if (-not (Test-Path -LiteralPath $filePath -PathType Leaf)) {
+              throw "Expected release file '$fileName' was not produced."
+            }
+          }
+          $manifest = Get-Content -LiteralPath (Join-Path $releaseDir 'latest.yml') -Raw
+          $manifestPathPattern = '(?m)^path:\s*' + [regex]::Escape($installerName) + '\s*$'
+          if ($manifest -notmatch $manifestPathPattern) {
+            throw "latest.yml does not point to '$installerName'."
+          }
+
+      - name: Upload Valdor release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: valdor-windows-${{ github.ref_name }}
+          path: |
+            release/Valdor-Roblox-Account-Manager-Setup-*.exe
+            release/Valdor-Roblox-Account-Manager-Setup-*.exe.blockmap
+            release/latest.yml
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Summarize Valdor release links
+        shell: pwsh
+        run: |
+          $tag = "v$($env:APP_VERSION)"
+          $repository = $env:RELEASE_REPOSITORY
+          $installerName = "$($env:RELEASE_ARTIFACT_PREFIX)-$($env:APP_VERSION).exe"
+          @(
+            "## Valdor release $tag"
+            "- Release: https://github.com/$repository/releases/tag/$tag"
+            "- Installer: https://github.com/$repository/releases/download/$tag/$installerName"
+            "- Updater metadata: https://github.com/$repository/releases/download/$tag/latest.yml"
+            "- Blockmap: https://github.com/$repository/releases/download/$tag/$installerName.blockmap"
+          ) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
