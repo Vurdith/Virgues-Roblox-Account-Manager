@@ -325,7 +325,7 @@ export class AhkAiService {
       const response = await fetch(model.url, {
         signal: this.downloadAbort.signal,
         redirect: 'follow',
-        headers: { 'User-Agent': 'Virgue-AHK-Assistant/1.0' },
+        headers: { 'User-Agent': 'Valdor-AHK-Assistant/1.0' },
       })
       if (!response.ok || !response.body) throw new Error(`The model host returned HTTP ${response.status}.`)
       const file = await open(temporary, 'w')
@@ -361,7 +361,7 @@ export class AhkAiService {
 
   async generate(request: string): Promise<AhkAiGenerationResult> {
     const normalized = request.trim()
-    if (!normalized) throw new Error('Describe the AutoHotkey script you want Virgue to write.')
+    if (!normalized) throw new Error('Describe the AutoHotkey script you want Valdor to write.')
     if (normalized.length > MAX_REQUEST_LENGTH) throw new Error('Keep the request under 4,000 characters.')
     if (this.operation) throw new Error(this.operation === 'generate' ? 'The AHK Assistant is already writing a script.' : 'Wait for the model download to finish.')
     const model = this.selectedModel()
@@ -458,18 +458,18 @@ export class AhkAiService {
         if (stdout.length > MAX_WORKER_OUTPUT) worker.kill()
       })
       worker.stderr.on('data', (chunk: string) => {
-        for (const match of chunk.matchAll(/VIRGUE_STAGE:(loading-model|reading-request|planning-script|writing-script|unloading)/g)) {
+        for (const match of chunk.matchAll(/VALDOR_STAGE:(loading-model|reading-request|planning-script|writing-script|unloading)/g)) {
           const stage = match[1] as NonNullable<AhkAiStatus['generationStage']>
           this.generationStage = stage
           this.generationDetail = stageDetails[stage]
         }
-        for (const match of chunk.matchAll(/VIRGUE_NOTE:([^\r\n]*)/g)) {
+        for (const match of chunk.matchAll(/VALDOR_NOTE:([^\r\n]*)/g)) {
           const detail = match[1]?.trim()
           if (!detail) continue
           this.generationDetail = detail
           this.generationTrace = [...this.generationTrace.filter((note) => note !== detail), detail].slice(-6)
         }
-        stderr = `${stderr}${chunk.replace(/VIRGUE_STAGE:[^\r\n]+/g, '').replace(/VIRGUE_NOTE:[^\r\n]*/g, '')}`.slice(-8_192)
+        stderr = `${stderr}${chunk.replace(/VALDOR_STAGE:[^\r\n]+/g, '').replace(/VALDOR_NOTE:[^\r\n]*/g, '')}`.slice(-8_192)
       })
       worker.once('error', (error) => { clearTimeout(timeout); reject(error) })
       worker.once('exit', (code) => {
@@ -493,7 +493,7 @@ export class AhkAiService {
   }
 
   private buildPrompt(request: string): string {
-    return `You are Virgue's local AutoHotkey v2 script writer. Write a complete, practical script satisfying the request. Use ONLY AutoHotkey v2 syntax. Never use v1 command syntax or comma commands. Every function call must use parentheses: SetTimer(PressE, 10000), Send("e"), WinExist("ahk_exe RobloxPlayerBeta.exe"), WinActivate("ahk_exe RobloxPlayerBeta.exe"), and MsgBox("message"). A line beginning with Send,, SendInput,, Sleep,, SetTimer,, MsgBox,, WinActivate,, WinWait,, or any other command followed by a comma is invalid and must never appear. Do not use pseudo-code such as "WinExist(...) or return"; use a real v2 if block with a separate return line. Do not invent AutoHotkey built-in variables: in particular, never write A_ScreenActive or any other A_ variable unless it is in the reference below. Use WinActive("ahk_exe RobloxPlayerBeta.exe") for Roblox foreground checks. Do not combine WinActive(...) and WinExist(...) with "or"; use WinActive(...) when the requirement is that Roblox is active, and use WinExist(...) only when you need to locate an existing window. For a repeated "while Roblox is active" action, put the WinActive guard inside the timer callback immediately before the action, then set the timer at top level; do not put a one-time Roblox check at top level and do not use a busy Loop, Continue, or Exit to keep the script alive. Timers and hotkeys already keep an AutoHotkey v2 script persistent. Constrain automation to RobloxPlayerBeta.exe unless the user explicitly names another application. Do not add file deletion, registry changes, downloads, shell commands, privilege elevation, security changes, shutdown, or arbitrary DllCall. If the request would require one of those capabilities, omit it and explain the limitation. The script must start with #Requires AutoHotkey v2.0 and #SingleInstance Force. Strict output format: put any Brief, Plan, or explanation prose outside the code fence. Return exactly one fenced ahk code block whose first nonblank line is #Requires AutoHotkey v2.0 and whose every line is valid executable AutoHotkey v2 source; never put planning bullets, headings, or plain-English sentences inside that fence. After the fence, add a short plain-English explanation. Do not claim the script was run or tested.
+    return `You are Valdor's local AutoHotkey v2 script writer. Write a complete, practical script satisfying the request. Use ONLY AutoHotkey v2 syntax. Never use v1 command syntax or comma commands. Every function call must use parentheses: SetTimer(PressE, 10000), Send("e"), WinExist("ahk_exe RobloxPlayerBeta.exe"), WinActivate("ahk_exe RobloxPlayerBeta.exe"), and MsgBox("message"). A line beginning with Send,, SendInput,, Sleep,, SetTimer,, MsgBox,, WinActivate,, WinWait,, or any other command followed by a comma is invalid and must never appear. Do not use pseudo-code such as "WinExist(...) or return"; use a real v2 if block with a separate return line. Do not invent AutoHotkey built-in variables: in particular, never write A_ScreenActive or any other A_ variable unless it is in the reference below. Use WinActive("ahk_exe RobloxPlayerBeta.exe") for Roblox foreground checks. Do not combine WinActive(...) and WinExist(...) with "or"; use WinActive(...) when the requirement is that Roblox is active, and use WinExist(...) only when you need to locate an existing window. For a repeated "while Roblox is active" action, put the WinActive guard inside the timer callback immediately before the action, then set the timer at top level; do not put a one-time Roblox check at top level and do not use a busy Loop, Continue, or Exit to keep the script alive. Timers and hotkeys already keep an AutoHotkey v2 script persistent. Constrain automation to RobloxPlayerBeta.exe unless the user explicitly names another application. Do not add file deletion, registry changes, downloads, shell commands, privilege elevation, security changes, shutdown, or arbitrary DllCall. If the request would require one of those capabilities, omit it and explain the limitation. The script must start with #Requires AutoHotkey v2.0 and #SingleInstance Force. Strict output format: put any Brief, Plan, or explanation prose outside the code fence. Return exactly one fenced ahk code block whose first nonblank line is #Requires AutoHotkey v2.0 and whose every line is valid executable AutoHotkey v2 source; never put planning bullets, headings, or plain-English sentences inside that fence. After the fence, add a short plain-English explanation. Do not claim the script was run or tested.
 
 TARGET WINDOW RULE: Roblox being closed is a runtime condition, not a generation prerequisite. If the request says to act while Roblox is active, check WinActive("ahk_exe RobloxPlayerBeta.exe") inside the action and quietly skip that tick when the window is unavailable. Do not show an error or ask the user to launch Roblox just to generate or validate the script, and do not put Roblox-dependent work in the auto-execute section.
 
@@ -544,7 +544,7 @@ ${request}`
   private async validateScript(script: string, normalized = false): Promise<string> {
     const executable = await this.resolveAutoHotkeyExecutable()
     if (!executable) return 'AutoHotkey v2 is not installed, so syntax validation was skipped.'
-    const directory = join(app.getPath('temp'), 'Virgue', 'AHK Assistant')
+    const directory = join(app.getPath('temp'), 'Valdor', 'AHK Assistant')
     const path = join(directory, `validate-${Date.now()}.ahk`)
     await mkdir(directory, { recursive: true })
     await writeFile(path, script, 'utf8')

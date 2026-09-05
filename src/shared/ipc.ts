@@ -27,7 +27,7 @@ import type {
   IsolatedWorkerConnectionInput,
   AuthCredentialsInput,
   AuthSignUpInput,
-  VirgueApi,
+  ValdorApi,
 } from './types'
 
 export const IPC_CHANNELS = {
@@ -222,8 +222,8 @@ export interface IpcPayloads {
 
 declare global {
   interface Window {
-    virgue: VirgueApi
+    valdor: ValdorApi
   }
 }
 
-export type { VirgueApi }
+export type { ValdorApi }

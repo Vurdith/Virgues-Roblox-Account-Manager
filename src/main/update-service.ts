@@ -59,7 +59,7 @@ export class UpdateService {
         }
         return this.current
       } catch (error) {
-        console.warn('Virgue update check failed.', error)
+        console.warn('Valdor update check failed.', error)
         return this.emit({ state: 'error', message: errorMessage(error) })
       } finally {
         this.checkPromise = null
@@ -85,7 +85,7 @@ export class UpdateService {
         }
         return this.current
       } catch (error) {
-        console.warn('Virgue update download failed.', error)
+        console.warn('Valdor update download failed.', error)
         return this.emit({ state: 'error', message: errorMessage(error) })
       } finally {
         this.downloadPromise = null
@@ -141,7 +141,7 @@ export class UpdateService {
   }
 
   private handleError = (error: Error): void => {
-    console.warn('Virgue updater error.', error)
+    console.warn('Valdor updater error.', error)
     this.emit({ state: 'error', message: errorMessage(error) })
   }
 }

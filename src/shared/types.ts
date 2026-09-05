@@ -790,7 +790,7 @@ export interface WatcherUpdateInput extends Partial<WatcherSettings> {}
 
 export interface ClientSettingsUpdateInput extends Partial<ClientSettings> {}
 
-export interface VirgueUser {
+export interface ValdorUser {
   id: string
   name: string
   email: string
@@ -798,8 +798,8 @@ export interface VirgueUser {
   image: string | null
 }
 
-export interface VirgueAuthSession {
-  user: VirgueUser
+export interface ValdorAuthSession {
+  user: ValdorUser
   expiresAt: string
 }
 
@@ -821,7 +821,7 @@ export interface AppUpdateEvent {
   message?: string
 }
 
-export interface VirgueApi {
+export interface ValdorApi {
   accounts: {
     create(input: CreateAccountInput): Promise<Account>
     remove(id: string): Promise<void>
@@ -935,9 +935,9 @@ export interface VirgueApi {
     update(input: Partial<AppSettings>): Promise<AppSettings>
   }
   auth: {
-    getSession(): Promise<VirgueAuthSession | null>
-    signIn(input: AuthCredentialsInput): Promise<VirgueAuthSession>
-    signUp(input: AuthSignUpInput): Promise<VirgueAuthSession>
+    getSession(): Promise<ValdorAuthSession | null>
+    signIn(input: AuthCredentialsInput): Promise<ValdorAuthSession>
+    signUp(input: AuthSignUpInput): Promise<ValdorAuthSession>
     signOut(): Promise<void>
   }
   billing: {

@@ -1,9 +1,9 @@
 {
-  "name": "virgues-roblox-account-manager",
+  "name": "valdor-roblox-account-manager",
   "version": "1.0.5",
   "description": "A focused Windows desktop account workspace for Roblox profiles.",
-  "productName": "Virgue's Roblox Account Manager",
-  "author": "Virgue",
+  "productName": "Valdor — Roblox Account Manager",
+  "author": "Valdor",
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "./out/main/index.js",
@@ -44,16 +44,16 @@
     "vite": "7.3.6"
   },
   "build": {
-    "appId": "com.virgue.robloxaccountmanager",
-    "productName": "Virgue's Roblox Account Manager",
-    "artifactName": "Virgues-Roblox-Account-Manager-Setup-${version}.${ext}",
+    "appId": "com.valdor.robloxaccountmanager",
+    "productName": "Valdor — Roblox Account Manager",
+    "artifactName": "Valdor-Roblox-Account-Manager-Setup-${version}.${ext}",
     "directories": {
       "output": "release"
     },
     "publish": {
       "provider": "github",
       "owner": "Vurdith",
-      "repo": "Virgues-Roblox-Account-Manager",
+      "repo": "Valdor",
       "releaseType": "release"
     },
     "files": [
@@ -100,7 +100,7 @@
           ]
         }
       ],
-      "icon": "build/virgue-icon.png"
+      "icon": "build/valdor-icon.png"
     },
     "nsis": {
       "oneClick": false,
@@ -108,7 +108,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Virgue's Roblox Account Manager",
+      "shortcutName": "Valdor — Roblox Account Manager",
       "runAfterFinish": true
     }
   }

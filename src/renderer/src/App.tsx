@@ -38,14 +38,14 @@ import type {
   UpdateCategoryInput,
   PlanEntitlements,
   ProtectedSessionStatus,
-  VirgueAuthSession,
+  ValdorAuthSession,
   AppUpdateEvent,
   AutoHotkeySnapshot,
   AhkAiGenerationResult,
   AhkAiStatus,
 } from '@shared/types'
 import { getPlanEntitlements, getPlanFeatureError, getPlanLimitError } from '@shared/entitlements'
-import { registerAccountMenuElement, type VirgueAccountMenuElement } from '@shared/account-menu'
+import { registerAccountMenuElement, type ValdorAccountMenuElement } from '@shared/account-menu'
 import { Icon, type IconName } from './components/Icons'
 import AccountView from './AccountView'
 import { ThinkingOrb, type OrbState } from 'thinking-orbs'
@@ -63,13 +63,13 @@ const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; description: string
 ]
 
 const SETTINGS_TAB_CONTENT: Record<SettingsTab, { title: string; description: string }> = {
-  features: { title: 'Tune the workspace', description: 'Set how Virgue launches Roblox, watches clients, and applies client defaults.' },
+  features: { title: 'Tune the workspace', description: 'Set how Valdor launches Roblox, watches clients, and applies client defaults.' },
   privacy: { title: 'Keep integrations contained', description: 'Choose which local API routes are available and when another device may connect.' },
   billing: { title: 'Your plan and capacity', description: 'See what your current plan includes and how much of the workspace you are using.' },
 }
 
 const DEFAULT_ENTITLEMENTS = getPlanEntitlements()
-const PRICING_URL = 'https://virgues-roblox-account-manager.vercel.app/pricing.html'
+const PRICING_URL = 'https://valdors-roblox-account-manager.vercel.app/pricing.html'
 
 interface ActivityItem { id: number; message: string; detail: string; tone: ActivityTone }
 
@@ -243,7 +243,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(true)
   const [authLoading, setAuthLoading] = useState(true)
   const [error, setError] = useState('')
-  const [authSession, setAuthSession] = useState<VirgueAuthSession | null>(null)
+  const [authSession, setAuthSession] = useState<ValdorAuthSession | null>(null)
   const [authBusy, setAuthBusy] = useState(false)
   const [authError, setAuthError] = useState('')
   const [appUpdate, setAppUpdate] = useState<AppUpdateEvent | null>(null)
@@ -290,7 +290,7 @@ function App() {
   const loadSnapshot = async () => {
     setIsLoading(true)
     try {
-      const [nextSnapshot, nextSessions, maximized] = await Promise.all([window.virgue.app.getSnapshot(), window.virgue.sessions.getSnapshot(), window.virgue.window.isMaximized()])
+      const [nextSnapshot, nextSessions, maximized] = await Promise.all([window.valdor.app.getSnapshot(), window.valdor.sessions.getSnapshot(), window.valdor.window.isMaximized()])
       setSnapshot(nextSnapshot)
       setSessionSnapshot(nextSessions)
       setIsMaximized(maximized)
@@ -303,7 +303,7 @@ function App() {
   useEffect(() => { void loadSnapshot() }, [])
 
   useEffect(() => {
-    void window.virgue.auth.getSession().then((session) => {
+    void window.valdor.auth.getSession().then((session) => {
       setAuthSession(session)
       setAuthError('')
     }).catch((caught: unknown) => {
@@ -313,16 +313,16 @@ function App() {
   }, [])
 
   useEffect(() => {
-    const unsubscribe = window.virgue.updates.onEvent((event) => setAppUpdate(event))
-    void window.virgue.updates.check().catch(() => {
+    const unsubscribe = window.valdor.updates.onEvent((event) => setAppUpdate(event))
+    void window.valdor.updates.check().catch(() => {
       // The updater reports a user-safe error event when a packaged check fails.
     })
     return unsubscribe
   }, [])
 
   useEffect(() => {
-    const unsubscribe = window.virgue.sessions.onEvent(() => {
-      void window.virgue.sessions.getSnapshot().then(setSessionSnapshot).catch(() => {
+    const unsubscribe = window.valdor.sessions.onEvent(() => {
+      void window.valdor.sessions.getSnapshot().then(setSessionSnapshot).catch(() => {
         // Keep the last known session registry when a renderer refresh is unavailable.
       })
     })
@@ -331,7 +331,7 @@ function App() {
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      void Promise.all([window.virgue.app.getSnapshot(), window.virgue.sessions.getSnapshot()]).then(([nextSnapshot, nextSessions]) => {
+      void Promise.all([window.valdor.app.getSnapshot(), window.valdor.sessions.getSnapshot()]).then(([nextSnapshot, nextSessions]) => {
         setSnapshot(nextSnapshot)
         setSessionSnapshot(nextSessions)
         setSelectedId((current) => current && nextSnapshot.accounts.some((account) => account.id === current) ? current : nextSnapshot.accounts[0]?.id ?? null)
@@ -346,8 +346,8 @@ function App() {
   useEffect(() => {
     if (!authSession) return
     const refreshBilling = () => {
-      void window.virgue.billing.refresh()
-        .then(() => window.virgue.app.getSnapshot())
+      void window.valdor.billing.refresh()
+        .then(() => window.valdor.app.getSnapshot())
         .then(setSnapshot)
         .catch(() => {
           // Keep the last known entitlement when billing is temporarily unavailable.
@@ -369,7 +369,7 @@ function App() {
   const handleCopyText = async (text: string): Promise<boolean> => {
     if (!text) return false
     try {
-      const result = await window.virgue.app.copyText(text)
+      const result = await window.valdor.app.copyText(text)
       pushActivity('Copied to clipboard', result.message, 'positive')
       return true
     } catch (caught) {
@@ -382,9 +382,9 @@ function App() {
     setAuthBusy(true)
     setAuthError('')
     try {
-      const session = await window.virgue.auth.signIn(input)
+      const session = await window.valdor.auth.signIn(input)
       setAuthSession(session)
-      setSnapshot(await window.virgue.app.getSnapshot())
+      setSnapshot(await window.valdor.app.getSnapshot())
       setActiveView('accounts')
       setIsAccountMenuOpen(false)
       pushActivity(`Signed in as ${session.user.name}`, 'Account connected for subscriptions', 'positive')
@@ -399,9 +399,9 @@ function App() {
     setAuthBusy(true)
     setAuthError('')
     try {
-      const session = await window.virgue.auth.signUp(input)
+      const session = await window.valdor.auth.signUp(input)
       setAuthSession(session)
-      setSnapshot(await window.virgue.app.getSnapshot())
+      setSnapshot(await window.valdor.app.getSnapshot())
       setActiveView('accounts')
       setIsAccountMenuOpen(false)
       pushActivity('Account created', 'Account identity is ready for subscriptions', 'positive')
@@ -416,9 +416,9 @@ function App() {
     setAuthBusy(true)
     setAuthError('')
     try {
-      await window.virgue.auth.signOut()
+      await window.valdor.auth.signOut()
       setAuthSession(null)
-      setSnapshot(await window.virgue.app.getSnapshot())
+      setSnapshot(await window.valdor.app.getSnapshot())
       setActiveView('accounts')
       setIsAccountMenuOpen(false)
       pushActivity('Signed out of account', 'Sign in again to reopen the workspace', 'normal')
@@ -433,7 +433,7 @@ function App() {
     setError('')
     pushActivity('Roblox sign-in opened', 'Finish signing in in the separate Roblox window')
     try {
-      const account = await window.virgue.accounts.login(input)
+      const account = await window.valdor.accounts.login(input)
       setSnapshot((current) => current ? { ...current, accounts: current.accounts.some((item) => item.id === account.id) ? current.accounts.map((item) => item.id === account.id ? account : item) : [...current.accounts, account] } : current)
       setSelectedId(account.id)
       pushActivity(`Connected ${account.username}`, 'Roblox session stored with Windows secure storage', 'positive')
@@ -456,7 +456,7 @@ function App() {
   const handleRemoveAccount = async () => {
     if (!selectedAccount) return
     try {
-      await window.virgue.accounts.remove(selectedAccount.id)
+      await window.valdor.accounts.remove(selectedAccount.id)
       const nextAccounts = accounts.filter((account) => account.id !== selectedAccount.id)
       setSnapshot((current) => current ? { ...current, accounts: nextAccounts } : current)
       setSelectedId(nextAccounts[0]?.id ?? null)
@@ -467,7 +467,7 @@ function App() {
   const handleAccountUpdate = async (input: UpdateAccountInput) => {
     if (!selectedAccount) return
     try {
-      const updated = await window.virgue.accounts.update(selectedAccount.id, input)
+      const updated = await window.valdor.accounts.update(selectedAccount.id, input)
       updateAccount(updated)
       pushActivity(`Saved ${updated.alias || updated.username}`, 'Profile details updated', 'positive')
     } catch (caught) { setErrorFrom(caught, 'The profile could not be updated.') }
@@ -477,7 +477,7 @@ function App() {
     const account = accounts.find((candidate) => candidate.id === accountId)
     if (!account) return
     try {
-      const updated = await window.virgue.accounts.update(accountId, { favorite: !account.favorite })
+      const updated = await window.valdor.accounts.update(accountId, { favorite: !account.favorite })
       updateAccount(updated)
       pushActivity(updated.favorite ? `Favourited ${updated.alias || updated.username}` : `Unfavourited ${updated.alias || updated.username}`, updated.favorite ? 'Pinned above recently used profiles' : 'Removed from the priority shelf', 'positive')
     } catch (caught) { setErrorFrom(caught, 'The favourite could not be saved.') }
@@ -485,7 +485,7 @@ function App() {
 
   const handleAccountTransfer = async (input: AccountTransferInput): Promise<boolean> => {
     try {
-      const result = await window.virgue.accounts.transfer(input)
+      const result = await window.valdor.accounts.transfer(input)
       const transferred = result.transfers.map((transfer) => transfer.account)
       const bySource = new Map(result.transfers.map((transfer) => [transfer.sourceId, transfer.account]))
       setSnapshot((current) => {
@@ -505,14 +505,14 @@ function App() {
 
   const handleAccountUtility = async (input: AccountUtilityInput, redirectToActivity = true): Promise<AccountUtilityResult | null> => {
     try {
-      const result = await window.virgue.accounts.utility(input)
+      const result = await window.valdor.accounts.utility(input)
       pushActivity(result.message, 'Account utility completed', result.ok ? 'positive' : 'warning')
       // Utility actions can update persisted account identity, balances, or
       // credentials. Refresh the snapshot after every successful action so
       // the selected profile and the modal always reflect the backend result.
       if (result.ok) {
         if (redirectToActivity) await loadSnapshot()
-        else setSnapshot(await window.virgue.app.getSnapshot())
+        else setSnapshot(await window.valdor.app.getSnapshot())
       }
       if (redirectToActivity) setActiveView('activity')
       return result
@@ -529,14 +529,14 @@ function App() {
     launchingAccountRef.current = accountId
     setLaunchingAccountId(accountId)
     try {
-      const result = followUserId || vipLink || serverContext ? await window.virgue.servers.join({ accountId, placeId, jobId, vipLink, followUserId, gameId: serverContext?.gameId }) : await window.virgue.accounts.launch(accountId, { placeId, jobId })
+      const result = followUserId || vipLink || serverContext ? await window.valdor.servers.join({ accountId, placeId, jobId, vipLink, followUserId, gameId: serverContext?.gameId }) : await window.valdor.accounts.launch(accountId, { placeId, jobId })
       updateAccount(result.account)
       pushActivity(`Launched Roblox for ${result.account.alias || result.account.username}`, `Place ${result.account.placeId || placeId} opened with this account`, 'positive')
       return true
     } catch (caught) {
       const message = userFacingError(caught, 'Roblox could not be launched for this account.')
       if (/reconnect this profile/i.test(message)) {
-        try { setSnapshot(await window.virgue.app.getSnapshot()) } catch { /* Keep the current workspace if refresh also fails. */ }
+        try { setSnapshot(await window.valdor.app.getSnapshot()) } catch { /* Keep the current workspace if refresh also fails. */ }
       }
       setError(message)
       return false
@@ -554,20 +554,20 @@ function App() {
     if (launchingMany || targets.length === 0) return
     setLaunchingMany(true)
     try {
-      const results = await window.virgue.accounts.launchMany({ targets })
+      const results = await window.valdor.accounts.launchMany({ targets })
       results.forEach((result) => updateAccount(result.account))
       pushActivity(`Launched ${results.length} profiles`, snapshot?.settings.asyncJoin ? 'Async launching enabled' : `Launch delay ${snapshot?.settings.launchDelay ?? 0}s`, 'positive')
     } catch (caught) {
       const message = userFacingError(caught, 'The profiles could not be launched.')
       if (/reconnect this profile/i.test(message)) {
-        try { setSnapshot(await window.virgue.app.getSnapshot()) } catch { /* Keep the current workspace if refresh also fails. */ }
+        try { setSnapshot(await window.valdor.app.getSnapshot()) } catch { /* Keep the current workspace if refresh also fails. */ }
       }
       setError(message)
     } finally { setLaunchingMany(false) }
   }
   const handleImport = async () => {
     try {
-      const imported = await window.virgue.app.importData()
+      const imported = await window.valdor.app.importData()
       updateSnapshot(imported)
       setSelectedId(imported.accounts[0]?.id ?? null)
       pushActivity('Import complete', `${formatCount(imported.accounts.length, 'profile')} in the workspace`, 'positive')
@@ -576,7 +576,7 @@ function App() {
 
   const handleSetting = async (input: Partial<AppSettings>, announce = true) => {
     try {
-      const settings = await window.virgue.settings.update(input)
+      const settings = await window.valdor.settings.update(input)
       setSnapshot((current) => current ? { ...current, settings } : current)
       if (announce) pushActivity('Settings saved', 'Workspace preferences updated', 'positive')
     } catch (caught) { setErrorFrom(caught, 'Settings could not be saved.') }
@@ -584,7 +584,7 @@ function App() {
 
   const handleMultiInstanceSetting = async (enabled: boolean): Promise<MultiInstanceChangeResult> => {
     try {
-      const settings = await window.virgue.settings.update({ multiInstance: enabled })
+      const settings = await window.valdor.settings.update({ multiInstance: enabled })
       setSnapshot((current) => current ? { ...current, settings } : current)
       setError('')
       pushActivity('Settings saved', enabled ? 'Multiple Roblox sessions enabled' : 'Multiple Roblox sessions disabled', 'positive')
@@ -598,43 +598,43 @@ function App() {
 
   const handleStopSession = async (sessionId: string) => {
     try {
-      const stopped = await window.virgue.sessions.stop(sessionId)
-      setSessionSnapshot(await window.virgue.sessions.getSnapshot())
+      const stopped = await window.valdor.sessions.stop(sessionId)
+      setSessionSnapshot(await window.valdor.sessions.getSnapshot())
       if (stopped) pushActivity('Stop requested', 'The selected Roblox client is being closed safely', 'warning')
     } catch (caught) { setErrorFrom(caught, 'The Roblox session could not be stopped.') }
   }
 
   const handleCancelRecovery = async (jobId: string) => {
     try {
-      const cancelled = await window.virgue.sessions.cancelRecovery(jobId)
-      setSessionSnapshot(await window.virgue.sessions.getSnapshot())
+      const cancelled = await window.valdor.sessions.cancelRecovery(jobId)
+      setSessionSnapshot(await window.valdor.sessions.getSnapshot())
       if (cancelled) pushActivity('Recovery cancelled', 'The selected account will stay closed until you launch it again', 'warning')
     } catch (caught) { setErrorFrom(caught, 'The recovery retry could not be cancelled.') }
   }
 
   const handleControlSetting = async (input: Partial<ControlSettings>) => {
     try {
-      const control = await window.virgue.control.update(input)
+      const control = await window.valdor.control.update(input)
       setSnapshot((current) => current ? { ...current, control } : current)
       pushActivity('Control settings saved', `Control bridge ${control.port}`, 'positive')
     } catch (caught) { setErrorFrom(caught, 'Control settings could not be saved.') }
   }
 
-  const handleMaximize = async () => setIsMaximized(await window.virgue.window.toggleMaximize())
+  const handleMaximize = async () => setIsMaximized(await window.valdor.window.toggleMaximize())
 
   const handleUpdateDownload = async () => {
-    try { await window.virgue.updates.download() } catch (caught) { setAppUpdate({ state: 'error', message: caught instanceof Error ? caught.message : 'The update could not be downloaded.' }) }
+    try { await window.valdor.updates.download() } catch (caught) { setAppUpdate({ state: 'error', message: caught instanceof Error ? caught.message : 'The update could not be downloaded.' }) }
   }
 
   const handleUpdateInstall = async () => {
-    try { await window.virgue.updates.install() } catch (caught) { setAppUpdate({ state: 'error', message: caught instanceof Error ? caught.message : 'The update could not be installed.' }) }
+    try { await window.valdor.updates.install() } catch (caught) { setAppUpdate({ state: 'error', message: caught instanceof Error ? caught.message : 'The update could not be installed.' }) }
   }
 
   const handleUpdateCheck = async () => {
-    try { await window.virgue.updates.check() } catch (caught) { setAppUpdate({ state: 'error', message: caught instanceof Error ? caught.message : 'The update check failed.' }) }
+    try { await window.valdor.updates.check() } catch (caught) { setAppUpdate({ state: 'error', message: caught instanceof Error ? caught.message : 'The update check failed.' }) }
   }
 
-  if (isLoading || authLoading) return <div className="loading-screen"><div className="loading-mark"><img src="./virgue-icon.png" alt="Virgue's app icon" /></div><p>{authLoading ? 'Checking your account' : 'Opening the account workspace'}</p></div>
+  if (isLoading || authLoading) return <div className="loading-screen"><div className="loading-mark"><img src="./valdor-icon.png" alt="Valdor app icon" /></div><p>{authLoading ? 'Checking your account' : 'Opening the account workspace'}</p></div>
 
   const themeClass = `theme-${snapshot?.settings.theme ?? 'neo'}`
 
@@ -680,7 +680,7 @@ function App() {
         {error && <div className="error-banner" role="alert"><span>{error}</span><button type="button" aria-label="Dismiss error" onClick={() => setError('')}><Icon name="close" size={16} /></button></div>}
 
         <div className="view-stage" key={activeView}>
-          {activeView === 'accounts' && <AccountsView accounts={filteredAccounts} allAccounts={accounts} games={games} entitlements={entitlements} selectedAccount={selectedAccount} selectedGameId={selectedGameId} selectedCategoryId={selectedCategoryId} search={search} sortMode={sortMode} onSort={setSortMode} showCookieImport={showCookieImport} launchingMany={launchingMany} onSearch={setSearch} onSelect={setSelectedId} onResetScope={() => { setSelectedGameId('all'); setSelectedCategoryId('all') }} onAdd={handleAddAccount} onImport={handleImport} onCookieImport={() => setShowCookieImport(true)} onCookieClose={() => setShowCookieImport(false)} onRemove={handleRemoveAccount} onLaunch={handleLaunch} onLaunchMany={(targets) => void handleLaunchMany(targets)} onUpdate={handleAccountUpdate} onToggleFavorite={handleAccountFavoriteToggle} onTransfer={handleAccountTransfer} onOpenBrowser={async () => { if (!selectedAccount) return; try { await window.virgue.accounts.openBrowser(selectedAccount.id); pushActivity('Browser opened', 'Roblox opened in an isolated account window', 'positive') } catch (caught) { setErrorFrom(caught, 'Account browser failed.') } }} />}
+          {activeView === 'accounts' && <AccountsView accounts={filteredAccounts} allAccounts={accounts} games={games} entitlements={entitlements} selectedAccount={selectedAccount} selectedGameId={selectedGameId} selectedCategoryId={selectedCategoryId} search={search} sortMode={sortMode} onSort={setSortMode} showCookieImport={showCookieImport} launchingMany={launchingMany} onSearch={setSearch} onSelect={setSelectedId} onResetScope={() => { setSelectedGameId('all'); setSelectedCategoryId('all') }} onAdd={handleAddAccount} onImport={handleImport} onCookieImport={() => setShowCookieImport(true)} onCookieClose={() => setShowCookieImport(false)} onRemove={handleRemoveAccount} onLaunch={handleLaunch} onLaunchMany={(targets) => void handleLaunchMany(targets)} onUpdate={handleAccountUpdate} onToggleFavorite={handleAccountFavoriteToggle} onTransfer={handleAccountTransfer} onOpenBrowser={async () => { if (!selectedAccount) return; try { await window.valdor.accounts.openBrowser(selectedAccount.id); pushActivity('Browser opened', 'Roblox opened in an isolated account window', 'positive') } catch (caught) { setErrorFrom(caught, 'Account browser failed.') } }} />}
           {activeView === 'games' && <GamesView
             games={games}
             accounts={accounts}
@@ -688,33 +688,33 @@ function App() {
             selectedGame={selectedGame}
             onSelect={(id) => setSelectedGameId(id)}
             onUpdate={updateGame}
-            onCreate={async (input) => { try { const game = await window.virgue.games.create(input); setSnapshot((current) => current ? { ...current, games: [...current.games, game] } : current); setSelectedGameId(game.id); pushActivity('Created ' + game.name, 'Game collection ready for categories', 'positive') } catch (caught) { setErrorFrom(caught, 'Game could not be created.') } }}
-            onRemove={async (id) => { try { await window.virgue.games.remove(id); await loadSnapshot(); setSelectedGameId('all'); pushActivity('Game removed', 'Accounts were moved to the remaining collection', 'warning') } catch (caught) { setErrorFrom(caught, 'Game could not be removed.') } }}
-            onCategoryCreate={async (gameId, name) => { try { const game = await window.virgue.games.createCategory(gameId, { name }); updateGame(game); pushActivity('Added ' + name, 'New sub-category created', 'positive') } catch (caught) { setErrorFrom(caught, 'Category could not be created.') } }}
-            onCategoryUpdate={async (gameId, categoryId, input) => { try { const game = await window.virgue.games.updateCategory(gameId, categoryId, input); updateGame(game); pushActivity(input.name ? 'Renamed ' + input.name : 'Category icon updated', input.name ? 'Sub-category name updated' : 'Sub-category icon saved', 'positive'); return true } catch (caught) { setErrorFrom(caught, 'Category could not be updated.'); return false } }}
-            onCategoryRemove={async (gameId, categoryId) => { try { updateGame(await window.virgue.games.removeCategory(gameId, categoryId)); pushActivity('Category removed', 'Profiles were moved to the remaining category', 'warning') } catch (caught) { setErrorFrom(caught, 'Category could not be removed.') } }}
+            onCreate={async (input) => { try { const game = await window.valdor.games.create(input); setSnapshot((current) => current ? { ...current, games: [...current.games, game] } : current); setSelectedGameId(game.id); pushActivity('Created ' + game.name, 'Game collection ready for categories', 'positive') } catch (caught) { setErrorFrom(caught, 'Game could not be created.') } }}
+            onRemove={async (id) => { try { await window.valdor.games.remove(id); await loadSnapshot(); setSelectedGameId('all'); pushActivity('Game removed', 'Accounts were moved to the remaining collection', 'warning') } catch (caught) { setErrorFrom(caught, 'Game could not be removed.') } }}
+            onCategoryCreate={async (gameId, name) => { try { const game = await window.valdor.games.createCategory(gameId, { name }); updateGame(game); pushActivity('Added ' + name, 'New sub-category created', 'positive') } catch (caught) { setErrorFrom(caught, 'Category could not be created.') } }}
+            onCategoryUpdate={async (gameId, categoryId, input) => { try { const game = await window.valdor.games.updateCategory(gameId, categoryId, input); updateGame(game); pushActivity(input.name ? 'Renamed ' + input.name : 'Category icon updated', input.name ? 'Sub-category name updated' : 'Sub-category icon saved', 'positive'); return true } catch (caught) { setErrorFrom(caught, 'Category could not be updated.'); return false } }}
+            onCategoryRemove={async (gameId, categoryId) => { try { updateGame(await window.valdor.games.removeCategory(gameId, categoryId)); pushActivity('Category removed', 'Profiles were moved to the remaining category', 'warning') } catch (caught) { setErrorFrom(caught, 'Category could not be removed.') } }}
           />}
           {activeView === 'sessions' && <SessionsView accounts={accounts} games={games} sessions={sessionSnapshot} onSelect={(id) => { setSelectedId(id); setActiveView('accounts') }} onCopy={handleCopyText} onStop={handleStopSession} onCancelRecovery={handleCancelRecovery} />}
           {activeView === 'servers' && <ServersView selectedAccount={selectedAccount} recentGames={uniqueRecentGames(snapshot?.recentGames ?? [])} launching={launchingAccountId === selectedAccount?.id} onLaunch={(place, job, gameId) => handleLaunch(place, job, undefined, undefined, undefined, gameId ? { gameId } : undefined)} onCopy={handleCopyText} onActivity={pushActivity} onError={(message) => setError(message)} />}
-          {activeView === 'utilities' && <UtilitiesView selectedAccount={selectedAccount} onImport={handleImport} onExport={async () => { const path = await window.virgue.app.exportData(); if (path) pushActivity('Export complete', path, 'positive') }} onCookieImport={() => setShowCookieImport(true)} onOpenAccounts={() => setActiveView('accounts')} onAccountUtility={(input) => handleAccountUtility(input, false)} onError={(message) => setError(message)} onActivity={pushActivity} />}
+          {activeView === 'utilities' && <UtilitiesView selectedAccount={selectedAccount} onImport={handleImport} onExport={async () => { const path = await window.valdor.app.exportData(); if (path) pushActivity('Export complete', path, 'positive') }} onCookieImport={() => setShowCookieImport(true)} onOpenAccounts={() => setActiveView('accounts')} onAccountUtility={(input) => handleAccountUtility(input, false)} onError={(message) => setError(message)} onActivity={pushActivity} />}
           {activeView === 'control' && <ControlView accounts={snapshot?.controlAccounts ?? []} settings={snapshot?.settings ?? null} entitlements={entitlements} onSettings={handleSetting} onError={(message) => setError(message)} onActivity={pushActivity} />}
           {activeView === 'activity' && <AnalyticsView activity={activity} sessions={sessionSnapshot} accounts={accounts} games={games} onSelect={(id) => { setSelectedId(id); setActiveView('accounts') }} onCopy={handleCopyText} onRejoin={async (session) => { await handleLaunch(session.placeId, session.jobId || session.targetJobId, undefined, undefined, session.accountId) }} onAdd={handleAddAccount} onOpenAccounts={() => setActiveView('accounts')} />}
           {activeView === 'settings' && <SettingsView settings={snapshot?.settings ?? null} client={snapshot?.client} webApi={snapshot?.webApi} watcher={snapshot?.watcher} control={snapshot?.control} entitlements={entitlements} accountCount={uniqueWorkspaceAccounts.length} gameCount={games.length} onSettings={handleSetting} onClientUpdate={(client) => setSnapshot((current) => current ? { ...current, client } : current)} onWebApiUpdate={(webApi) => setSnapshot((current) => current ? { ...current, webApi } : current)} onControl={handleControlSetting} onMultiInstanceChange={handleMultiInstanceSetting} onError={(message) => setError(message)} onActivity={pushActivity} />}
         </div>
       </main>
 
-          <aside className="detail-panel">{activeView === 'accounts' && selectedAccount ? <AccountDetail key={selectedAccount.id} account={selectedAccount} games={games} launching={launchingAccountId === selectedAccount.id} onLogin={handleLogin} onLaunch={handleLaunch} onUpdate={handleAccountUpdate} onTransfer={handleAccountTransfer} onUtility={handleAccountUtility} onRemove={handleRemoveAccount} onOpenBrowser={async () => { try { await window.virgue.accounts.openBrowser(selectedAccount.id); pushActivity('Browser opened', 'Roblox opened in an isolated account window', 'positive') } catch (caught) { setErrorFrom(caught, 'Account browser could not be opened.') } }} onCopy={async (kind) => { try { const result = await window.virgue.accounts.copy(selectedAccount.id, kind); pushActivity('Copied to clipboard', result.message, 'positive'); return true } catch (caught) { setErrorFrom(caught, 'The value could not be copied.'); return false } }} /> : <ActivityPanel activity={activity} />}</aside>
+          <aside className="detail-panel">{activeView === 'accounts' && selectedAccount ? <AccountDetail key={selectedAccount.id} account={selectedAccount} games={games} launching={launchingAccountId === selectedAccount.id} onLogin={handleLogin} onLaunch={handleLaunch} onUpdate={handleAccountUpdate} onTransfer={handleAccountTransfer} onUtility={handleAccountUtility} onRemove={handleRemoveAccount} onOpenBrowser={async () => { try { await window.valdor.accounts.openBrowser(selectedAccount.id); pushActivity('Browser opened', 'Roblox opened in an isolated account window', 'positive') } catch (caught) { setErrorFrom(caught, 'Account browser could not be opened.') } }} onCopy={async (kind) => { try { const result = await window.valdor.accounts.copy(selectedAccount.id, kind); pushActivity('Copied to clipboard', result.message, 'positive'); return true } catch (caught) { setErrorFrom(caught, 'The value could not be copied.'); return false } }} /> : <ActivityPanel activity={activity} />}</aside>
     </div>
     <footer className="statusbar"><div className="statusbar-left"><span>{snapshot?.info.platform}</span><span className="status-separator" />v{snapshot?.info.version}</div><div className="statusbar-right"><span>{formatCount(uniqueWorkspaceAccounts.length, 'profile')}</span></div></footer>
   </div>
 }
 
 function BrandArea() {
-  return <div className="brand-area" aria-label="Virgue's Roblox Account Manager"><div className="brand-mark"><img src="./virgue-icon.png" alt="Virgue's app icon" /></div><div className="brand-copy"><span className="brand-name">Virgue's</span><span className="brand-product">Roblox Account Manager</span></div></div>
+  return <div className="brand-area" aria-label="Valdor — Roblox Account Manager"><div className="brand-mark"><img src="./valdor-icon.png" alt="Valdor app icon" /></div><div className="brand-copy"><span className="brand-name">Valdor</span><span className="brand-product">Roblox Account Manager</span></div></div>
 }
 
 function WindowControls({ isMaximized, onMaximize }: { isMaximized: boolean; onMaximize: () => void }) {
-  return <div className="window-controls" aria-label="Window controls"><button type="button" className="window-button" aria-label="Minimize" onClick={() => void window.virgue.window.minimize()}><Icon name="minus" size={16} /></button><button type="button" className="window-button" aria-label={isMaximized ? 'Restore' : 'Maximize'} onClick={onMaximize}><Icon name="square" size={14} /></button><button type="button" className="window-button close-window" aria-label="Close" onClick={() => void window.virgue.window.close()}><Icon name="close" size={16} /></button></div>
+  return <div className="window-controls" aria-label="Window controls"><button type="button" className="window-button" aria-label="Minimize" onClick={() => void window.valdor.window.minimize()}><Icon name="minus" size={16} /></button><button type="button" className="window-button" aria-label={isMaximized ? 'Restore' : 'Maximize'} onClick={onMaximize}><Icon name="square" size={14} /></button><button type="button" className="window-button close-window" aria-label="Close" onClick={() => void window.valdor.window.close()}><Icon name="close" size={16} /></button></div>
 }
 
 function UpdateBanner({ update, onDownload, onInstall, onCheck, onDismiss }: { update: AppUpdateEvent | null; onDownload: () => void; onInstall: () => void; onCheck: () => void; onDismiss: () => void }) {
@@ -732,8 +732,8 @@ function UpdateBanner({ update, onDownload, onInstall, onCheck, onDismiss }: { u
   return <section className={`update-banner ${isError ? 'is-error' : ''}`} role={isError ? 'alert' : 'status'} aria-live="polite"><div><strong>{heading}</strong><p>{message}</p></div><div className="update-banner-actions">{update.state === 'available' && <button type="button" className="primary-button" onClick={onDownload}>Download update</button>}{update.state === 'downloaded' && <button type="button" className="primary-button" onClick={onInstall}>Restart and install</button>}{update.state === 'downloading' && <span className="update-progress" aria-label={`${update.percent ?? 0}% downloaded`}>{Math.round(update.percent ?? 0)}%</span>}{isError && <button type="button" className="outline-button" onClick={onCheck}>Try again</button>}<button type="button" className="text-button" onClick={onDismiss}>Dismiss</button></div></section>
 }
 
-function AccountMenu({ session, busy, entitlements, avatarUrl, isOpen, onToggle, onOpenSettings, onSignOut }: { session: VirgueAuthSession; busy: boolean; entitlements: PlanEntitlements; avatarUrl: string; isOpen: boolean; onToggle: () => void; onOpenSettings: () => void; onSignOut: () => Promise<void> }) {
-  const menuRef = useRef<VirgueAccountMenuElement | null>(null)
+function AccountMenu({ session, busy, entitlements, avatarUrl, isOpen, onToggle, onOpenSettings, onSignOut }: { session: ValdorAuthSession; busy: boolean; entitlements: PlanEntitlements; avatarUrl: string; isOpen: boolean; onToggle: () => void; onOpenSettings: () => void; onSignOut: () => Promise<void> }) {
+  const menuRef = useRef<ValdorAccountMenuElement | null>(null)
 
   useEffect(() => {
     const menu = menuRef.current
@@ -763,7 +763,7 @@ function AccountMenu({ session, busy, entitlements, avatarUrl, isOpen, onToggle,
     menu.open = isOpen
   }, [avatarUrl, busy, entitlements.displayName, isOpen, session.user.email, session.user.name])
 
-  return createElement('virgue-account-menu', { ref: menuRef })
+  return createElement('valdor-account-menu', { ref: menuRef })
 }
 
 function ViewButton({ active, icon, label, onClick, count }: { active: boolean; icon: IconName; label: string; onClick: () => void; count?: number }) { return <button type="button" className={`view-button ${active ? 'active' : ''}`} aria-current={active ? 'page' : undefined} onClick={onClick}><Icon name={icon} size={16} /><span>{label}</span>{count !== undefined && count > 0 && <span className="nav-count">{count}</span>}</button> }
@@ -1095,7 +1095,7 @@ function CookieImportPanel({ games, onClose, onImported }: { games: GameCollecti
   const selectedGame = games.find((game) => game.id === gameId)
   const [status, setStatus] = useState('')
   const revealRef = useMotionReveal<HTMLElement>()
-  const submit = async (event: FormEvent) => { event.preventDefault(); setStatus('Importing securely…'); try { const result = await window.virgue.accounts.bulkImport({ text, format, gameId, categoryId }); setStatus(`${result.imported.length} imported${result.failed.length ? `, ${result.failed.length} failed` : ''}.`); onImported() } catch (caught) { setStatus(caught instanceof Error ? caught.message : 'Import failed.') } }
+  const submit = async (event: FormEvent) => { event.preventDefault(); setStatus('Importing securely…'); try { const result = await window.valdor.accounts.bulkImport({ text, format, gameId, categoryId }); setStatus(`${result.imported.length} imported${result.failed.length ? `, ${result.failed.length} failed` : ''}.`); onImported() } catch (caught) { setStatus(caught instanceof Error ? caught.message : 'Import failed.') } }
   return <section ref={revealRef} className="add-profile-panel credential-panel motion-reveal"><div className="add-profile-head"><div><span className="eyebrow">Advanced import</span><h2>Import an existing session</h2></div><button type="button" className="icon-button" aria-label="Close credential import" onClick={onClose}><Icon name="close" size={18} /></button></div><form onSubmit={(event) => void submit(event)}><div className="add-profile-fields"><label className="field-label">Format<select value={format} onChange={(event) => setFormat(event.target.value as typeof format)}><option value="cookie">One cookie per line</option><option value="username-cookie">Username | cookie</option><option value="username-password">Username:password</option></select></label><label className="field-label">Game<select value={gameId} onChange={(event) => { setGameId(event.target.value); setCategoryId(games.find((game) => game.id === event.target.value)?.categories[0]?.id ?? '') }}>{games.map((game) => <option value={game.id} key={game.id}>{game.name}</option>)}</select></label><label className="field-label">Category<select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>{(selectedGame?.categories ?? []).map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}</select></label></div><label className="field-label import-textarea">Import lines<textarea rows={5} value={text} onChange={(event) => setText(event.target.value)} placeholder={format === 'username-password' ? 'username:password' : '.ROBLOSECURITY value'} /></label><div className="add-profile-actions"><span><Icon name="shield" size={14} /> Stored with Windows secure storage.</span><div><span className="form-status">{status}</span><button type="submit" className="primary-button" disabled={!text.trim()}>Import existing session <Icon name="arrow" size={16} /></button></div></div></form></section>
 }
 
@@ -1123,7 +1123,7 @@ function GamesView({ games, accounts, entitlements, selectedGame: selectedGamePr
       if (busy || games.length === 0) return
       busy = true
       setRefreshing(true)
-      const updates = await Promise.all(games.map((game) => window.virgue.games.refreshInfo(game.id).catch(() => null)))
+      const updates = await Promise.all(games.map((game) => window.valdor.games.refreshInfo(game.id).catch(() => null)))
       if (!disposed) {
         updates.forEach((updated) => { if (updated) onUpdate(updated) })
         setRefreshing(false)
@@ -1156,7 +1156,7 @@ function GamesView({ games, accounts, entitlements, selectedGame: selectedGamePr
     if (saved) setCategoryIconOpenId(null)
   }
 
-  return <section ref={revealRef} className="games-view motion-reveal"><div className="game-layout"><div className="game-card-list">{games.map((game) => <button type="button" className={'game-card ' + (selectedGame?.id === game.id ? 'selected ' : '') + (game.favorite ? 'favorite' : '')} key={game.id} onClick={() => onSelect(game.id)}><div className="game-card-top"><span className="game-card-identity"><span className="game-thumbnail">{thumbnail(game, 17)}</span></span><span className="game-card-count">{countFor(game.id)} profiles</span></div><h2>{game.name}</h2><p>{game.description}</p>{game.creatorName && <span className="game-live-line">{game.creatorName} · {formatMetric(game.playing)} playing · {formatMetric(game.visits)} visits</span>}<div className="game-card-bottom"><span className="game-place-meta"><span>Place ID</span><code>{game.placeId || 'Not set'}</code></span>{game.favorite && <span className="game-favorite active"><Icon name="star" size={13} filled /><span>Favourited</span></span>}</div></button>)}<button type="button" className={'game-card add-game-card ' + (gameLimitReached ? 'limit-reached' : '')} disabled={gameLimitReached} title={gameLimitReached ? getPlanLimitError(entitlements, 'games') : undefined} onClick={() => setShowForm((current) => !current)}><Icon name={gameLimitReached ? 'shield' : 'plus'} size={22} /><strong>{gameLimitReached ? 'Game limit reached' : 'New game'}</strong><span>{gameLimitReached ? getPlanLimitError(entitlements, 'games') : 'Add a Roblox game ID and the live details will fill in automatically.'}</span></button></div><div className="game-editor">{showForm && <form className="inline-editor" onSubmit={(event) => { event.preventDefault(); onCreate({ name, placeId, description }); setName(''); setPlaceId(''); setDescription(''); setShowForm(false) }}><span className="eyebrow">New collection</span><h2>Make a game shelf</h2><label className="field-label">Name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Dungeon Quest Reborn" autoFocus /></label><label className="field-label">Game ID / Place ID<input value={placeId} onChange={(event) => setPlaceId(event.target.value)} placeholder="77649408247578" /></label><label className="field-label">Description<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} placeholder="What belongs in this game collection?" /></label><button type="submit" className="primary-button" disabled={!name.trim()}>Create game <Icon name="arrow" size={16} /></button></form>}{selectedGame ? <div className="game-editor-card"><div className="game-editor-header"><div className="game-editor-identity"><span className="game-thumbnail large">{thumbnail(selectedGame, 22)}</span><div><span className="eyebrow">Selected game</span><h2>{selectedGame.name}</h2><p className="game-editor-place"><Icon name="game" size={12} /><code>{selectedGame.placeId || 'Add a game ID to unlock live Roblox data.'}</code></p></div></div><button type="button" className={'icon-button favorite-toggle ' + (selectedGame.favorite ? 'active' : '')} title={selectedGame.favorite ? 'Remove game from favourites' : 'Add game to favourites'} aria-label={selectedGame.favorite ? 'Remove game from favorites' : 'Add game to favorites'} aria-pressed={selectedGame.favorite} onClick={() => void window.virgue.games.toggleFavorite(selectedGame.id).then(onUpdate)}><Icon name="star" size={18} filled={selectedGame.favorite} /></button></div><div className="game-live-panel"><div className="game-live-heading"><span><Icon name="globe" size={14} /> <strong>Live game data</strong></span><span className="game-live-updated">{refreshing ? 'Refreshing...' : selectedGame.infoUpdatedAt ? 'Updated ' + formatRelativeTime(selectedGame.infoUpdatedAt) : 'Waiting for first refresh'}</span></div><div className="game-metrics"><span><strong>{selectedGame.creatorName || '—'}</strong><small>Creator</small></span><span><strong>{formatMetric(selectedGame.playing)}</strong><small>Playing now</small></span><span><strong>{formatMetric(selectedGame.visits)}</strong><small>Visits</small></span></div></div><label className="field-label">Game name<input defaultValue={selectedGame.name} onBlur={(event) => void window.virgue.games.update(selectedGame.id, { name: event.target.value }).then(onUpdate)} /></label><label className="field-label">Game ID / Place ID<input defaultValue={selectedGame.placeId} onBlur={(event) => void window.virgue.games.update(selectedGame.id, { placeId: event.target.value }).then(onUpdate)} /></label><label className="field-label">Description<textarea defaultValue={selectedGame.description} rows={2} onBlur={(event) => void window.virgue.games.update(selectedGame.id, { description: event.target.value }).then(onUpdate)} /></label><div className="category-editor"><div className="panel-heading"><span>Sub-categories</span><span>{selectedGame.categories.length}</span></div>{selectedGame.categories.map((item) => <div className={'category-editor-row ' + (categoryIconOpenId === item.id ? 'icon-menu-open' : '')} key={item.id}>{editingCategoryId === item.id ? <div className="category-edit-control"><input value={editingCategoryName} onChange={(event) => setEditingCategoryName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void saveCategoryName() } if (event.key === 'Escape') cancelCategoryRename() }} autoFocus /><button type="button" className="icon-button mini-button" aria-label="Save category name" disabled={categorySaving || !editingCategoryName.trim()} onClick={() => void saveCategoryName()}><Icon name={categorySaving ? 'clock' : 'check'} size={13} /></button><button type="button" className="icon-button mini-button" aria-label="Cancel category rename" onClick={cancelCategoryRename}><Icon name="close" size={13} /></button></div> : <><CategoryIconPicker categoryId={item.name} icon={item.icon ?? 'folder'} open={categoryIconOpenId === item.id} busy={categorySaving} onToggle={() => setCategoryIconOpenId((current) => current === item.id ? null : item.id)} onPick={(icon) => void saveCategoryIcon(item.id, icon)} /><span className="category-name">{item.name}</span><span className="category-count">{countFor(selectedGame.id, item.id)}</span><button type="button" className="icon-button mini-button" aria-label={'Rename ' + item.name} onClick={() => beginCategoryRename(item.id, item.name)}><Icon name="edit" size={13} /></button>{selectedGame.categories.length > 1 && <button type="button" className="icon-button mini-button" aria-label={'Remove ' + item.name} onClick={() => onCategoryRemove(selectedGame.id, item.id)}><Icon name="trash" size={13} /></button>}</>}</div>)}<div className="category-add"><input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="New category, e.g. Fighters" /><button type="button" className="primary-button" disabled={!category.trim()} onClick={() => { onCategoryCreate(selectedGame.id, category); setCategory('') }}><Icon name="plus" size={15} /> Add</button></div></div><div className="game-editor-footer"><button type="button" className="text-button danger" onClick={() => onRemove(selectedGame.id)}><Icon name="trash" size={14} /> Remove game collection</button></div></div> : <div className="no-selection"><div className="empty-mark"><Icon name="game" size={22} /></div><h2>Choose a game</h2><p>Games replace the old flat groups. Categories keep storage, fighters, and other roles together.</p></div>}</div></div></section>
+  return <section ref={revealRef} className="games-view motion-reveal"><div className="game-layout"><div className="game-card-list">{games.map((game) => <button type="button" className={'game-card ' + (selectedGame?.id === game.id ? 'selected ' : '') + (game.favorite ? 'favorite' : '')} key={game.id} onClick={() => onSelect(game.id)}><div className="game-card-top"><span className="game-card-identity"><span className="game-thumbnail">{thumbnail(game, 17)}</span></span><span className="game-card-count">{countFor(game.id)} profiles</span></div><h2>{game.name}</h2><p>{game.description}</p>{game.creatorName && <span className="game-live-line">{game.creatorName} · {formatMetric(game.playing)} playing · {formatMetric(game.visits)} visits</span>}<div className="game-card-bottom"><span className="game-place-meta"><span>Place ID</span><code>{game.placeId || 'Not set'}</code></span>{game.favorite && <span className="game-favorite active"><Icon name="star" size={13} filled /><span>Favourited</span></span>}</div></button>)}<button type="button" className={'game-card add-game-card ' + (gameLimitReached ? 'limit-reached' : '')} disabled={gameLimitReached} title={gameLimitReached ? getPlanLimitError(entitlements, 'games') : undefined} onClick={() => setShowForm((current) => !current)}><Icon name={gameLimitReached ? 'shield' : 'plus'} size={22} /><strong>{gameLimitReached ? 'Game limit reached' : 'New game'}</strong><span>{gameLimitReached ? getPlanLimitError(entitlements, 'games') : 'Add a Roblox game ID and the live details will fill in automatically.'}</span></button></div><div className="game-editor">{showForm && <form className="inline-editor" onSubmit={(event) => { event.preventDefault(); onCreate({ name, placeId, description }); setName(''); setPlaceId(''); setDescription(''); setShowForm(false) }}><span className="eyebrow">New collection</span><h2>Make a game shelf</h2><label className="field-label">Name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Dungeon Quest Reborn" autoFocus /></label><label className="field-label">Game ID / Place ID<input value={placeId} onChange={(event) => setPlaceId(event.target.value)} placeholder="77649408247578" /></label><label className="field-label">Description<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} placeholder="What belongs in this game collection?" /></label><button type="submit" className="primary-button" disabled={!name.trim()}>Create game <Icon name="arrow" size={16} /></button></form>}{selectedGame ? <div className="game-editor-card"><div className="game-editor-header"><div className="game-editor-identity"><span className="game-thumbnail large">{thumbnail(selectedGame, 22)}</span><div><span className="eyebrow">Selected game</span><h2>{selectedGame.name}</h2><p className="game-editor-place"><Icon name="game" size={12} /><code>{selectedGame.placeId || 'Add a game ID to unlock live Roblox data.'}</code></p></div></div><button type="button" className={'icon-button favorite-toggle ' + (selectedGame.favorite ? 'active' : '')} title={selectedGame.favorite ? 'Remove game from favourites' : 'Add game to favourites'} aria-label={selectedGame.favorite ? 'Remove game from favorites' : 'Add game to favorites'} aria-pressed={selectedGame.favorite} onClick={() => void window.valdor.games.toggleFavorite(selectedGame.id).then(onUpdate)}><Icon name="star" size={18} filled={selectedGame.favorite} /></button></div><div className="game-live-panel"><div className="game-live-heading"><span><Icon name="globe" size={14} /> <strong>Live game data</strong></span><span className="game-live-updated">{refreshing ? 'Refreshing...' : selectedGame.infoUpdatedAt ? 'Updated ' + formatRelativeTime(selectedGame.infoUpdatedAt) : 'Waiting for first refresh'}</span></div><div className="game-metrics"><span><strong>{selectedGame.creatorName || '—'}</strong><small>Creator</small></span><span><strong>{formatMetric(selectedGame.playing)}</strong><small>Playing now</small></span><span><strong>{formatMetric(selectedGame.visits)}</strong><small>Visits</small></span></div></div><label className="field-label">Game name<input defaultValue={selectedGame.name} onBlur={(event) => void window.valdor.games.update(selectedGame.id, { name: event.target.value }).then(onUpdate)} /></label><label className="field-label">Game ID / Place ID<input defaultValue={selectedGame.placeId} onBlur={(event) => void window.valdor.games.update(selectedGame.id, { placeId: event.target.value }).then(onUpdate)} /></label><label className="field-label">Description<textarea defaultValue={selectedGame.description} rows={2} onBlur={(event) => void window.valdor.games.update(selectedGame.id, { description: event.target.value }).then(onUpdate)} /></label><div className="category-editor"><div className="panel-heading"><span>Sub-categories</span><span>{selectedGame.categories.length}</span></div>{selectedGame.categories.map((item) => <div className={'category-editor-row ' + (categoryIconOpenId === item.id ? 'icon-menu-open' : '')} key={item.id}>{editingCategoryId === item.id ? <div className="category-edit-control"><input value={editingCategoryName} onChange={(event) => setEditingCategoryName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void saveCategoryName() } if (event.key === 'Escape') cancelCategoryRename() }} autoFocus /><button type="button" className="icon-button mini-button" aria-label="Save category name" disabled={categorySaving || !editingCategoryName.trim()} onClick={() => void saveCategoryName()}><Icon name={categorySaving ? 'clock' : 'check'} size={13} /></button><button type="button" className="icon-button mini-button" aria-label="Cancel category rename" onClick={cancelCategoryRename}><Icon name="close" size={13} /></button></div> : <><CategoryIconPicker categoryId={item.name} icon={item.icon ?? 'folder'} open={categoryIconOpenId === item.id} busy={categorySaving} onToggle={() => setCategoryIconOpenId((current) => current === item.id ? null : item.id)} onPick={(icon) => void saveCategoryIcon(item.id, icon)} /><span className="category-name">{item.name}</span><span className="category-count">{countFor(selectedGame.id, item.id)}</span><button type="button" className="icon-button mini-button" aria-label={'Rename ' + item.name} onClick={() => beginCategoryRename(item.id, item.name)}><Icon name="edit" size={13} /></button>{selectedGame.categories.length > 1 && <button type="button" className="icon-button mini-button" aria-label={'Remove ' + item.name} onClick={() => onCategoryRemove(selectedGame.id, item.id)}><Icon name="trash" size={13} /></button>}</>}</div>)}<div className="category-add"><input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="New category, e.g. Fighters" /><button type="button" className="primary-button" disabled={!category.trim()} onClick={() => { onCategoryCreate(selectedGame.id, category); setCategory('') }}><Icon name="plus" size={15} /> Add</button></div></div><div className="game-editor-footer"><button type="button" className="text-button danger" onClick={() => onRemove(selectedGame.id)}><Icon name="trash" size={14} /> Remove game collection</button></div></div> : <div className="no-selection"><div className="empty-mark"><Icon name="game" size={22} /></div><h2>Choose a game</h2><p>Games replace the old flat groups. Categories keep storage, fighters, and other roles together.</p></div>}</div></div></section>
 }
 
 function sessionStatusLabel(session: SessionRecord): string {
@@ -1302,7 +1302,7 @@ function ServersView({ selectedAccount, recentGames, launching, onLaunch, onCopy
     setRegionLoading({})
     setRegionFilter('all')
     setFinderState({ presets: [], history: [], preferences: [], lastKnown: null })
-    if (selectedAccount?.gameId && selectedAccount.placeId) void window.virgue.servers.getFinderState({ gameId: selectedAccount.gameId, accountId: selectedAccount.id, placeId: selectedAccount.placeId }).then(setFinderState).catch(() => undefined)
+    if (selectedAccount?.gameId && selectedAccount.placeId) void window.valdor.servers.getFinderState({ gameId: selectedAccount.gameId, accountId: selectedAccount.id, placeId: selectedAccount.placeId }).then(setFinderState).catch(() => undefined)
   }, [selectedAccount?.id, selectedAccount?.placeId])
 
   const criteria = useMemo<ServerFilterCriteria>(() => ({
@@ -1326,13 +1326,13 @@ function ServersView({ selectedAccount, recentGames, launching, onLaunch, onCopy
 
   const refreshFinderState = async () => {
     if (!selectedAccount?.gameId) return
-    setFinderState(await window.virgue.servers.getFinderState({ gameId: selectedAccount.gameId, accountId: selectedAccount.id, placeId }))
+    setFinderState(await window.valdor.servers.getFinderState({ gameId: selectedAccount.gameId, accountId: selectedAccount.id, placeId }))
   }
 
   const resolveOneRegion = async (targetPlaceId: string, serverId: string, accountId: string, runId: number): Promise<ServerRecord | null> => {
     setRegionLoading((current) => ({ ...current, [serverId]: true }))
     try {
-      const updated = await window.virgue.servers.loadRegion(targetPlaceId, serverId, accountId)
+      const updated = await window.valdor.servers.loadRegion(targetPlaceId, serverId, accountId)
       if (regionRunRef.current === runId) setServers((current) => current.map((item) => item.id === updated.id ? updated : item))
       return updated.region && updated.region !== 'Unknown' ? updated : null
     } catch {
@@ -1369,7 +1369,7 @@ function ServersView({ selectedAccount, recentGames, launching, onLaunch, onCopy
     setLoading(true)
     setRegionLoading({})
     try {
-      const result = await window.virgue.servers.list({ placeId: cleanPlaceId, cursor: requestedCursor, limit: 50, gameId: selectedAccount?.gameId, accountId: selectedAccount?.id, filters: requestedCriteria })
+      const result = await window.valdor.servers.list({ placeId: cleanPlaceId, cursor: requestedCursor, limit: 50, gameId: selectedAccount?.gameId, accountId: selectedAccount?.id, filters: requestedCriteria })
       setServers(result.servers)
       setPageCursor(requestedCursor)
       setNextCursor(result.nextCursor ?? undefined)
@@ -1419,8 +1419,8 @@ function ServersView({ selectedAccount, recentGames, launching, onLaunch, onCopy
     if (!selectedAccount?.gameId) return
     try {
       const next = kind === 'favorite'
-        ? await window.virgue.servers.toggleFavorite({ placeId, gameId: selectedAccount.gameId, accountId: selectedAccount.id, serverId: server.id, value: !server.isFavorite })
-        : await window.virgue.servers.toggleAvoid({ placeId, gameId: selectedAccount.gameId, accountId: selectedAccount.id, serverId: server.id, value: !server.isAvoided })
+        ? await window.valdor.servers.toggleFavorite({ placeId, gameId: selectedAccount.gameId, accountId: selectedAccount.id, serverId: server.id, value: !server.isFavorite })
+        : await window.valdor.servers.toggleAvoid({ placeId, gameId: selectedAccount.gameId, accountId: selectedAccount.id, serverId: server.id, value: !server.isAvoided })
       setFinderState(next)
       setServers((current) => current.map((item) => item.id === server.id ? { ...item, isFavorite: next.preferences.find((item) => item.serverId === server.id)?.favorite ?? item.isFavorite, isAvoided: next.preferences.find((item) => item.serverId === server.id)?.avoid ?? item.isAvoided } : item))
     } catch (caught) { onError(caught instanceof Error ? caught.message : 'Server preference could not be saved.') }
@@ -1437,7 +1437,7 @@ function ServersView({ selectedAccount, recentGames, launching, onLaunch, onCopy
   const savePreset = async () => {
     if (!selectedAccount?.gameId || !presetName.trim()) { onError('Enter a name for this server preset.'); return }
     try {
-      const next = await window.virgue.servers.savePreset({ placeId, preset: { name: presetName, gameId: selectedAccount.gameId, accountId: selectedAccount.id, criteria } })
+      const next = await window.valdor.servers.savePreset({ placeId, preset: { name: presetName, gameId: selectedAccount.gameId, accountId: selectedAccount.id, criteria } })
       setFinderState(next); setPresetName(''); onActivity('Server preset saved', `${next.presets[0]?.name ?? 'Preset'} is ready for one-click use`, 'positive')
     } catch (caught) { onError(caught instanceof Error ? caught.message : 'Server preset could not be saved.') }
   }
@@ -1485,7 +1485,7 @@ function ServersView({ selectedAccount, recentGames, launching, onLaunch, onCopy
       <div className="server-filter-summary"><span>{servers.length > 0 ? filteredServers.length + ' of ' + servers.length + ' servers shown' : 'Refresh a place to load filter options'} · {sortMode === 'score' ? 'Scores reward lower ping, lower occupancy, freshness, known region, and favourites.' : 'Use Best Match for explainable ranking.'}</span><button type="button" className="outline-button compact-button server-apply-filters" disabled={!placeId.trim() || loading} onClick={() => void loadPage(undefined, 0, criteria)}><Icon name="refresh" size={13} /> Apply filters</button></div>
     </article>
 
-    <article className="server-finder-tools"><div><span className="eyebrow">Repeatable searches</span><h3>Saved presets</h3><p>{finderState.presets.length > 0 ? 'Apply a named filter for this game and account.' : 'Save a quiet, low-ping, or nearly-empty search for this game.'}</p></div><div className="server-preset-save"><input value={presetName} onChange={(event) => setPresetName(event.target.value)} placeholder="Preset name" aria-label="Server preset name" /><button type="button" className="outline-button compact-button" disabled={!presetName.trim() || !selectedAccount?.gameId} onClick={() => void savePreset()}>Save preset</button></div><div className="server-preset-list">{finderState.presets.map((preset) => <div className="server-preset" key={preset.id}><button type="button" className="text-button" onClick={() => applyPreset(preset)}>{preset.name}</button><small>{preset.criteria.sort === 'score' ? 'Best Match' : 'Saved filters'}</small><button type="button" className="text-button danger" onClick={() => void window.virgue.servers.deletePreset({ placeId, gameId: preset.gameId, presetId: preset.id, accountId: preset.accountId }).then(setFinderState).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Preset could not be deleted.'))}>Delete</button></div>)}</div></article>
+    <article className="server-finder-tools"><div><span className="eyebrow">Repeatable searches</span><h3>Saved presets</h3><p>{finderState.presets.length > 0 ? 'Apply a named filter for this game and account.' : 'Save a quiet, low-ping, or nearly-empty search for this game.'}</p></div><div className="server-preset-save"><input value={presetName} onChange={(event) => setPresetName(event.target.value)} placeholder="Preset name" aria-label="Server preset name" /><button type="button" className="outline-button compact-button" disabled={!presetName.trim() || !selectedAccount?.gameId} onClick={() => void savePreset()}>Save preset</button></div><div className="server-preset-list">{finderState.presets.map((preset) => <div className="server-preset" key={preset.id}><button type="button" className="text-button" onClick={() => applyPreset(preset)}>{preset.name}</button><small>{preset.criteria.sort === 'score' ? 'Best Match' : 'Saved filters'}</small><button type="button" className="text-button danger" onClick={() => void window.valdor.servers.deletePreset({ placeId, gameId: preset.gameId, presetId: preset.id, accountId: preset.accountId }).then(setFinderState).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Preset could not be deleted.'))}>Delete</button></div>)}</div></article>
 
     <div className="server-list-card"><div className="server-results-heading"><div><span className="eyebrow">Server results</span><h2>{servers.length > 0 ? `${filteredServers.length} matches` : 'Public servers'}</h2></div><span className="server-results-meta">{servers.length > 0 ? `${filteredServers.length} of ${servers.length} shown` : 'Refresh to load live servers'}</span></div><div className="server-list-head"><span>Job ID</span><span>Players</span><span>Ping</span><span>Region</span><span>Action</span></div>{servers.length > 0 && filteredServers.length > 0 ? filteredServers.map((server) => <div className={`server-row ${server.isAvoided ? 'avoided' : ''}`} key={server.id}><span className="server-id" title={server.id}>{server.score !== undefined && <strong className="server-score">{server.score}</strong>}{server.id.length > 18 ? server.id.slice(0, 18) + '...' : server.id}</span><span>{server.playing}/{server.maxPlayers}</span><span>{server.ping > 0 ? server.ping + ' ms' : 'Unknown'}</span><span className={regionLoading[server.id] ? 'server-region pending' : 'server-region'}>{regionLoading[server.id] ? 'Resolving...' : server.region === 'Unknown' ? 'Unknown' : server.region}</span><span className="server-actions"><button type="button" className="outline-button compact-button server-copy-button" title="Copy full Job ID" onClick={(event) => void copyServerJobId(event, server.id)}><Icon name={copiedJobId === server.id ? 'check' : 'copy'} size={13} /> {copiedJobId === server.id ? 'Copied' : 'Copy ID'}</button><button type="button" className={'text-button server-flag-button ' + (server.isFavorite ? 'active' : '')} onClick={() => void toggleServerPreference(server, 'favorite')} title={server.isFavorite ? 'Remove favourite' : 'Favourite server'}>★</button><button type="button" className={'text-button server-flag-button ' + (server.isAvoided ? 'active' : '')} onClick={() => void toggleServerPreference(server, 'avoid')} title={server.isAvoided ? 'Allow server again' : 'Avoid server'}>×</button><button type="button" className="primary-button compact-button join-server-button" disabled={!selectedAccount?.hasCredentials || launching} title={!selectedAccount ? 'Select an account in Accounts first' : !selectedAccount.hasCredentials ? 'Connect this account first' : launching ? 'Roblox is starting' : 'Join this server'} onClick={() => void joinTarget(server.id)}><Icon name={launching ? 'clock' : 'launch'} size={13} /> {launching ? 'Launching…' : 'Join server'}</button></span></div>) : <div className="empty-state compact-empty"><div className="empty-mark"><Icon name="server" size={24} /></div><h2>{servers.length > 0 ? 'No matching servers' : 'Refresh a place'}</h2><p>{servers.length > 0 ? 'Try another Job ID, region, player order, or ping range.' : 'Fetch public servers and join a specific Job ID as the selected account.'}</p></div>}</div>
 
@@ -1594,7 +1594,7 @@ function UtilitiesView({ selectedAccount, onImport, onExport, onCookieImport, on
     }
     setGameBusy(true)
     try {
-      setGames(await window.virgue.games.search(gameQuery.trim()))
+      setGames(await window.valdor.games.search(gameQuery.trim()))
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : 'Game search failed.')
     } finally {
@@ -1611,7 +1611,7 @@ function UtilitiesView({ selectedAccount, onImport, onExport, onCookieImport, on
     }
     setPlayerBusy(true)
     try {
-      const result = await window.virgue.tools.searchPlayer(playerQuery.trim())
+      const result = await window.valdor.tools.searchPlayer(playerQuery.trim())
       setPlayers(result.players)
       setOutfit(null)
       setOutfitPlayer('')
@@ -1631,7 +1631,7 @@ function UtilitiesView({ selectedAccount, onImport, onExport, onCookieImport, on
     }
     setUniverseBusy(true)
     try {
-      const result = await window.virgue.tools.getUniverse(placeId.trim())
+      const result = await window.valdor.tools.getUniverse(placeId.trim())
       setUniverse(result.universe)
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : 'Universe lookup failed.')
@@ -1643,7 +1643,7 @@ function UtilitiesView({ selectedAccount, onImport, onExport, onCookieImport, on
   const inspectOutfit = async (player: PlayerLookup) => {
     setOutfitBusy(true)
     try {
-      setOutfit(await window.virgue.tools.getOutfit(player.id))
+      setOutfit(await window.valdor.tools.getOutfit(player.id))
       setOutfitPlayer(player.username)
       onActivity('Outfit loaded', player.username, 'positive')
     } catch (caught) {
@@ -1680,8 +1680,8 @@ function UtilitiesView({ selectedAccount, onImport, onExport, onCookieImport, on
       <article className="utility-card utility-card-wide utility-session-card" aria-labelledby="utility-session-title">
         <div className="utility-card-heading"><span className="utility-icon coral"><Icon name="browser" size={19} /></span><div><span className="eyebrow">Sessions</span><h2 id="utility-session-title">Open or import a session</h2></div></div>
         <p>Use the isolated Roblox browser for a normal account session. Import is for a cookie or credential set you already have.</p>
-        <div className="utility-session-actions"><button type="button" className="outline-button" onClick={onCookieImport}><Icon name="import" size={16} /> Import existing session</button>{selectedAccount?.hasCredentials ? <div className="quick-login"><input value={quickCode} onChange={(event) => setQuickCode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Six-digit Quick Login" inputMode="numeric" maxLength={6} aria-label="Six-digit Quick Login" /><button type="button" className="text-button" disabled={quickCode.length !== 6} onClick={() => void window.virgue.accounts.quickLogin({ accountId: selectedAccount.id, code: quickCode }).then((result) => onActivity(result.message, 'Quick Login completed', 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Quick Login failed.'))}>Validate <Icon name="arrow" size={15} /></button></div> : <span className="utility-session-hint">Connect an account to validate Quick Login codes.</span>}</div>
-        <div className="utility-browser-form"><label className="field-label">Roblox URL<input value={browserUrl} onChange={(event) => setBrowserUrl(event.target.value)} placeholder="https://www.roblox.com/home" /></label><label className="field-label">Page script <span className="muted-label">Optional</span><textarea rows={2} value={browserScript} onChange={(event) => setBrowserScript(event.target.value)} placeholder="Runs after the Roblox page loads" /></label><button type="button" className="outline-button" disabled={!selectedAccount?.hasCredentials} title={!selectedAccount?.hasCredentials ? 'Connect an account first' : undefined} onClick={() => void window.virgue.accounts.openBrowser(selectedAccount!.id, { url: browserUrl, javascript: browserScript }).then((result) => onActivity('Custom browser opened', result.message, 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Custom browser failed.'))}><Icon name="browser" size={15} /> Open custom browser</button></div>
+        <div className="utility-session-actions"><button type="button" className="outline-button" onClick={onCookieImport}><Icon name="import" size={16} /> Import existing session</button>{selectedAccount?.hasCredentials ? <div className="quick-login"><input value={quickCode} onChange={(event) => setQuickCode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Six-digit Quick Login" inputMode="numeric" maxLength={6} aria-label="Six-digit Quick Login" /><button type="button" className="text-button" disabled={quickCode.length !== 6} onClick={() => void window.valdor.accounts.quickLogin({ accountId: selectedAccount.id, code: quickCode }).then((result) => onActivity(result.message, 'Quick Login completed', 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Quick Login failed.'))}>Validate <Icon name="arrow" size={15} /></button></div> : <span className="utility-session-hint">Connect an account to validate Quick Login codes.</span>}</div>
+        <div className="utility-browser-form"><label className="field-label">Roblox URL<input value={browserUrl} onChange={(event) => setBrowserUrl(event.target.value)} placeholder="https://www.roblox.com/home" /></label><label className="field-label">Page script <span className="muted-label">Optional</span><textarea rows={2} value={browserScript} onChange={(event) => setBrowserScript(event.target.value)} placeholder="Runs after the Roblox page loads" /></label><button type="button" className="outline-button" disabled={!selectedAccount?.hasCredentials} title={!selectedAccount?.hasCredentials ? 'Connect an account first' : undefined} onClick={() => void window.valdor.accounts.openBrowser(selectedAccount!.id, { url: browserUrl, javascript: browserScript }).then((result) => onActivity('Custom browser opened', result.message, 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Custom browser failed.'))}><Icon name="browser" size={15} /> Open custom browser</button></div>
       </article>
 
       <article className="utility-card utility-lookup-card" aria-labelledby="utility-games-title">
@@ -1709,7 +1709,7 @@ function UtilitiesView({ selectedAccount, onImport, onExport, onCookieImport, on
       <article className="utility-card utility-storage-card" aria-labelledby="utility-storage-title">
         <div className="utility-card-heading"><span className="utility-icon"><Icon name="archive" size={19} /></span><div><span className="eyebrow">Storage</span><h2 id="utility-storage-title">Move local data</h2></div></div>
         <p>Back up profile metadata, restore a workspace, or open the folder used by this installation.</p>
-        <div className="utility-button-stack"><button type="button" className="outline-button" onClick={onImport}><Icon name="import" size={16} /> Import JSON</button><button type="button" className="primary-button" onClick={onExport}><Icon name="download" size={16} /> Export JSON</button><button type="button" className="text-button" onClick={() => void window.virgue.app.openDataFolder().then(() => onActivity('Data folder opened', 'Local workspace files are ready to browse', 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Data folder could not be opened.'))}><Icon name="folder" size={15} /> Open data folder</button></div>
+        <div className="utility-button-stack"><button type="button" className="outline-button" onClick={onImport}><Icon name="import" size={16} /> Import JSON</button><button type="button" className="primary-button" onClick={onExport}><Icon name="download" size={16} /> Export JSON</button><button type="button" className="text-button" onClick={() => void window.valdor.app.openDataFolder().then(() => onActivity('Data folder opened', 'Local workspace files are ready to browse', 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Data folder could not be opened.'))}><Icon name="folder" size={15} /> Open data folder</button></div>
         <span className="utility-storage-note"><Icon name="shield" size={13} /> Data stays local until you choose to export it.</span>
       </article>
     </div>
@@ -1763,14 +1763,14 @@ function ControlView({ accounts, settings, entitlements, onSettings, onError, on
       if (!active || loadInFlight) return
       loadInFlight = true
       try {
-        const status = await window.virgue.protectedSession.getStatus()
+        const status = await window.valdor.protectedSession.getStatus()
         if (!active) return
         setProtectedStatus(status)
 
-        const ahkSnapshot = await window.virgue.autoHotkey.getSnapshot()
+        const ahkSnapshot = await window.valdor.autoHotkey.getSnapshot()
         if (!active) return
         setAutoHotkey(ahkSnapshot)
-        const aiStatus = await window.virgue.autoHotkey.getAiStatus()
+        const aiStatus = await window.valdor.autoHotkey.getAiStatus()
         if (!active) return
         setAhkAi(aiStatus)
 
@@ -1780,7 +1780,7 @@ function ControlView({ accounts, settings, entitlements, onSettings, onError, on
         }
 
         try {
-          const snapshot = await window.virgue.backgroundInput.getSessions()
+          const snapshot = await window.valdor.backgroundInput.getSessions()
           if (!active) return
           setBackground(snapshot)
           setLoadError('')
@@ -1805,12 +1805,12 @@ function ControlView({ accounts, settings, entitlements, onSettings, onError, on
     setSessionAction(action)
     try {
       const status = action === 'setup'
-        ? (await window.virgue.protectedSession.setup()).status
+        ? (await window.valdor.protectedSession.setup()).status
         : action === 'start'
-          ? await window.virgue.protectedSession.start()
-          : await window.virgue.protectedSession.stop()
+          ? await window.valdor.protectedSession.start()
+          : await window.valdor.protectedSession.stop()
       setProtectedStatus(status)
-      const snapshot = await window.virgue.backgroundInput.getSessions()
+      const snapshot = await window.valdor.backgroundInput.getSessions()
       setBackground(snapshot)
       onActivity(
         status.phase === 'ready' ? 'Protected Session ready' : 'Protected Session stopped',
@@ -1819,7 +1819,7 @@ function ControlView({ accounts, settings, entitlements, onSettings, onError, on
       )
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : 'Protected Session could not be updated.')
-      const status = await window.virgue.protectedSession.getStatus().catch(() => null)
+      const status = await window.valdor.protectedSession.getStatus().catch(() => null)
       if (status) setProtectedStatus(status)
     } finally {
       setSessionAction(null)
@@ -1829,9 +1829,9 @@ function ControlView({ accounts, settings, entitlements, onSettings, onError, on
   const protectMain = async (accountId: string) => {
     try {
       await onSettings({ backgroundInputMainAccountId: accountId }, false)
-      const snapshot = await window.virgue.backgroundInput.getSessions()
+      const snapshot = await window.valdor.backgroundInput.getSessions()
       setBackground(snapshot)
-      onActivity('Main account protected', snapshot.sessions.find((session) => session.accountId === accountId)?.accountLabel ?? 'Virgue will exclude this account from alt automation.', 'positive')
+      onActivity('Main account protected', snapshot.sessions.find((session) => session.accountId === accountId)?.accountLabel ?? 'Valdor will exclude this account from alt automation.', 'positive')
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : 'Main account protection could not be saved.')
     }
@@ -1850,13 +1850,13 @@ function ControlView({ accounts, settings, entitlements, onSettings, onError, on
     setAhkSelectionInitialized(true)
     setAhkSelectedId(null)
     setAhkName('New automation')
-    setAhkContent('#Requires AutoHotkey v2.0\n\n; This script runs inside Virgue\'s protected alt desktop.\n')
+    setAhkContent('#Requires AutoHotkey v2.0\n\n; This script runs inside Valdor\'s protected alt desktop.\n')
   }
 
   const saveAhkScript = async () => {
     setAhkBusy('save')
     try {
-      const snapshot = await window.virgue.autoHotkey.save({ id: ahkSelectedId ?? undefined, name: ahkName, content: ahkContent })
+      const snapshot = await window.valdor.autoHotkey.save({ id: ahkSelectedId ?? undefined, name: ahkName, content: ahkContent })
       setAutoHotkey(snapshot)
       const saved = snapshot.scripts.find((script) => script.id === ahkSelectedId) ?? snapshot.scripts.at(-1)
       if (saved) { setAhkSelectedId(saved.id); setAhkName(saved.name); setAhkContent(saved.content) }
@@ -1869,7 +1869,7 @@ function ControlView({ accounts, settings, entitlements, onSettings, onError, on
     if (!ahkSelectedId) return onError('Save the script before running it.')
     setAhkBusy('run')
     try {
-      const snapshot = await window.virgue.autoHotkey.run(ahkSelectedId)
+      const snapshot = await window.valdor.autoHotkey.run(ahkSelectedId)
       setAutoHotkey(snapshot)
       onActivity('AutoHotkey script running', ahkName, 'positive')
     } catch (caught) { onError(caught instanceof Error ? caught.message : 'The AutoHotkey script could not be started.') }
@@ -1880,7 +1880,7 @@ function ControlView({ accounts, settings, entitlements, onSettings, onError, on
     if (!ahkSelectedId) return
     setAhkBusy('stop')
     try {
-      const snapshot = await window.virgue.autoHotkey.stop(ahkSelectedId)
+      const snapshot = await window.valdor.autoHotkey.stop(ahkSelectedId)
       setAutoHotkey(snapshot)
       onActivity('AutoHotkey script stopped', ahkName, 'normal')
     } catch (caught) { onError(caught instanceof Error ? caught.message : 'The AutoHotkey script could not be stopped.') }
@@ -1891,7 +1891,7 @@ function ControlView({ accounts, settings, entitlements, onSettings, onError, on
     if (!ahkSelectedId || !window.confirm(`Delete “${ahkName}”?`)) return
     setAhkBusy('remove')
     try {
-      const snapshot = await window.virgue.autoHotkey.remove(ahkSelectedId)
+      const snapshot = await window.valdor.autoHotkey.remove(ahkSelectedId)
       setAutoHotkey(snapshot)
       newAhkScript()
       onActivity('AutoHotkey script deleted', ahkName, 'normal')
@@ -1901,7 +1901,7 @@ function ControlView({ accounts, settings, entitlements, onSettings, onError, on
 
   const downloadAhkAi = async () => {
     setAhkAiError('')
-    try { setAhkAi(await window.virgue.autoHotkey.downloadAiModel()) }
+    try { setAhkAi(await window.valdor.autoHotkey.downloadAiModel()) }
     catch (caught) { setAhkAiError(caught instanceof Error ? caught.message : 'The local AI model could not be downloaded.') }
   }
 
@@ -1910,14 +1910,14 @@ function ControlView({ accounts, settings, entitlements, onSettings, onError, on
     setAhkAiResult(null)
     setAhkAi((current) => current ? { ...current, generating: true, runtimeActive: true, generationStage: 'loading-model', generationDetail: 'Starting local generation.', generationTrace: [] } : current)
     try {
-      const result = await window.virgue.autoHotkey.generateAiScript(ahkAiPrompt)
+      const result = await window.valdor.autoHotkey.generateAiScript(ahkAiPrompt)
       setAhkAiResult(result)
-      setAhkAi(await window.virgue.autoHotkey.getAiStatus())
+      setAhkAi(await window.valdor.autoHotkey.getAiStatus())
     } catch (caught) { setAhkAiError(caught instanceof Error ? caught.message : 'The local assistant could not generate a script.') }
   }
 
   const cancelAhkAi = async () => {
-    setAhkAi(await window.virgue.autoHotkey.cancelAi())
+    setAhkAi(await window.valdor.autoHotkey.cancelAi())
     setAhkAiError('The local AI request was cancelled.')
   }
 
@@ -1938,7 +1938,7 @@ function ControlView({ accounts, settings, entitlements, onSettings, onError, on
   const aiStage = ahkAi?.generationStage ?? 'loading-model'
   const aiStageOrder: NonNullable<AhkAiStatus['generationStage']>[] = ['loading-model', 'reading-request', 'planning-script', 'writing-script', 'validating', 'unloading']
   const aiStageDisplay: Record<NonNullable<AhkAiStatus['generationStage']>, { label: string; detail: string; summary: string; orb: OrbState; variants: string[] }> = {
-    'loading-model': { label: 'Waking the local model', detail: 'Loading only what this request needs.', summary: 'The assistant stays off until you ask it to generate.', orb: 'connecting', variants: ['Opening a short-lived local worker.', 'Allocating the selected model for this request.', 'Keeping the rest of Virgue idle.'] },
+    'loading-model': { label: 'Waking the local model', detail: 'Loading only what this request needs.', summary: 'The assistant stays off until you ask it to generate.', orb: 'connecting', variants: ['Opening a short-lived local worker.', 'Allocating the selected model for this request.', 'Keeping the rest of Valdor idle.'] },
     'reading-request': { label: 'Reading your brief', detail: 'Identifying triggers, targets, and timing.', summary: 'Pulling the action, target window, and constraints from your description.', orb: 'searching', variants: ['Finding the action you want automated.', 'Separating hotkeys from repeated actions.', 'Checking which app should receive the input.'] },
     'planning-script': { label: 'Planning the flow', detail: 'Choosing hotkeys, timers, and window guards.', summary: 'Turning the request into a small, reviewable AutoHotkey v2 plan.', orb: 'composing', variants: ['Choosing a clear trigger and stop path.', 'Adding a Roblox window guard where it fits.', 'Keeping the script focused on the requested behavior.'] },
     'writing-script': { label: 'Writing AutoHotkey v2', detail: 'Composing the script around those constraints.', summary: 'Generating runnable code with the bundled AutoHotkey v2 guidance.', orb: 'weaving', variants: ['Composing the functions and hotkeys.', 'Writing the timing logic in v2 syntax.', 'Keeping the generated file ready for review.'] },
@@ -1953,10 +1953,10 @@ function ControlView({ accounts, settings, entitlements, onSettings, onError, on
 
   return <section ref={revealRef} className="control-view motion-reveal">
     <div className="control-header background-control-header">
-      <div><span className="eyebrow">Protected controls</span><h2>Play on your main. Automate your alts.</h2><p>Virgue opens alt clients on a separate Windows desktop where your AutoHotkey scripts can run. Your main game keeps focus on this desktop.</p></div>
+      <div><span className="eyebrow">Protected controls</span><h2>Play on your main. Automate your alts.</h2><p>Valdor opens alt clients on a separate Windows desktop where your AutoHotkey scripts can run. Your main game keeps focus on this desktop.</p></div>
     </div>
 
-    {!proAccess ? <div className="background-upgrade-card"><div><strong>Protected Session is included with Virgue Pro</strong><p>Keep alt automation on a separate Windows desktop while your main game remains uninterrupted.</p></div><button type="button" className="primary-button" onClick={() => void window.virgue.app.openExternal(PRICING_URL)}>View Pro <Icon name="arrow" size={15} /></button></div> : <>
+    {!proAccess ? <div className="background-upgrade-card"><div><strong>Protected Session is included with Valdor Pro</strong><p>Keep alt automation on a separate Windows desktop while your main game remains uninterrupted.</p></div><button type="button" className="primary-button" onClick={() => void window.valdor.app.openExternal(PRICING_URL)}>View Pro <Icon name="arrow" size={15} /></button></div> : <>
       {!protectedStatus || protectedStatus.phase !== 'ready' ? <div className={`protected-session-gate ${protectedStatus?.phase === 'error' || protectedStatus?.phase === 'unavailable' ? 'warning' : ''}`}>
         <span className="protected-session-gate-icon"><Icon name={protectedStatus?.phase === 'error' || protectedStatus?.phase === 'unavailable' ? 'warning' : 'shield'} size={22} /></span>
         <div><strong>{protectedStatus?.phase === 'starting' ? 'Opening your alt desktop…' : protectedStatus?.phase === 'error' ? 'Protected Session needs attention' : protectedStatus?.phase === 'unavailable' ? 'Protected Session is unavailable' : protectedStatus?.configured ? 'Your alt desktop is ready to start' : 'Set up once. Use it every day.'}</strong><p>{protectedStatus?.message ?? 'Checking this Windows installation…'}</p></div>
@@ -1964,7 +1964,7 @@ function ControlView({ accounts, settings, entitlements, onSettings, onError, on
       </div> : <div className="protected-session-live">
         <span className="background-protection-icon"><Icon name="shield" size={19} /></span>
         <div><strong>Alt desktop active</strong><p>Windows session {protectedStatus.childSessionId ?? 'ready'} is isolated from the desktop where you play. Open it when an alt needs hands-on interaction.</p></div>
-        <div className="protected-session-live-actions"><button type="button" className="outline-button compact-button" onClick={() => void window.virgue.protectedSession.showViewer().then(() => onActivity('Alt desktop shown', 'The protected desktop is now visible for hands-on interaction.', 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'The child-session viewer could not be shown.'))}><Icon name="browser" size={14} /> Show alt desktop</button><button type="button" className="text-button danger" disabled={sessionAction !== null} onClick={() => void runSessionAction('stop')}><Icon name="trash" size={14} /> {sessionAction === 'stop' ? 'Stopping…' : 'Stop session'}</button></div>
+        <div className="protected-session-live-actions"><button type="button" className="outline-button compact-button" onClick={() => void window.valdor.protectedSession.showViewer().then(() => onActivity('Alt desktop shown', 'The protected desktop is now visible for hands-on interaction.', 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'The child-session viewer could not be shown.'))}><Icon name="browser" size={14} /> Show alt desktop</button><button type="button" className="text-button danger" disabled={sessionAction !== null} onClick={() => void runSessionAction('stop')}><Icon name="trash" size={14} /> {sessionAction === 'stop' ? 'Stopping…' : 'Stop session'}</button></div>
       </div>}
 
       <div className={`background-protection-bar ${background?.protectedAccountId ? 'protected' : ''}`}>
@@ -2001,22 +2001,22 @@ function ControlView({ accounts, settings, entitlements, onSettings, onError, on
         {ahkAi && <section className="ahk-ai-panel">
           <div className="ahk-ai-heading"><div><span className="eyebrow">Local AHK assistant</span><strong>Describe it. Generate it. Review it.</strong><p>Runs privately on this PC only when you press Generate, then fully exits and releases its memory.</p></div></div>
           <div className="ahk-ai-model"><div><strong>{ahkAi.modelName}</strong><span>{ahkAi.totalRamGb} GB system RAM · automatically selected {ahkAi.modelTier === 'standard' ? 'for 8 GB+' : 'for under 8 GB'}</span></div><span>{Math.round(ahkAi.modelSizeBytes / 1024 / 1024)} MB</span></div>
-          {!ahkAi.installed ? <div className="ahk-ai-download"><div><strong>{ahkAi.downloading ? `Downloading… ${ahkAi.progressPercent}%` : 'Download once, use offline'}</strong><p>The model is stored locally. It never starts with Windows or Virgue.</p>{ahkAi.downloading && <div className="ahk-ai-progress"><i style={{ width: `${ahkAi.progressPercent}%` }} /></div>}</div><button type="button" className="primary-button" disabled={ahkAi.downloading} onClick={() => void downloadAhkAi()}>{ahkAi.downloading ? 'Downloading…' : 'Download local model'}</button>{ahkAi.downloading && <button type="button" className="text-button danger" onClick={() => void cancelAhkAi()}>Cancel</button>}</div> : <>
+          {!ahkAi.installed ? <div className="ahk-ai-download"><div><strong>{ahkAi.downloading ? `Downloading… ${ahkAi.progressPercent}%` : 'Download once, use offline'}</strong><p>The model is stored locally. It never starts with Windows or Valdor.</p>{ahkAi.downloading && <div className="ahk-ai-progress"><i style={{ width: `${ahkAi.progressPercent}%` }} /></div>}</div><button type="button" className="primary-button" disabled={ahkAi.downloading} onClick={() => void downloadAhkAi()}>{ahkAi.downloading ? 'Downloading…' : 'Download local model'}</button>{ahkAi.downloading && <button type="button" className="text-button danger" onClick={() => void cancelAhkAi()}>Cancel</button>}</div> : <>
             <label className="field-label ahk-ai-request">What should the script do?<textarea value={ahkAiPrompt} maxLength={4000} placeholder="Example: While Roblox is active, press E every 52.5 seconds. Add Ctrl+Alt+P to pause and show a small status message." onChange={(event) => setAhkAiPrompt(event.target.value)} /></label>
              {ahkAi.generating && <div className="ahk-thinking-stack">
-               <div className="ahk-thinking-bubble" data-stage={aiStage} role="status" aria-live="polite"><span className="ahk-thinking-orb"><ThinkingOrb state={aiStageCopy.orb} size={64} theme="light" aria-label={aiStageCopy.label} /></span><div><span>Virgue is thinking · {aiStageIndex + 1}/{aiStageOrder.length}</span><strong>{aiStageCopy.label}</strong><p key={aiThinkingCopy}>{aiThinkingCopy}</p></div><i aria-hidden="true" /></div>
+               <div className="ahk-thinking-bubble" data-stage={aiStage} role="status" aria-live="polite"><span className="ahk-thinking-orb"><ThinkingOrb state={aiStageCopy.orb} size={64} theme="light" aria-label={aiStageCopy.label} /></span><div><span>Valdor is thinking · {aiStageIndex + 1}/{aiStageOrder.length}</span><strong>{aiStageCopy.label}</strong><p key={aiThinkingCopy}>{aiThinkingCopy}</p></div><i aria-hidden="true" /></div>
                <div className="ahk-thinking-trace">
                  <div className="ahk-thinking-trace-heading"><div><span className="eyebrow">Generation trace</span><strong>What the assistant is doing</strong></div><span>{aiStageIndex + 1} of {aiStageOrder.length}</span></div>
                  <div className="ahk-thinking-steps">{aiStageOrder.map((stage, index) => <div className={`ahk-thinking-step ${index < aiStageIndex ? 'complete' : ''} ${stage === aiStage ? 'current' : ''}`} key={stage}><span className="ahk-thinking-step-index">{index < aiStageIndex ? <Icon name="check" size={11} /> : index + 1}</span><span><strong>{aiStageDisplay[stage].label}</strong><small>{aiStageDisplay[stage].summary}</small></span></div>)}</div>
                  {ahkAi.generationTrace && ahkAi.generationTrace.length > 0 && <div className="ahk-thinking-notes" aria-label="Live planning notes">{ahkAi.generationTrace.map((note) => <p key={note}>{note}</p>)}</div>}
                </div>
              </div>}
-            <div className="ahk-ai-actions">{ahkAi.generating ? <button type="button" className="outline-button" onClick={() => void cancelAhkAi()}>Cancel generation</button> : <button type="button" className="primary-button" disabled={!ahkAiPrompt.trim()} onClick={() => void generateAhkScript()}><Icon name="spark" size={15} /> Generate locally</button>}<button type="button" className="text-button danger" disabled={ahkAi.generating} onClick={() => void window.virgue.autoHotkey.removeAiModel().then(setAhkAi).catch((caught: unknown) => setAhkAiError(caught instanceof Error ? caught.message : 'The model could not be removed.'))}><Icon name="trash" size={14} /> Remove model</button></div>
+            <div className="ahk-ai-actions">{ahkAi.generating ? <button type="button" className="outline-button" onClick={() => void cancelAhkAi()}>Cancel generation</button> : <button type="button" className="primary-button" disabled={!ahkAiPrompt.trim()} onClick={() => void generateAhkScript()}><Icon name="spark" size={15} /> Generate locally</button>}<button type="button" className="text-button danger" disabled={ahkAi.generating} onClick={() => void window.valdor.autoHotkey.removeAiModel().then(setAhkAi).catch((caught: unknown) => setAhkAiError(caught instanceof Error ? caught.message : 'The model could not be removed.'))}><Icon name="trash" size={14} /> Remove model</button></div>
           </>}
           {ahkAiError && <div className="background-inline-error" role="alert"><Icon name="warning" size={15} /> {ahkAiError}</div>}
            {ahkAiResult && <AhkAiResultCard result={ahkAiResult} validationFailed={ahkValidationFailed} onReview={useGeneratedAhk} />}
         </section>}
-        {!autoHotkey?.installed ? <div className="ahk-install"><div><strong>Install AutoHotkey v2 to unlock custom automation</strong><p>Create full keyboard, mouse, timing, and window-control scripts that run inside the protected alt desktop.</p></div><button type="button" className="primary-button" onClick={() => void window.virgue.autoHotkey.openDownload()}>Download AutoHotkey <Icon name="arrow" size={15} /></button></div> : <div className="ahk-workspace">
+        {!autoHotkey?.installed ? <div className="ahk-install"><div><strong>Install AutoHotkey v2 to unlock custom automation</strong><p>Create full keyboard, mouse, timing, and window-control scripts that run inside the protected alt desktop.</p></div><button type="button" className="primary-button" onClick={() => void window.valdor.autoHotkey.openDownload()}>Download AutoHotkey <Icon name="arrow" size={15} /></button></div> : <div className="ahk-workspace">
           <aside className="ahk-script-list"><button type="button" className="outline-button" onClick={newAhkScript}><Icon name="plus" size={14} /> New script</button>{autoHotkey.scripts.length === 0 ? <p>No saved scripts yet.</p> : autoHotkey.scripts.map((script) => <button type="button" key={script.id} className={`ahk-script-row ${script.id === ahkSelectedId ? 'selected' : ''}`} onClick={() => selectAhkScript(script.id)}><span><strong>{script.name}</strong><small>{script.running ? 'Running in alt session' : `Edited ${formatRelativeTime(script.updatedAt)}`}</small></span>{script.running && <i>Live</i>}</button>)}</aside>
           <div className="ahk-editor" ref={ahkEditorRef}><label className="field-label">Script name<input value={ahkName} maxLength={60} onChange={(event) => setAhkName(event.target.value)} /></label><label className="field-label">AutoHotkey v2 code<textarea spellCheck={false} value={ahkContent} onChange={(event) => setAhkContent(event.target.value)} /></label><div className="ahk-editor-actions"><button type="button" className="outline-button" disabled={ahkBusy !== null} onClick={() => void saveAhkScript()}>{ahkBusy === 'save' ? 'Saving…' : 'Save script'}</button>{ahkSelectedId && autoHotkey.scripts.find((script) => script.id === ahkSelectedId)?.running ? <button type="button" className="primary-button" disabled={ahkBusy !== null} onClick={() => void stopAhkScript()}><Icon name="square" size={14} /> {ahkBusy === 'stop' ? 'Stopping…' : 'Stop'}</button> : <button type="button" className="primary-button" disabled={ahkBusy !== null || !sessionReady || !ahkSelectedId} onClick={() => void runAhkScript()}><Icon name="play" size={14} /> {ahkBusy === 'run' ? 'Starting…' : 'Run in alt session'}</button>}{ahkSelectedId && <button type="button" className="text-button danger" disabled={ahkBusy !== null} onClick={() => void removeAhkScript()}><Icon name="trash" size={14} /> Delete</button>}</div><p>Scripts run only while Protected Session is active. Review scripts before running them; AutoHotkey can control apps and files available to your Windows account.</p></div>
         </div>}
@@ -2106,7 +2106,7 @@ function SettingsView({ settings, client, webApi, watcher, control, entitlements
   const revealRef = useMotionReveal<HTMLElement>()
   const activeTabContent = SETTINGS_TAB_CONTENT[activeTab]
   const toggle = (key: 'asyncJoin' | 'runOnStartup' | 'autoCookieRefresh' | 'showPresence', value: boolean) => onSettings({ [key]: value })
-  const updateWatcher = (input: WatcherUpdateInput) => void window.virgue.watcher.update(input).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Watcher settings could not be saved.'))
+  const updateWatcher = (input: WatcherUpdateInput) => void window.valdor.watcher.update(input).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Watcher settings could not be saved.'))
   const changeMultiInstance = async (value: boolean) => {
     setMultiInstanceIssue(null)
     const result = await onMultiInstanceChange(value)
@@ -2115,7 +2115,7 @@ function SettingsView({ settings, client, webApi, watcher, control, entitlements
   const closeRobloxAndEnable = async () => {
     setClosingRoblox(true)
     try {
-      const processResult = await window.virgue.accounts.killAllRoblox()
+      const processResult = await window.valdor.accounts.killAllRoblox()
       onActivity('Roblox Player clients checked', processResult.message, processResult.closed > 0 ? 'warning' : 'normal')
       const result = await onMultiInstanceChange(true)
       setMultiInstanceIssue(result.ok ? null : result.requiresClientShutdown ? 'clients' : 'guard')
@@ -2179,7 +2179,7 @@ function SettingsView({ settings, client, webApi, watcher, control, entitlements
               <div className="settings-section-intro"><strong>Detection thresholds</strong><span>Tell the watcher what a healthy Roblox window looks like.</span></div>
               <SettingField label="Expected title" description="Title text the watcher uses when deciding whether a Roblox window is expected."><input value={watcher?.expectedWindowTitle ?? 'Roblox'} onChange={(event) => updateWatcher({ expectedWindowTitle: event.target.value })} /></SettingField>
               <SettingField label="Memory floor" description="Minimum Roblox process memory in megabytes before the low-memory rule can close it." suffix="MB"><input type="number" min="32" max="4096" value={watcher?.memoryLowMb ?? 200} onChange={(event) => updateWatcher({ memoryLowMb: Number(event.target.value) })} /></SettingField>
-              <button type="button" className="outline-button settings-check-button" onClick={() => void window.virgue.watcher.check().then((result) => onActivity('Watcher checked', result.message, result.closed > 0 ? 'warning' : 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Watcher failed.'))}><Icon name="refresh" size={15} /> Check now</button>
+              <button type="button" className="outline-button settings-check-button" onClick={() => void window.valdor.watcher.check().then((result) => onActivity('Watcher checked', result.message, result.closed > 0 ? 'warning' : 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Watcher failed.'))}><Icon name="refresh" size={15} /> Check now</button>
             </div>
           </article>
 
@@ -2201,14 +2201,14 @@ function WebApiSettingsCard({ webApi, isolatedWorkerAllowed, onUpdate, onError, 
   const [password, setPassword] = useState('')
   const updateWebApi = async (input: WebApiUpdateInput) => {
     try {
-      onUpdate(await window.virgue.webApi.update(input))
+      onUpdate(await window.valdor.webApi.update(input))
       onError('')
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : 'Web API settings could not be saved.')
     }
   }
   const toggleWorker = (enabled: boolean) => {
-    if (enabled && !isolatedWorkerAllowed) return onError('Isolated worker controls are available with Virgue Pro.')
+    if (enabled && !isolatedWorkerAllowed) return onError('Isolated worker controls are available with Valdor Pro.')
     if (enabled && (!webApi?.requirePassword || !webApi.passwordSet)) return onError('Save an API password and enable Require password before turning on isolated worker input.')
     void updateWebApi({ allowSessionInput: enabled })
   }
@@ -2240,7 +2240,7 @@ function WebApiSettingsCard({ webApi, isolatedWorkerAllowed, onUpdate, onError, 
       <div className="settings-section-intro"><strong>Credentials</strong><span>Passwords are stored using Windows credential encryption.</span></div>
       <SettingField className="settings-api-password-field" label="API password" description={webApi?.passwordSet ? 'A password is saved. Enter a replacement only when you want to change it.' : 'Use at least 12 characters before enabling isolated worker input.'}><div className="web-api-password-control"><input type="password" value={password} placeholder={webApi?.passwordSet ? 'Password saved' : 'At least 12 characters'} onChange={(event) => setPassword(event.target.value)} /><button type="button" className="outline-button" disabled={!password.trim()} onClick={() => void savePassword()}>Save password</button></div></SettingField>
     </div>
-    <div className="web-api-actions">{webApi?.enabled ? <><span className="web-api-running"><span className="status-dot running" /> Running on {webApi.allowExternalConnections ? 'private network' : 'localhost'}:{webApi.port}</span><button type="button" className="text-button danger" onClick={() => void window.virgue.webApi.stop().then((updated) => { onUpdate(updated); onActivity('Web API stopped', 'Local integrations are paused.', 'warning') }).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Web API could not be stopped.'))}>Stop API</button></> : <button type="button" className="outline-button" onClick={() => void window.virgue.webApi.start().then((updated) => { onUpdate(updated); onActivity('Web API started', `${updated.allowExternalConnections ? 'Network' : 'Localhost'}:${updated.port}`, 'positive') }).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Web API failed.'))}><Icon name="play" size={15} /> Start API</button>}</div>
+    <div className="web-api-actions">{webApi?.enabled ? <><span className="web-api-running"><span className="status-dot running" /> Running on {webApi.allowExternalConnections ? 'private network' : 'localhost'}:{webApi.port}</span><button type="button" className="text-button danger" onClick={() => void window.valdor.webApi.stop().then((updated) => { onUpdate(updated); onActivity('Web API stopped', 'Local integrations are paused.', 'warning') }).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Web API could not be stopped.'))}>Stop API</button></> : <button type="button" className="outline-button" onClick={() => void window.valdor.webApi.start().then((updated) => { onUpdate(updated); onActivity('Web API started', `${updated.allowExternalConnections ? 'Network' : 'Localhost'}:${updated.port}`, 'positive') }).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Web API failed.'))}><Icon name="play" size={15} /> Start API</button>}</div>
   </article>
 }
 
@@ -2265,7 +2265,7 @@ function PlanUsageMeter({ label, singular, icon, current, maximum }: { label: st
 function BillingSettingsPanel({ entitlements, accountCount, gameCount, onError }: { entitlements: PlanEntitlements; accountCount: number; gameCount: number; onError: (message: string) => void }) {
   const isPro = entitlements.planKey === 'pro'
   const openPricing = () => {
-    void window.virgue.app.openExternal(PRICING_URL).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'The pricing page could not be opened.'))
+    void window.valdor.app.openExternal(PRICING_URL).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'The pricing page could not be opened.'))
   }
 
   return <div className="settings-billing-layout">
@@ -2283,7 +2283,7 @@ function BillingSettingsPanel({ entitlements, accountCount, gameCount, onError }
         </div>
       </div>
       <div className="settings-billing-section settings-billing-includes">
-        <div className="settings-section-heading"><span>Included with {isPro ? 'Virgue Pro' : 'Free'}</span></div>
+        <div className="settings-section-heading"><span>Included with {isPro ? 'Valdor Pro' : 'Free'}</span></div>
         <ul className="settings-included-list">
           {isPro ? <>
             <li><Icon name="check" size={14} /> Unlimited Roblox account slots</li>
@@ -2300,7 +2300,7 @@ function BillingSettingsPanel({ entitlements, accountCount, gameCount, onError }
       </div>
     </article>
     {!isPro && <article className="settings-card settings-billing-upgrade">
-      <div className="settings-billing-upgrade-heading"><div><span className="eyebrow">Want to upgrade?</span><h2>Virgue Pro</h2></div><Icon name="gem" size={20} /></div>
+      <div className="settings-billing-upgrade-heading"><div><span className="eyebrow">Want to upgrade?</span><h2>Valdor Pro</h2></div><Icon name="gem" size={20} /></div>
       <p className="settings-copy">Unlock unlimited account and game slots, bulk launch, and isolated worker input.</p>
       <div className="settings-billing-pro-list">
         <div><Icon name="check" size={14} /> <span>Unlimited workspace capacity</span></div>
@@ -2327,7 +2327,7 @@ function ClientPerformanceSettings({ client, onClientUpdate, onError, onActivity
   const applyFps = async (unlockFps = fpsEnabled) => {
     const nextFps = Math.min(1000, Math.max(15, Math.round(Number.isFinite(fps) ? fps : 240)))
     try {
-      const updated = await window.virgue.tools.applyFpsSettings({ unlockFps, maxFps: nextFps })
+      const updated = await window.valdor.tools.applyFpsSettings({ unlockFps, maxFps: nextFps })
       onClientUpdate(updated)
       setFps(updated.maxFps)
       setFpsEnabled(updated.unlockFps)
@@ -2339,7 +2339,7 @@ function ClientPerformanceSettings({ client, onClientUpdate, onError, onActivity
 
   const applyCustom = async () => {
     try {
-      const updated = await window.virgue.tools.applyFpsSettings({ customSettingsPath, customSettingsEnabled })
+      const updated = await window.valdor.tools.applyFpsSettings({ customSettingsPath, customSettingsEnabled })
       onClientUpdate(updated)
       setCustomSettingsPath(updated.customSettingsPath)
       setCustomSettingsEnabled(updated.customSettingsEnabled)
@@ -2381,7 +2381,7 @@ function SettingField({ label, description, suffix, className = '', children }: 
   return <label className={`setting-field field-label ${className}`.trim()}><span className="setting-field-label"><span className="setting-field-copy"><strong>{label}</strong><small>{description}</small></span></span><span className={`setting-field-control ${suffix ? 'has-suffix' : ''}`}>{children}{suffix && <span>{suffix}</span>}</span></label>
 }
 const THEME_HELP: Record<AppSettings['theme'], string> = {
-  neo: 'The signature Virgue palette: cream grid, coral actions, yellow accents, and hard ink shadows.',
+  neo: 'The signature Valdor palette: cream grid, coral actions, yellow accents, and hard ink shadows.',
   light: 'A brighter neutral palette that keeps the same layouts and controls.',
   dark: 'A low-light palette for evening use with the same Neo-Brutalist structure.',
 }
@@ -2530,7 +2530,7 @@ function SessionHistoryPanel({ sessions, accounts, games, onSelect, onCopy, onRe
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = 'virgue-session-history.json'
+    link.download = 'valdor-session-history.json'
     document.body.appendChild(link)
     link.click()
     link.remove()
@@ -2650,7 +2650,7 @@ function ActivityCentreView({ activity, sessions, accounts, games, onSelect, onC
     <div className="activity-centre-intro"><div><span className="eyebrow">{isHistory ? 'Persisted sessions' : 'Live workspace log'}</span><h2>{isHistory ? 'Review completed sessions with context.' : 'See every workspace event in order.'}</h2><p>{isHistory ? 'Find the account, server, and close reason behind each session, then launch again when it is safe.' : 'Sign-ins, launches, watcher checks, and saved changes land here as they happen.'}</p></div><div className="activity-centre-count"><strong>{formatMetric(isHistory ? sessions.history.length : activity.length)}</strong><span>{isHistory ? 'sessions saved' : 'events recorded'}</span></div></div>
     <div className="activity-centre-tabs" role="tablist" aria-label="Activity centre sections"><button type="button" id="activity-tab-timeline" role="tab" aria-selected={!isHistory} aria-controls="activity-timeline-panel" tabIndex={!isHistory ? 0 : -1} className={`activity-centre-tab ${!isHistory ? 'active' : ''}`} onClick={() => setActiveTab('timeline')} onKeyDown={(event) => { if (event.key === 'ArrowRight' || event.key === 'ArrowDown') { event.preventDefault(); setActiveTab('history'); requestAnimationFrame(() => document.getElementById('activity-tab-history')?.focus()) } }}><Icon name="clock" size={15} /> Live timeline <span>{activity.length}</span></button><button type="button" id="activity-tab-history" role="tab" aria-selected={isHistory} aria-controls="activity-history-panel" tabIndex={isHistory ? 0 : -1} className={`activity-centre-tab ${isHistory ? 'active' : ''}`} onClick={() => setActiveTab('history')} onKeyDown={(event) => { if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') { event.preventDefault(); setActiveTab('timeline'); requestAnimationFrame(() => document.getElementById('activity-tab-timeline')?.focus()) } }}><Icon name="window" size={15} /> Session history <span>{sessions.history.length}</span></button></div>
     {isHistory ? <div id="activity-history-panel" role="tabpanel" aria-labelledby="activity-tab-history" tabIndex={-1}><SessionHistoryPanel sessions={sessions} accounts={accounts} games={games} onSelect={onSelect} onCopy={onCopy} onRejoin={onRejoin} onAdd={onAdd} onOpenAccounts={onOpenAccounts} /></div> : <div id="activity-timeline-panel" role="tabpanel" aria-labelledby="activity-tab-timeline" tabIndex={-1}>{hasTimelineData ? <><div className="activity-summary-grid"><div className="positive"><strong>{positiveCount}</strong><span>completed</span></div><div className="normal"><strong>{activity.length - positiveCount - warningCount}</strong><span>informational</span></div><div className="warning"><strong>{warningCount}</strong><span>needs attention</span></div></div>{sessions.events.length > 0 && <div className="activity-guardian-events"><div className="panel-heading"><span>Guardian timeline</span><span className="panel-heading-note">Persisted locally</span></div>{sessions.events.slice(0, 12).map((event) => <article className={`session-event-row ${sessionEventTone(event)}`} key={event.id}><span className="activity-dot" /><div><strong>{event.title}</strong><p>{event.detail}</p></div><time>{formatRelativeTime(event.createdAt)}</time></article>)}</div>}{activity.length > 0 && <div className="activity-centre-list">{activity.map((item, index) => <article className={`activity-centre-item ${item.tone}`} key={`${item.id}-${index}`}><span className="activity-centre-marker"><span className={`activity-dot ${item.tone}`} /></span><div className="activity-centre-content"><div><strong>{item.message}</strong><time>{item.id > 1000000000 ? new Date(item.id).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Session start'}</time></div><p>{item.detail}</p></div></article>)}</div>}</> : <div className="activity-centre-empty"><span className="empty-mark" aria-hidden="true"><Icon name={accounts.length > 0 ? 'clock' : 'users'} size={22} /></span><div><strong>{accounts.length > 0 ? 'No timeline events yet' : 'Your timeline starts with a profile'}</strong><p>{accounts.length > 0 ? 'Workspace actions will appear here as soon as you sign in, launch, or update a profile.' : 'Add a Roblox profile to start capturing launches, checks, and workspace changes.'}</p></div><button type="button" className="primary-button" onClick={timelineAction}><Icon name={accounts.length > 0 ? 'users' : 'plus'} size={14} /> {timelineActionLabel}</button></div>}</div>}
-    {isHistory && sessions.history.length > 0 && <div className="session-history-footnote"><span className="activity-dot warning" /><span>{crashedCount > 0 ? `${crashedCount} session${crashedCount === 1 ? '' : 's'} ended unexpectedly. Open its account or rejoin after checking the close reason.` : 'Session outcomes are stored locally and remain available after restarting Virgue.'}</span></div>}
+    {isHistory && sessions.history.length > 0 && <div className="session-history-footnote"><span className="activity-dot warning" /><span>{crashedCount > 0 ? `${crashedCount} session${crashedCount === 1 ? '' : 's'} ended unexpectedly. Open its account or rejoin after checking the close reason.` : 'Session outcomes are stored locally and remain available after restarting Valdor.'}</span></div>}
   </section>
 }
 

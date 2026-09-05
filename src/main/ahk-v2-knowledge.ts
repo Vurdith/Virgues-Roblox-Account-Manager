@@ -26,7 +26,7 @@ const SECTIONS: AhkKnowledgeSection[] = [
   {
     id: 'windows',
     keywords: ['window', 'roblox', 'target', 'activate', 'focus', 'title', 'process', 'exe'],
-    text: `Window targeting: WinExist("ahk_exe RobloxPlayerBeta.exe") returns a matching HWND. WinActive checks the active window. WinActivate activates a window. WinWait and WinWaitActive can wait for one. Use ahk_pid when a specific process ID is known. SetTitleMatchMode controls title matching. In Virgue Protected Session the script already runs on the alt desktop, but it should still constrain actions to Roblox windows.`,
+    text: `Window targeting: WinExist("ahk_exe RobloxPlayerBeta.exe") returns a matching HWND. WinActive checks the active window. WinActivate activates a window. WinWait and WinWaitActive can wait for one. Use ahk_pid when a specific process ID is known. SetTitleMatchMode controls title matching. In Valdor Protected Session the script already runs on the alt desktop, but it should still constrain actions to Roblox windows.`,
   },
   {
     id: 'mouse',
@@ -46,7 +46,7 @@ const SECTIONS: AhkKnowledgeSection[] = [
   {
     id: 'lifecycle',
     keywords: ['start', 'stop', 'exit', 'persistent', 'single', 'tray'],
-    text: `Lifecycle: '#SingleInstance Force' prevents duplicate copies. Scripts with timers or hotkeys remain persistent automatically; Persistent(true) can be explicit. ExitApp() exits. OnExit(callback) can release held keys or perform cleanup. Virgue itself starts and stops the script process, so do not add self-relaunch loops.`,
+    text: `Lifecycle: '#SingleInstance Force' prevents duplicate copies. Scripts with timers or hotkeys remain persistent automatically; Persistent(true) can be explicit. ExitApp() exits. OnExit(callback) can release held keys or perform cleanup. Valdor itself starts and stops the script process, so do not add self-relaunch loops.`,
   },
   {
     id: 'safety',
