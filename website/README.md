@@ -1,6 +1,6 @@
-# Virgue website
+# Valdor website
 
-This is the public website and account-center surface for Virgue's Roblox Account Manager. It is intentionally separate from the Electron renderer so the marketing, download, and subscription pages can be deployed independently.
+This is the public website and account-center surface for Valdor — Roblox Account Manager. It is intentionally separate from the Electron renderer so the marketing, download, and subscription pages can be deployed independently.
 
 ## Local development
 
@@ -16,16 +16,18 @@ The development server runs at `http://localhost:4173/`.
 
 The build includes the product, pricing, account, download, privacy, terms,
 refunds, and support pages. The download page points to the latest public
-GitHub Release installer; update `VITE_VIRGUE_DOWNLOAD_URL` only when using a
-different release channel.
+GitHub Release installer; update `VITE_VALDOR_DOWNLOAD_URL` when using a
+different release channel. During the transition, the website also accepts the
+legacy `VITE_VIRGUE_*` billing and download names when the Valdor variables are
+unset.
 
 ## Configuration
 
 Copy `.env.example` to `.env` when connecting a real deployment:
 
 - `VITE_NEON_AUTH_URL` — the public Neon Auth endpoint used by the desktop app. This is an Auth API URL, not a database credential. The current development endpoint is used as a fallback in the page; set this explicitly for production.
-- `VITE_VIRGUE_BILLING_API_URL` — the URL of a server-side Virgue billing API. The website calls `/billing/me` and `/billing/portal` on this service.
-- `VITE_VIRGUE_DOWNLOAD_URL` — the published Windows installer URL for the latest release.
+- `VITE_VALDOR_BILLING_API_URL` — the URL of a server-side Valdor billing API. The website calls `/billing/me` and `/billing/portal` on this service.
+- `VITE_VALDOR_DOWNLOAD_URL` — the published Windows installer URL for the latest release.
 
 The website must never contain a Neon database connection string, Stripe secret, or other server credential. The billing API is the boundary that validates the Neon session and talks to the payment provider.
 
