@@ -33,6 +33,8 @@ const RECOVERY_JOB_LIMIT = 50
 
 interface RobloxProcessInfo {
   id: number
+  sessionId: number
+  observerSessionId: number
   parentId: number
   creationTime: string | null
   mainWindowHandle: number
@@ -494,7 +496,7 @@ export class SessionGuardian {
 
   private async queryProcesses(): Promise<RobloxProcessInfo[]> {
     if (process.platform !== 'win32') return []
-    const script = "Get-CimInstance Win32_Process -Filter \"Name='RobloxPlayerBeta.exe'\" | ForEach-Object { $p = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue; if ($p) { $created = $null; try { $created = $p.StartTime.ToUniversalTime().ToString('o') } catch {}; [pscustomobject]@{ Id = [int]$_.ProcessId; ParentId = [int]$_.ParentProcessId; CreationTime = $created; MainWindowHandle = [int64]$p.MainWindowHandle; MainWindowTitle = [string]$p.MainWindowTitle; CommandLine = [string]$_.CommandLine; ProcessPath = [string]$_.ExecutablePath; WorkingSetBytes = [int64]$p.WorkingSet64 } } } | ConvertTo-Json -Compress"
+    const script = "$observerSessionId = [System.Diagnostics.Process]::GetCurrentProcess().SessionId; Get-CimInstance Win32_Process -Filter \"Name='RobloxPlayerBeta.exe'\" | ForEach-Object { $p = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue; if ($p) { $created = $null; try { $created = $p.StartTime.ToUniversalTime().ToString('o') } catch {}; [pscustomobject]@{ Id = [int]$_.ProcessId; SessionId = [int]$p.SessionId; ObserverSessionId = [int]$observerSessionId; ParentId = [int]$_.ParentProcessId; CreationTime = $created; MainWindowHandle = [int64]$p.MainWindowHandle; MainWindowTitle = [string]$p.MainWindowTitle; CommandLine = [string]$_.CommandLine; ProcessPath = [string]$_.ExecutablePath; WorkingSetBytes = [int64]$p.WorkingSet64 } } } | ConvertTo-Json -Compress"
     try {
       const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 7000, maxBuffer: 2 * 1024 * 1024 })
       const raw = stdout.trim()
@@ -508,6 +510,8 @@ export class SessionGuardian {
         const workingSetBytes = numberValue(value.WorkingSetBytes, 0)
         return [{
           id,
+          sessionId: Math.round(numberValue(value.SessionId, 0)),
+          observerSessionId: Math.round(numberValue(value.ObserverSessionId, 0)),
           parentId: Math.round(numberValue(value.ParentId, 0)),
           creationTime: nullableDate(value.CreationTime),
           mainWindowHandle: Math.round(numberValue(value.MainWindowHandle, 0)),
@@ -555,7 +559,10 @@ export class SessionGuardian {
     const previousCreatedAt = session.processCreatedAt
     const previousParentId = session.processParentId
     const previousPath = session.processPath
-    const hasWindow = processInfo.mainWindowHandle > 0
+    // Windows intentionally hides top-level window handles across interactive
+    // sessions. A verified Roblox process in the protected child session is
+    // alive even though the manager's desktop observes MainWindowHandle = 0.
+    const hasWindow = processInfo.mainWindowHandle > 0 || (processInfo.sessionId > 0 && processInfo.sessionId !== processInfo.observerSessionId)
     const age = Date.now() - dateMs(session.startedAt)
     const nextState: SessionProcessState = session.processState === 'closing'
       ? 'closing'

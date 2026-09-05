@@ -9,7 +9,7 @@ import type { ProtectedSessionSetupResult, ProtectedSessionStatus, WindowInputKe
 import { AccountStore } from './account-store'
 
 const execFileAsync = promisify(execFile)
-const START_TIMEOUT_MS = 90_000
+const START_TIMEOUT_MS = 180_000
 const REQUEST_TIMEOUT_MS = 8_000
 
 interface NativeProtectedSessionStatus {
@@ -39,6 +39,12 @@ interface ProtectedInputResult {
   key: WindowInputKey
   durationMs: number
   restoredPreviousWindow: boolean
+}
+
+export interface ProtectedAutoHotkeyStatus {
+  installed: boolean
+  version: string
+  runningScriptIds: string[]
 }
 
 interface PendingRequest {
@@ -97,12 +103,19 @@ export class ProtectedSessionService {
   private rejectStart: ((error: Error) => void) | null = null
   private startTimer: NodeJS.Timeout | null = null
   private intentionalStop = false
+  private resumeRecovery: Promise<ProtectedSessionStatus> | null = null
 
   constructor(private readonly store: AccountStore) {}
 
   shouldRouteLaunch(accountId: string): boolean {
     const settings = this.store.getSnapshot().settings
-    return settings.protectedSessionEnabled && settings.backgroundInputMainAccountId !== accountId
+    // Protected Session is an optional routing layer. A saved preference or a
+    // reconnecting host must never turn a normal Roblox launch into a hard
+    // dependency; route only while the child-session host is actually ready.
+    return settings.protectedSessionEnabled
+      && this.phase === 'ready'
+      && Boolean(this.host)
+      && settings.backgroundInputMainAccountId !== accountId
   }
 
   async getStatus(): Promise<ProtectedSessionStatus> {
@@ -136,6 +149,37 @@ export class ProtectedSessionService {
       phase: this.phase === 'setup-required' ? 'stopped' : this.phase,
       childSessionId: this.childSessionId,
       message: this.phase === 'setup-required' ? 'Protected Session is ready to start.' : this.message,
+    }
+  }
+
+  async recoverAfterResume(): Promise<ProtectedSessionStatus> {
+    if (this.resumeRecovery) return this.resumeRecovery
+
+    const recovery = this.recoverAfterResumeInternal()
+    this.resumeRecovery = recovery
+    try {
+      return await recovery
+    } finally {
+      if (this.resumeRecovery === recovery) this.resumeRecovery = null
+    }
+  }
+
+  private async recoverAfterResumeInternal(): Promise<ProtectedSessionStatus> {
+    const settings = this.store.getSnapshot().settings
+    if (!settings.protectedSessionEnabled || !this.store.getSnapshot().entitlements.isolatedWorkerInput) return this.getStatus()
+    if (!this.host || this.phase !== 'ready') return this.start()
+
+    try {
+      await this.request<{ ok: boolean }>('PING', [], 3_000)
+      return this.getStatus()
+    } catch {
+      const error = new Error('Windows resumed; reconnecting to the protected alt desktop.')
+      this.phase = 'error'
+      this.childSessionId = null
+      this.message = error.message
+      this.rejectPending(error)
+      await this.stopHost(false)
+      return this.start()
     }
   }
 
@@ -237,6 +281,15 @@ export class ProtectedSessionService {
     return this.getStatus()
   }
 
+  async showViewer(): Promise<void> {
+    this.assertReady()
+    const host = this.host
+    if (!host || !host.stdin.writable) throw new Error('The child-session viewer is not available.')
+    await new Promise<void>((resolve, reject) => {
+      host.stdin.write('SHOW_VIEWER\n', 'utf8', (error) => error ? reject(error) : resolve())
+    })
+  }
+
   async getWindows(): Promise<ProtectedWindow[]> {
     this.assertReady()
     const windows = await this.request<ProtectedWindow[]>('LIST', [])
@@ -247,6 +300,23 @@ export class ProtectedSessionService {
     this.assertPlanAccess()
     this.assertReady()
     return this.request<ProtectedInputResult>('INPUT', [String(processId), windowHandle, key, String(durationMs)])
+  }
+
+  async getAutoHotkeyStatus(): Promise<ProtectedAutoHotkeyStatus> {
+    this.assertReady()
+    return this.request<ProtectedAutoHotkeyStatus>('AHK_STATUS', [])
+  }
+
+  async runAutoHotkey(scriptId: string, content: string): Promise<{ scriptId: string; processId: number }> {
+    this.assertPlanAccess()
+    this.assertReady()
+    return this.request('AHK_RUN', [encodeProtocolValue(scriptId), encodeProtocolValue(content)], 15_000)
+  }
+
+  async stopAutoHotkey(scriptId: string): Promise<{ scriptId: string; running: false }> {
+    this.assertPlanAccess()
+    this.assertReady()
+    return this.request('AHK_STOP', [encodeProtocolValue(scriptId)])
   }
 
   async launch(executable: string, args: string[], accountId: string, launchRequestId: string): Promise<number> {
@@ -264,6 +334,20 @@ export class ProtectedSessionService {
     return result.processId
   }
 
+  async launchProtocol(appUri: string, gameUri: string, accountId: string, launchRequestId: string): Promise<number> {
+    this.assertPlanAccess()
+    if (!this.shouldRouteLaunch(accountId)) throw new Error('That account is not assigned to Protected Session.')
+    this.assertReady()
+    const result = await this.request<ProtectedLaunchResult>('LAUNCH_URI', [
+      encodeProtocolValue(appUri),
+      encodeProtocolValue(gameUri),
+      encodeProtocolValue(accountId),
+      encodeProtocolValue(launchRequestId),
+    ], 25_000)
+    this.launchedProcesses.set(result.processId, { accountId, launchRequestId })
+    return result.processId
+  }
+
   async dispose(): Promise<void> {
     await this.stopHost(false)
   }
@@ -274,8 +358,13 @@ export class ProtectedSessionService {
     const requestId = randomUUID()
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
+        const error = new Error('Protected Session did not respond in time.')
+        if (this.host === host && this.phase === 'ready') {
+          this.failHost(error)
+          return
+        }
         this.pending.delete(requestId)
-        reject(new Error('Protected Session did not respond in time.'))
+        reject(error)
       }, timeoutMs)
       this.pending.set(requestId, { resolve: resolve as (value: unknown) => void, reject, timer })
       host.stdin.write([command, requestId, ...fields].join('\t') + '\n', 'utf8', (error) => {

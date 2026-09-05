@@ -20,6 +20,8 @@ import type {
   WebApiUpdateInput,
   AppSettings,
   BackgroundInputCommandInput,
+  BackgroundInputScheduleInput,
+  AutoHotkeyScriptInput,
   ControlSettings,
   IsolatedWorkerCommandInput,
   IsolatedWorkerConnectionInput,
@@ -80,10 +82,26 @@ export const IPC_CHANNELS = {
   isolatedWorkerSendInput: 'isolated-worker:send-input',
   backgroundInputGetSessions: 'background-input:get-sessions',
   backgroundInputSend: 'background-input:send',
+  backgroundInputStartSchedule: 'background-input:start-schedule',
+  backgroundInputPauseSchedule: 'background-input:pause-schedule',
+  backgroundInputResumeSchedule: 'background-input:resume-schedule',
+  backgroundInputStopSchedule: 'background-input:stop-schedule',
   protectedSessionGetStatus: 'protected-session:get-status',
   protectedSessionSetup: 'protected-session:setup',
   protectedSessionStart: 'protected-session:start',
   protectedSessionStop: 'protected-session:stop',
+  protectedSessionShowViewer: 'protected-session:show-viewer',
+  autoHotkeyGetSnapshot: 'autohotkey:get-snapshot',
+  autoHotkeySave: 'autohotkey:save',
+  autoHotkeyRemove: 'autohotkey:remove',
+  autoHotkeyRun: 'autohotkey:run',
+  autoHotkeyStop: 'autohotkey:stop',
+  autoHotkeyOpenDownload: 'autohotkey:open-download',
+  autoHotkeyAiStatus: 'autohotkey-ai:status',
+  autoHotkeyAiDownload: 'autohotkey-ai:download',
+  autoHotkeyAiGenerate: 'autohotkey-ai:generate',
+  autoHotkeyAiCancel: 'autohotkey-ai:cancel',
+  autoHotkeyAiRemoveModel: 'autohotkey-ai:remove-model',
   watcherUpdate: 'watcher:update',
   watcherCheck: 'watcher:check',
   sessionsGetSnapshot: 'sessions:get-snapshot',
@@ -161,10 +179,26 @@ export interface IpcPayloads {
   [IPC_CHANNELS.isolatedWorkerSendInput]: IsolatedWorkerCommandInput
   [IPC_CHANNELS.backgroundInputGetSessions]: undefined
   [IPC_CHANNELS.backgroundInputSend]: BackgroundInputCommandInput
+  [IPC_CHANNELS.backgroundInputStartSchedule]: BackgroundInputScheduleInput
+  [IPC_CHANNELS.backgroundInputPauseSchedule]: string
+  [IPC_CHANNELS.backgroundInputResumeSchedule]: string
+  [IPC_CHANNELS.backgroundInputStopSchedule]: string
   [IPC_CHANNELS.protectedSessionGetStatus]: undefined
   [IPC_CHANNELS.protectedSessionSetup]: undefined
   [IPC_CHANNELS.protectedSessionStart]: undefined
   [IPC_CHANNELS.protectedSessionStop]: undefined
+  [IPC_CHANNELS.protectedSessionShowViewer]: undefined
+  [IPC_CHANNELS.autoHotkeyGetSnapshot]: undefined
+  [IPC_CHANNELS.autoHotkeySave]: AutoHotkeyScriptInput
+  [IPC_CHANNELS.autoHotkeyRemove]: string
+  [IPC_CHANNELS.autoHotkeyRun]: string
+  [IPC_CHANNELS.autoHotkeyStop]: string
+  [IPC_CHANNELS.autoHotkeyOpenDownload]: undefined
+  [IPC_CHANNELS.autoHotkeyAiStatus]: undefined
+  [IPC_CHANNELS.autoHotkeyAiDownload]: undefined
+  [IPC_CHANNELS.autoHotkeyAiGenerate]: string
+  [IPC_CHANNELS.autoHotkeyAiCancel]: undefined
+  [IPC_CHANNELS.autoHotkeyAiRemoveModel]: undefined
   [IPC_CHANNELS.watcherUpdate]: WatcherUpdateInput
   [IPC_CHANNELS.watcherCheck]: undefined
   [IPC_CHANNELS.sessionsGetSnapshot]: undefined
