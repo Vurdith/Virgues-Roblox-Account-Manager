@@ -1,8 +1,8 @@
 -- Account, trial, subscription, and entitlement foundation.
 -- Neon Auth owns identity/session tables in neon_auth; this migration only
--- adds Virgue billing tables in public.
+-- adds Valdor billing tables in public.
 
-CREATE TABLE IF NOT EXISTS public.virgue_plans (
+CREATE TABLE IF NOT EXISTS public.Valdor_plans (
   plan_key text PRIMARY KEY,
   display_name text NOT NULL,
   description text NOT NULL DEFAULT '',
@@ -17,16 +17,16 @@ CREATE TABLE IF NOT EXISTS public.virgue_plans (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS public.virgue_billing_settings (
+CREATE TABLE IF NOT EXISTS public.Valdor_billing_settings (
   setting_key text PRIMARY KEY DEFAULT 'default' CHECK (setting_key = 'default'),
   trial_enabled boolean NOT NULL DEFAULT true,
   trial_days integer NOT NULL DEFAULT 14 CHECK (trial_days >= 0 AND trial_days <= 3650),
-  trial_plan_key text NOT NULL DEFAULT 'pro' REFERENCES public.virgue_plans(plan_key),
+  trial_plan_key text NOT NULL DEFAULT 'pro' REFERENCES public.Valdor_plans(plan_key),
   grace_period_days integer NOT NULL DEFAULT 3 CHECK (grace_period_days >= 0 AND grace_period_days <= 30),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS public.virgue_trial_grants (
+CREATE TABLE IF NOT EXISTS public.Valdor_trial_grants (
   user_id uuid PRIMARY KEY REFERENCES neon_auth."user"(id) ON DELETE CASCADE,
   started_at timestamptz NOT NULL DEFAULT now(),
   ends_at timestamptz NOT NULL,
@@ -36,10 +36,10 @@ CREATE TABLE IF NOT EXISTS public.virgue_trial_grants (
   CHECK (ends_at >= started_at)
 );
 
-CREATE TABLE IF NOT EXISTS public.virgue_subscriptions (
+CREATE TABLE IF NOT EXISTS public.Valdor_subscriptions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES neon_auth."user"(id) ON DELETE CASCADE,
-  plan_key text NOT NULL REFERENCES public.virgue_plans(plan_key),
+  plan_key text NOT NULL REFERENCES public.Valdor_plans(plan_key),
   provider text NOT NULL DEFAULT 'stripe' CHECK (provider IN ('stripe', 'manual')),
   provider_customer_id text,
   provider_subscription_id text UNIQUE,
@@ -55,13 +55,13 @@ CREATE TABLE IF NOT EXISTS public.virgue_subscriptions (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS virgue_subscriptions_user_id_idx
-  ON public.virgue_subscriptions (user_id);
+CREATE INDEX IF NOT EXISTS Valdor_subscriptions_user_id_idx
+  ON public.Valdor_subscriptions (user_id);
 
-CREATE INDEX IF NOT EXISTS virgue_subscriptions_status_idx
-  ON public.virgue_subscriptions (status);
+CREATE INDEX IF NOT EXISTS Valdor_subscriptions_status_idx
+  ON public.Valdor_subscriptions (status);
 
-CREATE TABLE IF NOT EXISTS public.virgue_billing_events (
+CREATE TABLE IF NOT EXISTS public.Valdor_billing_events (
   event_id text PRIMARY KEY,
   event_type text NOT NULL,
   status text NOT NULL DEFAULT 'received' CHECK (status IN ('received', 'processed', 'failed')),
@@ -70,18 +70,18 @@ CREATE TABLE IF NOT EXISTS public.virgue_billing_events (
   error_message text
 );
 
-INSERT INTO public.virgue_plans (
+INSERT INTO public.Valdor_plans (
   plan_key,
   display_name,
   description,
   features
 )
 VALUES
-  ('free', 'Free', 'The core Virgue workspace.', '{"tier":"free","limits":{"maxAccounts":2,"maxGames":2},"bulkLaunch":false}'::jsonb),
-  ('pro', 'Virgue Pro', 'The complete Virgue workspace.', '{"tier":"pro","limits":{"maxAccounts":null,"maxGames":null},"bulkLaunch":true}'::jsonb)
+  ('free', 'Free', 'The core Valdor workspace.', '{"tier":"free","limits":{"maxAccounts":2,"maxGames":2},"bulkLaunch":false}'::jsonb),
+  ('pro', 'Valdor Pro', 'The complete Valdor workspace.', '{"tier":"pro","limits":{"maxAccounts":null,"maxGames":null},"bulkLaunch":true}'::jsonb)
 ON CONFLICT (plan_key) DO NOTHING;
 
-INSERT INTO public.virgue_billing_settings (
+INSERT INTO public.Valdor_billing_settings (
   setting_key,
   trial_enabled,
   trial_days,
@@ -91,16 +91,16 @@ INSERT INTO public.virgue_billing_settings (
 VALUES ('default', true, 14, 'pro', 3)
 ON CONFLICT (setting_key) DO NOTHING;
 
-CREATE OR REPLACE VIEW public.virgue_current_entitlements AS
+CREATE OR REPLACE VIEW public.Valdor_current_entitlements AS
 WITH configured AS (
   SELECT *
-  FROM public.virgue_billing_settings
+  FROM public.Valdor_billing_settings
   WHERE setting_key = 'default'
 ),
 latest_subscription AS (
   SELECT DISTINCT ON (s.user_id)
     s.*
-  FROM public.virgue_subscriptions s
+  FROM public.Valdor_subscriptions s
   ORDER BY
     s.user_id,
     COALESCE(s.current_period_end, s.trial_ends_at, s.updated_at, s.created_at) DESC,
@@ -149,7 +149,7 @@ resolved AS (
     END AS entitlement_status
   FROM neon_auth."user" u
   CROSS JOIN configured c
-  LEFT JOIN public.virgue_trial_grants t ON t.user_id = u.id
+  LEFT JOIN public.Valdor_trial_grants t ON t.user_id = u.id
   LEFT JOIN latest_subscription s ON s.user_id = u.id
 )
 SELECT
@@ -167,4 +167,4 @@ SELECT
   r.subscription_status,
   r.current_period_end
 FROM resolved r
-JOIN public.virgue_plans p ON p.plan_key = r.plan_key;
+JOIN public.Valdor_plans p ON p.plan_key = r.plan_key;

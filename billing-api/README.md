@@ -6,10 +6,9 @@ to Neon, and returns resolved entitlements to the website and desktop app.
 
 ## Setup
 
-1. Run database migrations `001` through `007`, then apply the paused
-   `008_valdor_rebrand.sql` cutover from `database/migrations/` following the
-   Neon runbook. Start this Valdor consumer only after the cutover has been
-   reviewed and the `public.valdor_*` schema validates.
+1. Run the numbered database migrations in `database/migrations/` in order.
+   They create the canonical `public.valdor_*` schema used by the Valdor
+   consumer.
 2. Create a recurring **Valdor Pro** multi-currency Stripe Price with a
    $10/month USD default and fixed £10/month GBP and €10/month EUR options.
    Keep the existing Stripe Product and Price IDs, and put the Price ID in
@@ -26,8 +25,7 @@ to Neon, and returns resolved entitlements to the website and desktop app.
    a public HTTPS origin. Point `VITE_VALDOR_BILLING_API_URL` and
    `VALDOR_BILLING_API_URL` at it.
 
-The server treats `VALDOR_*` variables as canonical and also accepts the
-original unprefixed names for local development. Stripe metadata written by
+The server treats `VALDOR_*` variables as canonical. Stripe metadata written by
 this service uses `valdor_*` keys.
 
 The website and desktop app request a short-lived Neon Auth JWT from the
@@ -76,4 +74,4 @@ Stripe subscription or charge the customer. Keep the database URL, Stripe
 secrets, and Neon Auth signing configuration server-side.
 
 The billing tables and entitlement view use the `public.valdor_*` schema
-identifiers established by the rebrand migration.
+identifiers throughout.

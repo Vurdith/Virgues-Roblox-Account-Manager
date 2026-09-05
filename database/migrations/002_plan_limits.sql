@@ -2,7 +2,7 @@
 -- The desktop client currently resolves every user to Free until entitlement
 -- lookup is connected to Neon Auth and subscriptions.
 
-UPDATE public.virgue_plans
+UPDATE public.Valdor_plans
 SET
   features = jsonb_set(
     COALESCE(features, '{}'::jsonb),
@@ -14,7 +14,7 @@ SET
   updated_at = now()
 WHERE plan_key = 'free';
 
-UPDATE public.virgue_plans
+UPDATE public.Valdor_plans
 SET
   features = jsonb_set(
     COALESCE(features, '{}'::jsonb),
