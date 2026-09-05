@@ -710,7 +710,7 @@ function App() {
 }
 
 function BrandArea() {
-  return <div className="brand-area" aria-label="Valdor — Roblox Account Manager"><div className="brand-mark"><img src="./valdor-icon.png" alt="Valdor app icon" /></div><div className="brand-copy"><span className="brand-name">Valdor</span><span className="brand-product">Roblox Account Manager</span></div></div>
+  return <div className="brand-area" aria-label="Valdor | A Roblox Account Manager"><div className="brand-mark"><img src="./valdor-icon.png" alt="Valdor app icon" /></div><div className="brand-copy"><span className="brand-name">Valdor</span><span className="brand-product">A Roblox Account Manager</span></div></div>
 }
 
 function WindowControls({ isMaximized, onMaximize }: { isMaximized: boolean; onMaximize: () => void }) {

@@ -12,7 +12,7 @@ const sameOriginBillingApiUrl = window.location.hostname !== 'localhost' && wind
   ? `${window.location.origin}/api`
   : ''
 const BILLING_API_URL = (configuredBillingApiUrl || sameOriginBillingApiUrl).replace(/\/$/, '')
-const PUBLISHED_DOWNLOAD_URL = 'https://github.com/Vurdith/Valdor/releases/download/v1.0.5/Valdor-Roblox-Account-Manager-Setup-1.0.5.exe'
+const PUBLISHED_DOWNLOAD_URL = 'https://github.com/Vurdith/Valdor/releases/download/v1.0.6/Valdor-Roblox-Account-Manager-Setup-1.0.6.exe'
 const DOWNLOAD_URL = (import.meta.env.VITE_VALDOR_DOWNLOAD_URL || PUBLISHED_DOWNLOAD_URL).trim()
 const SITE_BASE = import.meta.env.BASE_URL
 const REGIONAL_PRICES = Object.freeze({
@@ -55,10 +55,10 @@ function mountSiteChrome() {
       const className = 'site-nav-link' + (link.className ? ' ' + link.className : '') + activeClass
       return '<a class="' + className + '" href="' + SITE_BASE + link.href.slice(1) + '"' + currentAttribute + '>' + link.label + '</a>'
     }).join('')
-    header.innerHTML = '<header class="site-header"><a class="site-brand" href="' + SITE_BASE + '" aria-label="Valdor — Roblox Account Manager home"><img class="site-brand-mark" src="' + SITE_BASE + 'valdor-icon.png" alt="" /><span class="site-brand-copy"><strong>Valdor</strong><small>Roblox Account Manager</small></span></a><nav class="site-nav" aria-label="Main navigation">' + navigation + '<div class="site-account-menu">' + ACCOUNT_MENU_MARKUP + '</div></nav></header>'
+    header.innerHTML = '<header class="site-header"><a class="site-brand" href="' + SITE_BASE + '" aria-label="Valdor | A Roblox Account Manager home"><img class="site-brand-mark" src="' + SITE_BASE + 'valdor-icon.png" alt="" /><span class="site-brand-copy"><strong>Valdor</strong><small>A Roblox Account Manager</small></span></a><nav class="site-nav" aria-label="Main navigation">' + navigation + '<div class="site-account-menu">' + ACCOUNT_MENU_MARKUP + '</div></nav></header>'
   }
   if (footer) {
-    footer.innerHTML = '<footer class="site-footer section-shell"><a class="site-brand" href="' + SITE_BASE + '" aria-label="Valdor — Roblox Account Manager home"><img class="site-brand-mark" src="' + SITE_BASE + 'valdor-icon.png" alt="" /><span class="site-brand-copy"><strong>Valdor</strong><small>Roblox Account Manager</small></span></a><div class="footer-navigation"><nav class="footer-links" aria-label="Product navigation"><a href="' + SITE_BASE + 'product.html">Product</a><a href="' + SITE_BASE + 'pricing.html">Pricing</a><a href="' + SITE_BASE + 'download.html">Download</a></nav><nav class="footer-links footer-legal-links" aria-label="Legal and support"><a href="' + SITE_BASE + 'privacy.html">Privacy</a><a href="' + SITE_BASE + 'terms.html">Terms</a><a href="' + SITE_BASE + 'refunds.html">Refunds</a><a href="' + SITE_BASE + 'support.html">Support</a></nav></div></footer>'
+    footer.innerHTML = '<footer class="site-footer section-shell"><a class="site-brand" href="' + SITE_BASE + '" aria-label="Valdor | A Roblox Account Manager home"><img class="site-brand-mark" src="' + SITE_BASE + 'valdor-icon.png" alt="" /><span class="site-brand-copy"><strong>Valdor</strong><small>A Roblox Account Manager</small></span></a><div class="footer-navigation"><nav class="footer-links" aria-label="Product navigation"><a href="' + SITE_BASE + 'product.html">Product</a><a href="' + SITE_BASE + 'pricing.html">Pricing</a><a href="' + SITE_BASE + 'download.html">Download</a></nav><nav class="footer-links footer-legal-links" aria-label="Legal and support"><a href="' + SITE_BASE + 'privacy.html">Privacy</a><a href="' + SITE_BASE + 'terms.html">Terms</a><a href="' + SITE_BASE + 'refunds.html">Refunds</a><a href="' + SITE_BASE + 'support.html">Support</a></nav></div></footer>'
   }
 }
 

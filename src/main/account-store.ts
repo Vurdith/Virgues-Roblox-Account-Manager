@@ -41,7 +41,7 @@ import type {
   WebApiSettings,
 } from '../shared/types'
 
-const APP_NAME = "Valdor — Roblox Account Manager"
+const APP_NAME = "Valdor | A Roblox Account Manager"
 const DATA_FILE = 'accounts.json'
 
 const DEFAULT_GAME_ID = 'game-dungeon-quest'

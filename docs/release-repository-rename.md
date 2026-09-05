@@ -9,7 +9,7 @@ configuration use the Valdor brand.
 - Repository URL: `https://github.com/Vurdith/Valdor`
 - Website: `https://valdor-roblox-account-manager.vercel.app`
 - Default branch: `master`
-- Product title: `Valdor — Roblox Account Manager`
+- Product title: `Valdor | A Roblox Account Manager`
 - Installer prefix: `Valdor-Roblox-Account-Manager-Setup`
 
 The repository rename preserved its history, issues, releases, and redirect.

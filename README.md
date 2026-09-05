@@ -1,6 +1,6 @@
-# Valdor — Roblox Account Manager
+# Valdor | A Roblox Account Manager
 
-Valdor — Roblox Account Manager is a Windows x64 Electron desktop workspace for organizing Roblox profiles, game collections, nested categories, secure sessions, and live Roblox tools. The interface uses a clean Neo-Brutalist visual system with an abstract Valdor V app icon.
+Valdor | A Roblox Account Manager is a Windows x64 Electron desktop workspace for organizing Roblox profiles, game collections, nested categories, secure sessions, and live Roblox tools. The interface uses a clean Neo-Brutalist visual system with an abstract Valdor V app icon.
 
 ## Stack
 

@@ -1,11 +1,11 @@
-# Valdor — Roblox Account Manager — Feature Plan
+# Valdor | A Roblox Account Manager — Feature Plan
 
-> A living product, subscription, design, and engineering roadmap for turning Valdor — Roblox Account Manager into a trustworthy premium Windows workspace.
+> A living product, subscription, design, and engineering roadmap for turning Valdor | A Roblox Account Manager into a trustworthy premium Windows workspace.
 
 **Document status:** Product strategy and implementation plan<br>
 **Current build status:** Session Guardian foundation implemented and verified in the desktop build; live process correlation, presence freshness, safe stop, and Activity Centre integration are shipped in the current installer.<br>
 **Last updated:** 27 August 2026<br>
-**Product:** Valdor — Roblox Account Manager<br>
+**Product:** Valdor | A Roblox Account Manager<br>
 **Target platform:** Windows x64<br>
 **Subscription hypothesis:** Valdor Pro at £9.99 per month<br>
 **Primary product promise:** Know which account is actually alive, launch the right account safely, recover your setup, and find the right server without guesswork.
@@ -90,7 +90,7 @@ Every proposed feature should answer:
 
 ### 3.1 What Valdor is
 
-Valdor — Roblox Account Manager is a local-first Windows desktop workspace for users who legitimately control multiple Roblox accounts and want to organize, launch, observe, and maintain them from one place.
+Valdor | A Roblox Account Manager is a local-first Windows desktop workspace for users who legitimately control multiple Roblox accounts and want to organize, launch, observe, and maintain them from one place.
 
 It combines:
 

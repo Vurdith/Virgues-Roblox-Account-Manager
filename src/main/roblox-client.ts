@@ -37,7 +37,7 @@ import { SecretStore } from './secret-store'
 import type { SessionGuardian } from './session-guardian'
 import type { ProtectedSessionService } from './protected-session'
 
-const ROBLOX_USER_AGENT = "Valdor — Roblox Account Manager/1.0"
+const ROBLOX_USER_AGENT = "Valdor | A Roblox Account Manager/1.0"
 const SERVER_CACHE_TTL_MS = 10 * 60 * 1000
 const execFileAsync = promisify(execFile)
 const ACCOUNT_PARTITION_PREFIX = 'persist:valdor-account-'
@@ -418,7 +418,7 @@ export class RobloxClient {
       minWidth: 420,
       minHeight: 620,
       show: false,
-      title: "Sign in to Roblox — Valdor — Roblox Account Manager",
+      title: "Sign in to Roblox — Valdor | A Roblox Account Manager",
       icon: join(__dirname, '../renderer/valdor-icon.png'),
       backgroundColor: '#e9e7df',
       webPreferences: { partition, contextIsolation: true, nodeIntegration: false, sandbox: false, webSecurity: true },

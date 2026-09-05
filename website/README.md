@@ -1,6 +1,6 @@
 # Valdor website
 
-This is the public website and account-center surface for Valdor — Roblox Account Manager. It is intentionally separate from the Electron renderer so the marketing, download, and subscription pages can be deployed independently.
+This is the public website and account-center surface for Valdor | A Roblox Account Manager. It is intentionally separate from the Electron renderer so the marketing, download, and subscription pages can be deployed independently.
 
 ## Local development
 
