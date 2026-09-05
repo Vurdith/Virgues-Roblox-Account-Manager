@@ -20,7 +20,7 @@ npm run build
 npm run package
 ```
 
-The installer is written to `release/Valdor-Roblox-Account-Manager-Setup-1.0.6.exe` for the current release.
+The installer is written to `release/Valdor-Roblox-Account-Manager-Setup-1.0.7.exe` for the current release.
 
 ## Releases and updates
 
