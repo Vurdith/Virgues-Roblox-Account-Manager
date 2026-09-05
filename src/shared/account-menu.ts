@@ -137,7 +137,7 @@ function iconMarkup(name: 'arrow' | 'chevron' | 'close' | 'settings', size: numb
   return `<svg ${common}><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"/><circle cx="12" cy="12" r="4"/></svg>`
 }
 
-export class VirgueAccountMenuElement extends HTMLElement {
+export class ValdorAccountMenuElement extends HTMLElement {
   static observedAttributes = ['name', 'email', 'plan', 'signed-in', 'busy', 'open', 'admin', 'admin-href']
 
   private accountName = ''
@@ -286,7 +286,7 @@ export class VirgueAccountMenuElement extends HTMLElement {
     const shadowRoot = this.shadowRoot
     if (!shadowRoot) return
     if (!shadowRoot.querySelector('[data-account-menu-root]')) {
-      const panelId = `virgue-account-menu-panel-${++accountMenuInstanceCount}`
+      const panelId = `valdor-account-menu-panel-${++accountMenuInstanceCount}`
       shadowRoot.innerHTML = `<style>${ACCOUNT_MENU_STYLES}</style><div class="account-menu" data-account-menu-root><button type="button" class="account-menu-trigger" data-account-action="toggle" aria-haspopup="menu" aria-expanded="false" aria-controls="${panelId}"><span class="account-menu-avatar" aria-hidden="true"></span><span class="account-menu-copy"><span class="account-menu-label"></span><strong data-account-name></strong></span><span class="account-menu-chevron" aria-hidden="true">${iconMarkup('chevron', 16)}</span></button><div class="account-menu-popover" id="${panelId}" role="menu" hidden><div class="account-menu-summary" data-signed-in-summary><div class="account-menu-summary-top"><span class="account-menu-eyebrow">Account</span></div><strong data-account-email></strong><div class="account-menu-plan"><span>Plan</span><strong data-account-plan></strong></div></div><div class="account-menu-signed-out-summary" data-signed-out-summary hidden><span class="account-menu-eyebrow">Welcome back</span><strong>Sign in to your workspace</strong><p>Manage your plan and download the app.</p></div><div class="account-menu-actions" data-signed-in-actions><a class="account-menu-item" data-account-action="admin" role="menuitem" href=""><strong>Admin</strong>${iconMarkup('arrow', 14)}</a><button type="button" class="account-menu-item" data-account-action="settings" role="menuitem"><span class="account-menu-item-icon">${iconMarkup('settings', 15)}</span><strong>Settings</strong>${iconMarkup('arrow', 14)}</button><button type="button" class="account-menu-signout" data-account-action="signout" role="menuitem"><span>${iconMarkup('close', 15)}</span><span data-signout-label>Sign out</span></button></div><div class="account-menu-actions" data-signed-out-actions hidden><a class="account-menu-item" data-account-action="signin" role="menuitem" href="./account.html"><strong>Sign in</strong>${iconMarkup('arrow', 14)}</a><a class="account-menu-item" data-account-action="signup" role="menuitem" href="./account.html?mode=signup"><strong>Create account</strong>${iconMarkup('arrow', 14)}</a></div></div></div>`
     }
 
@@ -332,17 +332,17 @@ export class VirgueAccountMenuElement extends HTMLElement {
 }
 
 export function registerAccountMenuElement(): void {
-  if (!customElements.get('virgue-account-menu')) customElements.define('virgue-account-menu', VirgueAccountMenuElement)
+  if (!customElements.get('valdor-account-menu')) customElements.define('valdor-account-menu', ValdorAccountMenuElement)
 }
 
 declare global {
   interface HTMLElementTagNameMap {
-    'virgue-account-menu': VirgueAccountMenuElement
+    'valdor-account-menu': ValdorAccountMenuElement
   }
 
   namespace JSX {
     interface IntrinsicElements {
-      'virgue-account-menu': HTMLAttributes<VirgueAccountMenuElement>
+      'valdor-account-menu': HTMLAttributes<ValdorAccountMenuElement>
     }
   }
 }

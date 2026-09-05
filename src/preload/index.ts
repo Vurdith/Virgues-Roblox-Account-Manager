@@ -33,10 +33,10 @@ import type {
   WebApiUpdateInput,
   SessionEvent,
   AppUpdateEvent,
-  VirgueApi,
+  ValdorApi,
 } from '../shared/types'
 
-const api: VirgueApi = {
+const api: ValdorApi = {
   accounts: {
     create: (input: CreateAccountInput) => ipcRenderer.invoke(IPC_CHANNELS.accountsCreate, input),
     remove: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.accountsRemove, id),
@@ -177,4 +177,4 @@ const api: VirgueApi = {
   },
 }
 
-contextBridge.exposeInMainWorld('virgue', api)
+contextBridge.exposeInMainWorld('valdor', api)

@@ -50,7 +50,7 @@ button:disabled { cursor: not-allowed; opacity: .5; transform: none !important; 
 .titlebar { display: grid; grid-template-columns: 270px minmax(0, 1fr) auto; align-items: center; min-height: 74px; padding: 0 14px 0 20px; border-bottom: 3px solid var(--ink); background: var(--panel); -webkit-app-region: drag; user-select: none; animation: chrome-in .46s var(--ease-standard) both; transform-origin: top; }
 .titlebar.account-menu-open { z-index: 20; }
 
-.brand-area, .titlebar-nav, .titlebar-actions, .window-controls, .window-button, .view-button, virgue-account-menu { -webkit-app-region: no-drag; }
+.brand-area, .titlebar-nav, .titlebar-actions, .window-controls, .window-button, .view-button, valdor-account-menu { -webkit-app-region: no-drag; }
 
 .brand-area { display: flex; align-items: center; gap: 11px; }
 

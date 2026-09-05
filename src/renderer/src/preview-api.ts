@@ -18,8 +18,8 @@ import type {
   SessionEvent,
   SessionSnapshot,
   UpdateAccountInput,
-  VirgueApi,
-  VirgueAuthSession,
+  ValdorApi,
+  ValdorAuthSession,
   WebApiSettings,
   WatcherSettings,
   AppUpdateEvent,
@@ -45,7 +45,7 @@ const previewGames: GameCollection[] = [
     lastUsed: '2026-08-24T21:18:00.000Z',
     universeId: 'preview-universe-dungeon',
     thumbnailUrl: '',
-    creatorName: 'Virgue',
+    creatorName: 'Valdor',
     creatorId: '1',
     playing: 0,
     visits: 0,
@@ -148,7 +148,7 @@ function createControlAccounts(accounts: Account[], connected = false): ControlA
   }))
 }
 
-function createPreviewApi(): VirgueApi {
+function createPreviewApi(): ValdorApi {
   const previewParams = new URLSearchParams(window.location.search)
   let accounts = clone(previewAccounts)
   let games = clone(previewGames)
@@ -167,7 +167,7 @@ function createPreviewApi(): VirgueApi {
   let serverHistory: ServerHistoryRecord[] = []
   let serverPreferences: ServerPreference[] = []
   let sessionSnapshot: SessionSnapshot = { active: [], history: [], events: [], recoveryJobs: [], checkedAt: now() }
-  let authSession: VirgueAuthSession | null = null
+  let authSession: ValdorAuthSession | null = null
   const sessionListeners = new Set<(event: SessionEvent) => void>()
   const entitlements = getPlanEntitlements(previewParams.get('plan') === 'pro' ? 'pro' : undefined)
   const accountSlotCount = () => new Set(accounts.map((account) => account.username.trim().toLowerCase()).filter(Boolean)).size
@@ -191,7 +191,7 @@ function createPreviewApi(): VirgueApi {
     client: clone(client),
     settings: clone(settings),
     entitlements: clone(entitlements),
-    info: { name: "Virgue's Roblox Account Manager", version: '1.0.5', platform: 'Browser preview', dataPath: 'Preview only' },
+    info: { name: "Valdor — Roblox Account Manager", version: '1.0.5', platform: 'Browser preview', dataPath: 'Preview only' },
   })
 
   const firstAssignment = () => ({ gameId: games[0]?.id ?? '', categoryId: games[0]?.categories[0]?.id ?? '' })
@@ -218,7 +218,7 @@ function createPreviewApi(): VirgueApi {
     accounts = accounts.map((account) => account.id === id ? updated : account)
     return updated
   }
-  const transferPreviewAccounts: VirgueApi['accounts']['transfer'] = async (input) => {
+  const transferPreviewAccounts: ValdorApi['accounts']['transfer'] = async (input) => {
     const destination = games.find((game) => game.id === input.gameId)
     if (!destination) throw new Error('Game not found.')
     const categoryId = destination.categories.some((category) => category.id === input.categoryId) ? input.categoryId : destination.categories[0]?.id ?? ''
@@ -245,7 +245,7 @@ function createPreviewApi(): VirgueApi {
     controlAccounts = createControlAccounts(accounts)
     return clone({ mode: input.mode, transfers })
   }
-  const importPreviewCookie: VirgueApi['accounts']['importCookie'] = async (input) => {
+  const importPreviewCookie: ValdorApi['accounts']['importCookie'] = async (input) => {
     assertAccountCapacity()
     const assignment = firstAssignment()
     const username = input.username?.trim() || `cookieUser${accounts.length + 1}`
@@ -419,7 +419,7 @@ function createPreviewApi(): VirgueApi {
         if (fallback) accounts = accounts.map((account) => account.gameId === gameId && account.categoryId === categoryId ? { ...account, categoryId: fallback.id } : account)
         return clone(updated)
       },
-      search: async (query) => [{ placeId: '77649408247578', universeId: 'preview-universe-dungeon', name: query.trim() || 'Dungeon Quest Reborn', creatorName: 'Virgue', playing: 0, visits: 0, imageUrl: '' } satisfies GameSearchResult],
+      search: async (query) => [{ placeId: '77649408247578', universeId: 'preview-universe-dungeon', name: query.trim() || 'Dungeon Quest Reborn', creatorName: 'Valdor', playing: 0, visits: 0, imageUrl: '' } satisfies GameSearchResult],
       toggleFavorite: async (id) => {
         const current = games.find((game) => game.id === id)
         if (!current) throw new Error('Game not found.')
@@ -430,7 +430,7 @@ function createPreviewApi(): VirgueApi {
       refreshInfo: async (id) => {
         const current = games.find((game) => game.id === id)
         if (!current) throw new Error('Game not found.')
-        const updated = { ...current, universeId: current.universeId || 'preview-universe-dungeon', creatorName: current.creatorName || 'Virgue', creatorId: current.creatorId || '1', playing: current.playing || 0, visits: current.visits || 0, infoUpdatedAt: now() }
+        const updated = { ...current, universeId: current.universeId || 'preview-universe-dungeon', creatorName: current.creatorName || 'Valdor', creatorId: current.creatorId || '1', playing: current.playing || 0, visits: current.visits || 0, infoUpdatedAt: now() }
         games = games.map((game) => game.id === id ? updated : game)
         return clone(updated)
       },
@@ -482,25 +482,25 @@ function createPreviewApi(): VirgueApi {
       loadRegion: async (placeId, serverId) => ({ ...makeServer(serverId, 0, true), id: serverId, region: 'EU', regionLoaded: true, type: 'public', maxPlayers: 12, playing: 5, fps: '60', ping: 34, accessCode: placeId }),
       getFinderState: async (input) => finderState(input.gameId, input.accountId),
       savePreset: async (input) => {
-        const result = await (window.virgue.servers.list({ placeId: input.placeId, finder: { action: 'save-preset', preset: input.preset } }))
+        const result = await (window.valdor.servers.list({ placeId: input.placeId, finder: { action: 'save-preset', preset: input.preset } }))
         return result.finderState!
       },
       deletePreset: async (input) => {
-        const result = await window.virgue.servers.list({ placeId: input.placeId, finder: { action: 'delete-preset', gameId: input.gameId, presetId: input.presetId, accountId: input.accountId } })
+        const result = await window.valdor.servers.list({ placeId: input.placeId, finder: { action: 'delete-preset', gameId: input.gameId, presetId: input.presetId, accountId: input.accountId } })
         return result.finderState!
       },
       toggleFavorite: async (input) => {
-        const result = await window.virgue.servers.list({ placeId: input.placeId, finder: { action: 'toggle-favorite', gameId: input.gameId, accountId: input.accountId, placeId: input.placeId, serverId: input.serverId, value: input.value } })
+        const result = await window.valdor.servers.list({ placeId: input.placeId, finder: { action: 'toggle-favorite', gameId: input.gameId, accountId: input.accountId, placeId: input.placeId, serverId: input.serverId, value: input.value } })
         return result.finderState!
       },
       toggleAvoid: async (input) => {
-        const result = await window.virgue.servers.list({ placeId: input.placeId, finder: { action: 'toggle-avoid', gameId: input.gameId, accountId: input.accountId, placeId: input.placeId, serverId: input.serverId, value: input.value } })
+        const result = await window.valdor.servers.list({ placeId: input.placeId, finder: { action: 'toggle-avoid', gameId: input.gameId, accountId: input.accountId, placeId: input.placeId, serverId: input.serverId, value: input.value } })
         return result.finderState!
       },
     },
     tools: {
       searchPlayer: async (username) => ({ source: 'offline' as const, players: [{ id: '100001', username: username || 'player', displayName: username || 'Player', description: 'Preview player profile', createdAt: '2020-01-01T00:00:00.000Z', isBanned: false, avatarUrl: '', presence: presence('online', 'Roblox home') }] }),
-      getUniverse: async (placeId) => ({ source: 'offline' as const, universe: { id: 'preview-universe-dungeon', rootPlaceId: placeId, name: 'Dungeon Quest Reborn', description: 'Preview universe information.', creatorName: 'Virgue', creatorId: '1', playing: 0, visits: 0, imageUrl: '', isPlayable: true } }),
+      getUniverse: async (placeId) => ({ source: 'offline' as const, universe: { id: 'preview-universe-dungeon', rootPlaceId: placeId, name: 'Dungeon Quest Reborn', description: 'Preview universe information.', creatorName: 'Valdor', creatorId: '1', playing: 0, visits: 0, imageUrl: '', isPlayable: true } }),
       getOutfit: async (userId) => ({ userId, avatarUrl: '', assets: ['Classic Shirt', 'Classic Pants', 'Robloxian 2.0'] }),
       applyFpsSettings: async (input) => { client = { ...client, ...input }; return clone(client) },
       openRecentGame: async (id) => {
@@ -548,7 +548,7 @@ function createPreviewApi(): VirgueApi {
         const snapshot = backgroundInputSnapshot()
         if (!snapshot.protectedAccountId) throw new Error('Choose which Roblox account is your main before sending background controls.')
         const targets = snapshot.sessions.filter((session) => input.sessionIds.includes(session.id))
-        if (targets.some((session) => session.state === 'protected')) throw new Error('Virgue blocked an input directed at your protected main account.')
+        if (targets.some((session) => session.state === 'protected')) throw new Error('Valdor blocked an input directed at your protected main account.')
         return {
           key: input.key,
           durationMs: input.durationMs,
@@ -593,7 +593,7 @@ function createPreviewApi(): VirgueApi {
     auth: {
       getSession: async () => clone(authSession),
       signIn: async (input) => {
-        const session: VirgueAuthSession = {
+        const session: ValdorAuthSession = {
           user: {
             id: 'preview-user',
             name: input.email.split('@')[0] || 'Preview User',
@@ -607,7 +607,7 @@ function createPreviewApi(): VirgueApi {
         return clone(session)
       },
       signUp: async (input) => {
-        const session: VirgueAuthSession = {
+        const session: ValdorAuthSession = {
           user: {
             id: 'preview-user',
             name: input.name.trim() || input.email.split('@')[0] || 'Preview User',
@@ -641,5 +641,5 @@ function createPreviewApi(): VirgueApi {
 }
 
 export function ensurePreviewApi(): void {
-  if (typeof window.virgue === 'undefined') window.virgue = createPreviewApi()
+  if (typeof window.valdor === 'undefined') window.valdor = createPreviewApi()
 }

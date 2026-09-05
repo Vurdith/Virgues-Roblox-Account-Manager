@@ -26,7 +26,7 @@ const PLAN_ENTITLEMENTS: Record<PlanKey, PlanEntitlements> = {
   },
   pro: {
     planKey: 'pro',
-    displayName: 'Virgue Pro',
+    displayName: 'Valdor Pro',
     maxAccounts: null,
     maxGames: null,
     bulkLaunch: true,
@@ -48,7 +48,7 @@ export function getPlanLimitError(entitlements: PlanEntitlements, resource: 'acc
 }
 
 export function getPlanFeatureError(entitlements: PlanEntitlements, feature: 'bulk-launch' | 'isolated-worker-input'): string {
-  if (feature === 'bulk-launch' && !entitlements.bulkLaunch) return `Bulk launch is available with Virgue Pro. Launch accounts individually on the ${entitlements.displayName}.`
-  if (feature === 'isolated-worker-input' && !entitlements.isolatedWorkerInput) return `Isolated worker controls are available with Virgue Pro.`
+  if (feature === 'bulk-launch' && !entitlements.bulkLaunch) return `Bulk launch is available with Valdor Pro. Launch accounts individually on the ${entitlements.displayName}.`
+  if (feature === 'isolated-worker-input' && !entitlements.isolatedWorkerInput) return `Isolated worker controls are available with Valdor Pro.`
   return ''
 }

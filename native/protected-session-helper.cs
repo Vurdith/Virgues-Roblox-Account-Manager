@@ -13,7 +13,7 @@ using System.Windows.Forms;
 using Microsoft.Win32;
 using System.ServiceProcess;
 
-namespace Virgue.ProtectedSession
+namespace Valdor.ProtectedSession
 {
     [ComImport]
     [Guid("302D8188-0052-4807-806A-362B628F9AC5")]
@@ -274,6 +274,7 @@ namespace Virgue.ProtectedSession
 
     internal sealed class HostBridge : IDisposable
     {
+        private const string LegacyRunOnceValueName = "VirgueProtectedSessionAgent";
         private readonly string pipeName;
         private readonly string token;
         private readonly int parentSessionId;
@@ -291,7 +292,7 @@ namespace Virgue.ProtectedSession
 
         internal void Start()
         {
-            var thread = new Thread(Run) { IsBackground = true, Name = "Virgue protected-session pipe" };
+            var thread = new Thread(Run) { IsBackground = true, Name = "Valdor protected-session pipe" };
             thread.Start();
         }
 
@@ -377,7 +378,8 @@ namespace Virgue.ProtectedSession
             using (var key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\RunOnce"))
             {
                 if (key == null) throw new InvalidOperationException("Windows could not prepare the protected-session agent.");
-                key.SetValue("VirgueProtectedSessionAgent", command, RegistryValueKind.String);
+                key.DeleteValue(LegacyRunOnceValueName, false);
+                key.SetValue("ValdorProtectedSessionAgent", command, RegistryValueKind.String);
             }
         }
 
@@ -387,7 +389,11 @@ namespace Virgue.ProtectedSession
             {
                 using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\RunOnce", true))
                 {
-                    if (key != null) key.DeleteValue("VirgueProtectedSessionAgent", false);
+                    if (key != null)
+                    {
+                        key.DeleteValue("ValdorProtectedSessionAgent", false);
+                        key.DeleteValue(LegacyRunOnceValueName, false);
+                    }
                 }
             }
             catch { }
@@ -396,7 +402,8 @@ namespace Virgue.ProtectedSession
 
     internal static class Program
     {
-        private const string BackupKeyPath = @"SOFTWARE\Virgue\ProtectedSession";
+        private const string BackupKeyPath = @"SOFTWARE\Valdor\ProtectedSession";
+        private const string LegacyBackupKeyPath = @"SOFTWARE\Virgue\ProtectedSession";
         private const string CredentialPolicyPath = @"SOFTWARE\Policies\Microsoft\Windows\CredentialsDelegation";
         private const string TerminalPolicyPath = @"SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services";
         private const string TerminalServerPath = @"SYSTEM\CurrentControlSet\Control\Terminal Server";
@@ -516,7 +523,7 @@ namespace Virgue.ProtectedSession
                 HostBridge.SetRunOnce(agentCommand);
                 bridge.Start();
 
-                form.Text = "Virgue Protected Session";
+                form.Text = "Valdor Protected Session";
                 form.Width = 1280;
                 form.Height = 720;
                 form.ShowInTaskbar = false;
@@ -603,7 +610,7 @@ namespace Virgue.ProtectedSession
                         bridge.Send(line);
                     }
                     try { form.BeginInvoke(new Action(form.Close)); } catch { }
-                }) { IsBackground = true, Name = "Virgue protected-session command input" };
+                }) { IsBackground = true, Name = "Valdor protected-session command input" };
                 commandThread.Start();
 
                 Application.Run(form);
@@ -633,7 +640,7 @@ namespace Virgue.ProtectedSession
                     try { ownsRobloxMutex = robloxMutex.WaitOne(0); }
                     catch (AbandonedMutexException) { ownsRobloxMutex = true; }
                 }
-                if (!ownsRobloxMutex) throw new InvalidOperationException("Virgue could not enable multiple Roblox clients in the protected session.");
+                if (!ownsRobloxMutex) throw new InvalidOperationException("Valdor could not enable multiple Roblox clients in the protected session.");
 
                 pipe.Connect(60000);
                 var reader = new StreamReader(pipe, new UTF8Encoding(false), false, 4096, true);
@@ -740,7 +747,7 @@ namespace Virgue.ProtectedSession
         private static string SendRobloxInput(uint processId, IntPtr window, string keyCode, int durationMs)
         {
             ushort virtualKey;
-            if (!AllowedKeys.TryGetValue(keyCode, out virtualKey)) throw new InvalidOperationException("That key is not in Virgue's protected-session allowlist.");
+            if (!AllowedKeys.TryGetValue(keyCode, out virtualKey)) throw new InvalidOperationException("That key is not in Valdor protected-session allowlist.");
             if (durationMs < 40 || durationMs > 1500) throw new InvalidOperationException("Input duration must be between 40 and 1500 milliseconds.");
             if (!NativeMethods.IsWindow(window) || NativeMethods.GetAncestor(window, NativeMethods.GaRoot) != window)
                 throw new InvalidOperationException("The selected Roblox window no longer exists.");
@@ -750,7 +757,7 @@ namespace Virgue.ProtectedSession
             if (windowProcessId != processId) throw new InvalidOperationException("The selected window no longer belongs to the recorded Roblox process.");
             uint processSessionId;
             if (!NativeMethods.ProcessIdToSessionId(processId, out processSessionId) || processSessionId != (uint)Process.GetCurrentProcess().SessionId)
-                throw new InvalidOperationException("Virgue refused input outside the protected Windows session.");
+                throw new InvalidOperationException("Valdor refused input outside the protected Windows session.");
             string processPath;
             if (!TryGetProcessPath(processId, out processPath) || !string.Equals(Path.GetFileName(processPath), "RobloxPlayerBeta.exe", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("The selected process is not RobloxPlayerBeta.exe.");
@@ -775,7 +782,7 @@ namespace Virgue.ProtectedSession
             if (!fullPath.StartsWith(robloxRoot, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(Path.GetFileName(fullPath), "RobloxPlayerBeta.exe", StringComparison.OrdinalIgnoreCase) ||
                 !File.Exists(fullPath))
-                throw new InvalidOperationException("Virgue refused to launch an executable outside the installed Roblox Versions folder.");
+                throw new InvalidOperationException("Valdor refused to launch an executable outside the installed Roblox Versions folder.");
             if (arguments.Length > 32700 || accountId.Length > 256 || launchRequestId.Length > 256)
                 throw new InvalidOperationException("The protected launch request was too large.");
 
@@ -886,7 +893,7 @@ namespace Virgue.ProtectedSession
         private static void AddPolicyListValue(string path, string value, string backupName)
         {
             using (var key = Registry.LocalMachine.CreateSubKey(path))
-            using (var backup = Registry.LocalMachine.CreateSubKey(BackupKeyPath))
+            using (var backup = Registry.LocalMachine.CreateSubKey(GetBackupKeyPath()))
             {
                 if (key == null || backup == null) throw new InvalidOperationException("Windows could not create the localhost credential allowlist.");
                 foreach (var name in key.GetValueNames())
@@ -922,7 +929,8 @@ namespace Virgue.ProtectedSession
 
         private static void BackupConfiguration()
         {
-            using (var backup = Registry.LocalMachine.CreateSubKey(BackupKeyPath))
+            var backupKeyPath = GetBackupKeyPath();
+            using (var backup = Registry.LocalMachine.CreateSubKey(backupKeyPath))
             {
                 if (backup == null) throw new InvalidOperationException("Windows could not create the Protected Session restore point.");
                 if (Convert.ToInt32(backup.GetValue("Complete", 0), CultureInfo.InvariantCulture) == 1) return;
@@ -942,7 +950,8 @@ namespace Virgue.ProtectedSession
 
         private static void RestoreConfiguration()
         {
-            using (var backup = Registry.LocalMachine.OpenSubKey(BackupKeyPath, true))
+            var backupKeyPath = GetBackupKeyPath();
+            using (var backup = Registry.LocalMachine.OpenSubKey(backupKeyPath, true))
             {
                 if (backup == null || Convert.ToInt32(backup.GetValue("Complete", 0), CultureInfo.InvariantCulture) != 1)
                 {
@@ -963,7 +972,24 @@ namespace Virgue.ProtectedSession
                 RemoveCreatedPolicyEntry(backup, CredentialPolicyPath + @"\AllowDefaultCredentials", "DefaultCredentialListValue");
                 RemoveCreatedPolicyEntry(backup, CredentialPolicyPath + @"\AllowDefCredentialsWhenNTLMOnly", "NtlmCredentialListValue");
             }
-            Registry.LocalMachine.DeleteSubKeyTree(BackupKeyPath, false);
+            Registry.LocalMachine.DeleteSubKeyTree(backupKeyPath, false);
+        }
+
+        private static string GetBackupKeyPath()
+        {
+            using (var canonical = Registry.LocalMachine.OpenSubKey(BackupKeyPath))
+            {
+                if (canonical != null && Convert.ToInt32(canonical.GetValue("Complete", 0), CultureInfo.InvariantCulture) == 1)
+                    return BackupKeyPath;
+            }
+
+            using (var legacy = Registry.LocalMachine.OpenSubKey(LegacyBackupKeyPath))
+            {
+                if (legacy != null && Convert.ToInt32(legacy.GetValue("Complete", 0), CultureInfo.InvariantCulture) == 1)
+                    return LegacyBackupKeyPath;
+            }
+
+            return BackupKeyPath;
         }
 
         private static void BackupValue(RegistryKey backup, RegistryKey hive, string path, string name, string backupName)

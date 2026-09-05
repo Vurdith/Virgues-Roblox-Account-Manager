@@ -149,7 +149,7 @@ export class InputWorkerService {
 
   private assertPlanAccess(): void {
     if (!this.store.getSnapshot().entitlements.isolatedWorkerInput) {
-      throw new Error('Isolated worker controls are available with Virgue Pro.')
+      throw new Error('Isolated worker controls are available with Valdor Pro.')
     }
   }
 }

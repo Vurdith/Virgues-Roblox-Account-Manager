@@ -86,7 +86,7 @@ export class ControlServer {
     const jobId = requestUrl.searchParams.get('jobId')?.trim() ?? ''
     const account = this.store.getAccounts().find((candidate) => candidate.username.toLowerCase() === username.toLowerCase() || (userId && candidate.userId === userId))
     if (!account || !username || !userId) {
-      socket.close(1008, 'Account is not registered with Virgue')
+      socket.close(1008, 'Account is not registered with Valdor')
       return
     }
     const previous = this.clients.get(account.id)
