@@ -1,10 +1,12 @@
 import { app, clipboard, ipcMain, type BrowserWindow } from 'electron'
 import { IPC_CHANNELS } from '../shared/ipc'
-import type { AccountTransferInput, AppSettings, AuthCredentialsInput, AuthSignUpInput, BackgroundInputCommandInput, ClientSettingsUpdateInput, ControlCommandInput, ControlSettings, IsolatedWorkerCommandInput, IsolatedWorkerConnectionInput, JoinServerInput, ServerQuery, UpdateAccountInput, UpdateGameInput, WebApiUpdateInput, WatcherUpdateInput } from '../shared/types'
+import type { AccountTransferInput, AppSettings, AuthCredentialsInput, AuthSignUpInput, BackgroundInputCommandInput, BackgroundInputScheduleInput, ClientSettingsUpdateInput, ControlCommandInput, ControlSettings, IsolatedWorkerCommandInput, IsolatedWorkerConnectionInput, JoinServerInput, ServerQuery, UpdateAccountInput, UpdateGameInput, WebApiUpdateInput, WatcherUpdateInput } from '../shared/types'
 import { AccountStore } from './account-store'
 import { AuthService } from './auth-service'
 import { BillingService } from './billing-service'
 import { BackgroundInputService } from './background-input'
+import { AutoHotkeyService } from './autohotkey-service'
+import { AhkAiService } from './ahk-ai-service'
 import { ControlServer } from './control-server'
 import { InputWorkerClient } from './input-worker-client'
 import { ProtectedSessionService } from './protected-session'
@@ -25,6 +27,8 @@ interface IpcServices {
   inputWorkerClient: InputWorkerClient
   backgroundInput: BackgroundInputService
   protectedSession: ProtectedSessionService
+  autoHotkey: AutoHotkeyService
+  ahkAi: AhkAiService
   secrets: SecretStore
   auth: AuthService
   billing: BillingService
@@ -33,7 +37,7 @@ interface IpcServices {
 }
 
 export function registerIpcHandlers(services: IpcServices): void {
-  const { store, roblox, webApi, watcher, sessions, control, inputWorkerClient, backgroundInput, protectedSession, secrets, auth, billing, updates, getWindow } = services
+  const { store, roblox, webApi, watcher, sessions, control, inputWorkerClient, backgroundInput, protectedSession, autoHotkey, ahkAi, secrets, auth, billing, updates, getWindow } = services
   ipcMain.handle(IPC_CHANNELS.appGetSnapshot, () => store.getSnapshot())
   ipcMain.handle(IPC_CHANNELS.appImportData, async () => { await store.importData(); return store.getSnapshot() })
   ipcMain.handle(IPC_CHANNELS.appOpenDataFolder, () => store.openDataFolder())
@@ -121,10 +125,30 @@ export function registerIpcHandlers(services: IpcServices): void {
   })
   ipcMain.handle(IPC_CHANNELS.backgroundInputGetSessions, () => backgroundInput.getSnapshot())
   ipcMain.handle(IPC_CHANNELS.backgroundInputSend, (_event, input: BackgroundInputCommandInput) => backgroundInput.send(input))
+  ipcMain.handle(IPC_CHANNELS.backgroundInputStartSchedule, (_event, input: BackgroundInputScheduleInput) => backgroundInput.startSchedule(input))
+  ipcMain.handle(IPC_CHANNELS.backgroundInputPauseSchedule, (_event, id: string) => backgroundInput.pauseSchedule(id))
+  ipcMain.handle(IPC_CHANNELS.backgroundInputResumeSchedule, (_event, id: string) => backgroundInput.resumeSchedule(id))
+  ipcMain.handle(IPC_CHANNELS.backgroundInputStopSchedule, (_event, id: string) => backgroundInput.stopSchedule(id))
   ipcMain.handle(IPC_CHANNELS.protectedSessionGetStatus, () => protectedSession.getStatus())
   ipcMain.handle(IPC_CHANNELS.protectedSessionSetup, () => protectedSession.setup())
   ipcMain.handle(IPC_CHANNELS.protectedSessionStart, () => protectedSession.start())
-  ipcMain.handle(IPC_CHANNELS.protectedSessionStop, () => protectedSession.stop())
+  ipcMain.handle(IPC_CHANNELS.protectedSessionStop, async () => {
+    const status = await protectedSession.stop()
+    backgroundInput.stopAll('Protected Session stopped.')
+    return status
+  })
+  ipcMain.handle(IPC_CHANNELS.protectedSessionShowViewer, () => protectedSession.showViewer())
+  ipcMain.handle(IPC_CHANNELS.autoHotkeyGetSnapshot, () => autoHotkey.getSnapshot())
+  ipcMain.handle(IPC_CHANNELS.autoHotkeySave, (_event, input) => autoHotkey.save(input))
+  ipcMain.handle(IPC_CHANNELS.autoHotkeyRemove, (_event, id: string) => autoHotkey.remove(id))
+  ipcMain.handle(IPC_CHANNELS.autoHotkeyRun, (_event, id: string) => autoHotkey.run(id))
+  ipcMain.handle(IPC_CHANNELS.autoHotkeyStop, (_event, id: string) => autoHotkey.stop(id))
+  ipcMain.handle(IPC_CHANNELS.autoHotkeyOpenDownload, () => autoHotkey.openDownload())
+  ipcMain.handle(IPC_CHANNELS.autoHotkeyAiStatus, () => ahkAi.getStatus())
+  ipcMain.handle(IPC_CHANNELS.autoHotkeyAiDownload, () => ahkAi.downloadModel())
+  ipcMain.handle(IPC_CHANNELS.autoHotkeyAiGenerate, (_event, request: string) => ahkAi.generate(request))
+  ipcMain.handle(IPC_CHANNELS.autoHotkeyAiCancel, () => ahkAi.cancel())
+  ipcMain.handle(IPC_CHANNELS.autoHotkeyAiRemoveModel, () => ahkAi.removeModel())
   ipcMain.handle(IPC_CHANNELS.watcherUpdate, (_event, input: WatcherUpdateInput) => watcher.update(input))
   ipcMain.handle(IPC_CHANNELS.watcherCheck, () => watcher.check())
 

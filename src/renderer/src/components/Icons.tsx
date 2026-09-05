@@ -5,6 +5,7 @@ export type IconName =
   | 'arrow'
   | 'box'
   | 'browser'
+  | 'chart'
   | 'chevron'
   | 'chest'
   | 'clock'
@@ -73,6 +74,8 @@ export function Icon({ name, size = 18, strokeWidth = 2.2, filled = false, ...pr
       return <svg {...common}><path d="m4 8 8-4 8 4-8 4z" /><path d="M4 8v9l8 4 8-4V8M12 12v9M8 6l8 4" /></svg>
     case 'browser':
       return <svg {...common}><rect x="3.5" y="4" width="17" height="16" rx="1.5" /><path d="M4 8.5h16M8 6.25h.01M11 6.25h.01M14 6.25h.01" /></svg>
+    case 'chart':
+      return <svg {...common}><path d="M4 4v16h16" /><path d="m7 15 3.5-4 3 2 4.5-6" /></svg>
     case 'chevron':
       return <svg {...common}><path d="m7 10 5 5 5-5" /></svg>
     case 'chest':
@@ -108,7 +111,7 @@ export function Icon({ name, size = 18, strokeWidth = 2.2, filled = false, ...pr
     case 'grid':
       return <svg {...common}><rect x="4" y="4" width="6" height="6" /><rect x="14" y="4" width="6" height="6" /><rect x="4" y="14" width="6" height="6" /><rect x="14" y="14" width="6" height="6" /></svg>
     case 'import':
-      return <svg {...common}><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M4 20h16" /></svg>
+      return <svg {...common}><path d="M12 21V9" /><path d="m7 13 5-5 5 5" /><path d="M4 4h16" /></svg>
     case 'key':
       return <svg {...common}><circle cx="8.5" cy="15.5" r="3.5" /><path d="m11 13 8-8M16 6l2 2M14 8l2 2" /></svg>
     case 'launch':

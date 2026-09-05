@@ -11,16 +11,13 @@ import type {
   AuthSignUpInput,
   AppSettings,
   AppSnapshot,
-  BackgroundInputCommandResult,
   BackgroundInputSnapshot,
   CategoryIcon,
   ControlAccount,
-  ControlCommand,
   ControlSettings,
   GameCollection,
   GameSearchResult,
-  IsolatedWorkerInputKey,
-  IsolatedWorkerSnapshot,
+  OutfitPreview,
   PlayerLookup,
   RecentGame,
   RecoveryJob,
@@ -41,14 +38,17 @@ import type {
   UpdateCategoryInput,
   PlanEntitlements,
   ProtectedSessionStatus,
-  WindowInputKey,
   VirgueAuthSession,
   AppUpdateEvent,
+  AutoHotkeySnapshot,
+  AhkAiGenerationResult,
+  AhkAiStatus,
 } from '@shared/types'
 import { getPlanEntitlements, getPlanFeatureError, getPlanLimitError } from '@shared/entitlements'
 import { registerAccountMenuElement, type VirgueAccountMenuElement } from '@shared/account-menu'
 import { Icon, type IconName } from './components/Icons'
 import AccountView from './AccountView'
+import { ThinkingOrb, type OrbState } from 'thinking-orbs'
 
 type View = 'accounts' | 'games' | 'sessions' | 'servers' | 'utilities' | 'control' | 'activity' | 'settings'
 type ActivityTone = 'normal' | 'positive' | 'warning'
@@ -61,6 +61,12 @@ const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; description: string
   { id: 'privacy', label: 'Privacy & security', description: 'Local data and integration access', icon: 'shield' },
   { id: 'billing', label: 'Billing', description: 'Plan and subscription access', icon: 'coins' },
 ]
+
+const SETTINGS_TAB_CONTENT: Record<SettingsTab, { title: string; description: string }> = {
+  features: { title: 'Tune the workspace', description: 'Set how Virgue launches Roblox, watches clients, and applies client defaults.' },
+  privacy: { title: 'Keep integrations contained', description: 'Choose which local API routes are available and when another device may connect.' },
+  billing: { title: 'Your plan and capacity', description: 'See what your current plan includes and how much of the workspace you are using.' },
+}
 
 const DEFAULT_ENTITLEMENTS = getPlanEntitlements()
 const PRICING_URL = 'https://virgues-roblox-account-manager.vercel.app/pricing.html'
@@ -136,6 +142,20 @@ function accountFreshnessTime(account: Account): number {
     account.lastUsed ? Date.parse(account.lastUsed) : 0,
     account.lastVerified ? Date.parse(account.lastVerified) : 0,
   )
+}
+
+const RECENT_ACCOUNT_WINDOW_MS = 2 * 60 * 60 * 1000
+
+function isAccountRecentlyUsed(account: Account, now = Date.now()): boolean {
+  if (!account.lastUsed) return false
+  const lastUsed = Date.parse(account.lastUsed)
+  return Number.isFinite(lastUsed) && lastUsed <= now && now - lastUsed <= RECENT_ACCOUNT_WINDOW_MS
+}
+
+function accountPriority(account: Account): number {
+  if (account.favorite) return 0
+  if (isAccountRecentlyUsed(account)) return 1
+  return 2
 }
 
 function uniqueAccounts(accounts: Account[]): Account[] {
@@ -242,6 +262,11 @@ function App() {
   const selectedAccount = accounts.find((account) => account.id === selectedId) ?? null
   const selectedGame = games.find((game) => game.id === selectedGameId) ?? null
   const uniqueWorkspaceAccounts = useMemo(() => uniqueAccounts(accounts), [accounts])
+  const lastUsedAccount = useMemo(() => uniqueWorkspaceAccounts.reduce<Account | null>((latest, account) => {
+    const currentTime = account.lastUsed ? Date.parse(account.lastUsed) : 0
+    const latestTime = latest?.lastUsed ? Date.parse(latest.lastUsed) : 0
+    return currentTime > latestTime ? account : latest
+  }, null), [uniqueWorkspaceAccounts])
   const accountLimitReached = entitlements.maxAccounts !== null && uniqueWorkspaceAccounts.length >= entitlements.maxAccounts
   const gameLimitReached = entitlements.maxGames !== null && games.length >= entitlements.maxGames
   const activeSessionAccountIds = useMemo(() => new Set(sessionSnapshot.active.map((session) => session.accountId)), [sessionSnapshot.active])
@@ -252,7 +277,14 @@ function App() {
       .filter((account) => selectedGameId === 'all' || account.gameId === selectedGameId)
       .filter((account) => selectedCategoryId === 'all' || account.categoryId === selectedCategoryId)
       .filter((account) => !query || [account.username, account.alias, account.description, account.displayName].some((value) => value.toLowerCase().includes(query)))
-    return uniqueAccounts(visible).sort((a, b) => sortMode === 'name' ? a.username.localeCompare(b.username) : sortMode === 'last-used' ? (b.lastUsed ? Date.parse(b.lastUsed) : 0) - (a.lastUsed ? Date.parse(a.lastUsed) : 0) : sortMode === 'sessions' ? b.sessions - a.sessions : STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status) || a.username.localeCompare(b.username))
+    return uniqueAccounts(visible).sort((a, b) => {
+      const priorityDifference = accountPriority(a) - accountPriority(b)
+      if (priorityDifference !== 0) return priorityDifference
+      if (sortMode === 'name') return a.username.localeCompare(b.username)
+      if (sortMode === 'last-used') return (b.lastUsed ? Date.parse(b.lastUsed) : 0) - (a.lastUsed ? Date.parse(a.lastUsed) : 0) || a.username.localeCompare(b.username)
+      if (sortMode === 'sessions') return b.sessions - a.sessions || a.username.localeCompare(b.username)
+      return STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status) || a.username.localeCompare(b.username)
+    })
   }, [accounts, search, selectedCategoryId, selectedGameId, sortMode])
 
   const loadSnapshot = async () => {
@@ -441,6 +473,16 @@ function App() {
     } catch (caught) { setErrorFrom(caught, 'The profile could not be updated.') }
   }
 
+  const handleAccountFavoriteToggle = async (accountId: string) => {
+    const account = accounts.find((candidate) => candidate.id === accountId)
+    if (!account) return
+    try {
+      const updated = await window.virgue.accounts.update(accountId, { favorite: !account.favorite })
+      updateAccount(updated)
+      pushActivity(updated.favorite ? `Favourited ${updated.alias || updated.username}` : `Unfavourited ${updated.alias || updated.username}`, updated.favorite ? 'Pinned above recently used profiles' : 'Removed from the priority shelf', 'positive')
+    } catch (caught) { setErrorFrom(caught, 'The favourite could not be saved.') }
+  }
+
   const handleAccountTransfer = async (input: AccountTransferInput): Promise<boolean> => {
     try {
       const result = await window.virgue.accounts.transfer(input)
@@ -461,15 +503,18 @@ function App() {
     }
   }
 
-  const handleAccountUtility = async (input: AccountUtilityInput): Promise<AccountUtilityResult | null> => {
+  const handleAccountUtility = async (input: AccountUtilityInput, redirectToActivity = true): Promise<AccountUtilityResult | null> => {
     try {
       const result = await window.virgue.accounts.utility(input)
       pushActivity(result.message, 'Account utility completed', result.ok ? 'positive' : 'warning')
       // Utility actions can update persisted account identity, balances, or
       // credentials. Refresh the snapshot after every successful action so
       // the selected profile and the modal always reflect the backend result.
-      if (result.ok) await loadSnapshot()
-      setActiveView('activity')
+      if (result.ok) {
+        if (redirectToActivity) await loadSnapshot()
+        else setSnapshot(await window.virgue.app.getSnapshot())
+      }
+      if (redirectToActivity) setActiveView('activity')
       return result
     } catch (caught) {
       setErrorFrom(caught, 'Account utility failed.')
@@ -604,8 +649,8 @@ function App() {
     </main>
   </div>
 
-  const workspaceEyebrow = activeView === 'accounts' ? 'Profiles' : activeView === 'games' ? 'Collections' : activeView === 'sessions' ? 'Live activity' : activeView === 'servers' ? 'Roblox servers' : activeView === 'control' ? 'Background input' : activeView === 'activity' ? 'Workspace history' : activeView === 'settings' ? 'Preferences' : 'Workspace tools'
-  const workspaceTitle = activeView === 'accounts' ? 'Account desk' : activeView === 'games' ? 'Game shelf' : activeView === 'sessions' ? 'Session board' : activeView === 'servers' ? 'Server list' : activeView === 'control' ? 'Alt controls' : activeView === 'activity' ? 'Activity centre' : activeView === 'settings' ? 'Settings' : 'Utilities'
+  const workspaceEyebrow = activeView === 'accounts' ? 'Profiles' : activeView === 'games' ? 'Collections' : activeView === 'sessions' ? 'Live activity' : activeView === 'servers' ? 'Roblox servers' : activeView === 'control' ? 'Protected controls' : activeView === 'activity' ? 'Workspace analytics' : activeView === 'settings' ? 'Preferences' : 'Workspace tools'
+  const workspaceTitle = activeView === 'accounts' ? 'Account desk' : activeView === 'games' ? 'Game shelf' : activeView === 'sessions' ? 'Session board' : activeView === 'servers' ? 'Server finder' : activeView === 'control' ? 'Alt controls' : activeView === 'activity' ? 'Analytics' : activeView === 'settings' ? 'Settings' : 'Utilities'
 
   return <div className={`app-shell ${themeClass}`}>
     <header className={`titlebar ${isAccountMenuOpen ? 'account-menu-open' : ''}`}>
@@ -617,15 +662,15 @@ function App() {
         <ViewButton active={activeView === 'servers'} icon="server" label="Servers" onClick={() => setActiveView('servers')} />
         <ViewButton active={activeView === 'utilities'} icon="spark" label="Utilities" onClick={() => setActiveView('utilities')} />
         <ViewButton active={activeView === 'control'} icon="terminal" label="Control" onClick={() => setActiveView('control')} />
-        <ViewButton active={activeView === 'activity'} icon="clock" label="Activity" onClick={() => setActiveView('activity')} count={activity.length} />
+        <ViewButton active={activeView === 'activity'} icon="chart" label="Analytics" onClick={() => setActiveView('activity')} />
       </nav>
-      <div className="titlebar-actions"><AccountMenu session={authSession} busy={authBusy} entitlements={entitlements} isOpen={isAccountMenuOpen} onToggle={() => setIsAccountMenuOpen((current) => !current)} onOpenSettings={() => { setActiveView('settings'); setIsAccountMenuOpen(false) }} onSignOut={handleAuthSignOut} /><WindowControls isMaximized={isMaximized} onMaximize={() => void handleMaximize()} /></div>
+      <div className="titlebar-actions"><AccountMenu session={authSession} busy={authBusy} entitlements={entitlements} avatarUrl={lastUsedAccount?.avatarUrl ?? ''} isOpen={isAccountMenuOpen} onToggle={() => setIsAccountMenuOpen((current) => !current)} onOpenSettings={() => { setActiveView('settings'); setIsAccountMenuOpen(false) }} onSignOut={handleAuthSignOut} /><WindowControls isMaximized={isMaximized} onMaximize={() => void handleMaximize()} /></div>
     </header>
     <UpdateBanner update={appUpdate} onDownload={() => void handleUpdateDownload()} onInstall={() => void handleUpdateInstall()} onCheck={() => void handleUpdateCheck()} onDismiss={() => setAppUpdate(null)} />
 
     <div className={`app-body ${activeView === 'settings' ? 'settings-mode' : ''}`}>
       <aside className="sidebar">
-        <div className="sidebar-intro"><span className="eyebrow">Your workspace</span><h2>{activeView === 'games' ? 'Game shelf' : activeView === 'control' ? 'Alt controls' : activeView === 'activity' ? 'Activity centre' : activeView === 'settings' ? 'Settings' : 'Account desk'}</h2><p>{activeView === 'games' ? 'Make a game collection for each experience, then sort profiles into useful categories.' : activeView === 'control' ? 'Protect the account you are playing, then send short inputs to selected alt clients.' : activeView === 'activity' ? 'A clear timeline for balances, launches, presence checks, and workspace changes.' : activeView === 'settings' ? 'Manage app features, privacy, and billing from one place.' : 'Keep local profiles clear, grouped by game, and ready for the next session.'}</p></div>
+        <div className="sidebar-intro"><span className="eyebrow">Your workspace</span><h2>{activeView === 'games' ? 'Game shelf' : activeView === 'servers' ? 'Server finder' : activeView === 'control' ? 'Alt controls' : activeView === 'activity' ? 'Analytics' : activeView === 'settings' ? 'Settings' : 'Account desk'}</h2><p>{activeView === 'games' ? 'Make a game collection for each experience, then sort profiles into useful categories.' : activeView === 'servers' ? 'Browse public Roblox servers, narrow the list, and join as the selected account.' : activeView === 'control' ? 'Protect the account you are playing, then run AutoHotkey scripts on your alts.' : activeView === 'activity' ? 'See launch patterns, favourite profiles, and session health in one clear view.' : activeView === 'settings' ? 'Manage app features, privacy, and billing from one place.' : 'Keep local profiles clear, grouped by game, and ready for the next session.'}</p></div>
         <div className="sidebar-actions"><button type="button" className="primary-button full-button" disabled={accountLimitReached} title={accountLimitReached ? getPlanLimitError(entitlements, 'accounts') : undefined} onClick={() => { setActiveView('accounts'); handleAddAccount() }}><Icon name="plus" size={17} /> Add Account</button><button type="button" className="outline-button full-button" onClick={() => setActiveView('games')}><Icon name="game" size={17} /> Manage games</button></div>
         <div className="sidebar-section"><div className="section-heading"><span>Games</span><span className="section-count">{games.length}</span></div><div className="group-list"><button type="button" className={`group-button ${selectedGameId === 'all' ? 'active' : ''}`} onClick={() => { setSelectedGameId('all'); setSelectedCategoryId('all'); setActiveView('accounts') }}><span className="group-name"><span className="tree-icon"><Icon name="grid" size={14} /></span>All games</span><span>{uniqueWorkspaceAccounts.length}</span></button>{games.map((game) => <div className="game-tree" key={game.id}><button type="button" className={`group-button ${selectedGameId === game.id && selectedCategoryId === 'all' ? 'active' : ''}`} onClick={() => { setSelectedGameId(game.id); setSelectedCategoryId('all'); setActiveView('accounts') }}><span className="group-name"><span className="tree-icon game-tree-icon"><Icon name={game.favorite ? 'star' : 'game'} size={14} filled={game.favorite} /></span>{game.name}</span><span>{accounts.filter((account) => account.gameId === game.id).length}</span></button>{game.categories.map((category) => <button type="button" className={`category-button ${selectedGameId === game.id && selectedCategoryId === category.id ? 'active' : ''}`} key={category.id} onClick={() => { setSelectedGameId(game.id); setSelectedCategoryId(category.id); setActiveView('accounts') }}><span className="category-icon"><Icon name={category.icon ?? 'folder'} size={13} /></span>{category.name}<span>{accounts.filter((account) => account.gameId === game.id && account.categoryId === category.id).length}</span></button>)}</div>)}</div></div>
       </aside>
@@ -635,7 +680,7 @@ function App() {
         {error && <div className="error-banner" role="alert"><span>{error}</span><button type="button" aria-label="Dismiss error" onClick={() => setError('')}><Icon name="close" size={16} /></button></div>}
 
         <div className="view-stage" key={activeView}>
-          {activeView === 'accounts' && <AccountsView accounts={filteredAccounts} allAccounts={accounts} games={games} entitlements={entitlements} selectedAccount={selectedAccount} selectedGameId={selectedGameId} selectedCategoryId={selectedCategoryId} search={search} sortMode={sortMode} onSort={setSortMode} showCookieImport={showCookieImport} launchingMany={launchingMany} onSearch={setSearch} onSelect={setSelectedId} onAdd={handleAddAccount} onImport={handleImport} onCookieImport={() => setShowCookieImport(true)} onCookieClose={() => setShowCookieImport(false)} onRemove={handleRemoveAccount} onLaunch={handleLaunch} onLaunchMany={(targets) => void handleLaunchMany(targets)} onUpdate={handleAccountUpdate} onTransfer={handleAccountTransfer} onOpenBrowser={async () => { if (!selectedAccount) return; try { await window.virgue.accounts.openBrowser(selectedAccount.id); pushActivity('Browser opened', 'Roblox opened in an isolated account window', 'positive') } catch (caught) { setErrorFrom(caught, 'Account browser failed.') } }} />}
+          {activeView === 'accounts' && <AccountsView accounts={filteredAccounts} allAccounts={accounts} games={games} entitlements={entitlements} selectedAccount={selectedAccount} selectedGameId={selectedGameId} selectedCategoryId={selectedCategoryId} search={search} sortMode={sortMode} onSort={setSortMode} showCookieImport={showCookieImport} launchingMany={launchingMany} onSearch={setSearch} onSelect={setSelectedId} onResetScope={() => { setSelectedGameId('all'); setSelectedCategoryId('all') }} onAdd={handleAddAccount} onImport={handleImport} onCookieImport={() => setShowCookieImport(true)} onCookieClose={() => setShowCookieImport(false)} onRemove={handleRemoveAccount} onLaunch={handleLaunch} onLaunchMany={(targets) => void handleLaunchMany(targets)} onUpdate={handleAccountUpdate} onToggleFavorite={handleAccountFavoriteToggle} onTransfer={handleAccountTransfer} onOpenBrowser={async () => { if (!selectedAccount) return; try { await window.virgue.accounts.openBrowser(selectedAccount.id); pushActivity('Browser opened', 'Roblox opened in an isolated account window', 'positive') } catch (caught) { setErrorFrom(caught, 'Account browser failed.') } }} />}
           {activeView === 'games' && <GamesView
             games={games}
             accounts={accounts}
@@ -651,9 +696,9 @@ function App() {
           />}
           {activeView === 'sessions' && <SessionsView accounts={accounts} games={games} sessions={sessionSnapshot} onSelect={(id) => { setSelectedId(id); setActiveView('accounts') }} onCopy={handleCopyText} onStop={handleStopSession} onCancelRecovery={handleCancelRecovery} />}
           {activeView === 'servers' && <ServersView selectedAccount={selectedAccount} recentGames={uniqueRecentGames(snapshot?.recentGames ?? [])} launching={launchingAccountId === selectedAccount?.id} onLaunch={(place, job, gameId) => handleLaunch(place, job, undefined, undefined, undefined, gameId ? { gameId } : undefined)} onCopy={handleCopyText} onActivity={pushActivity} onError={(message) => setError(message)} />}
-          {activeView === 'utilities' && <UtilitiesView selectedAccount={selectedAccount} onImport={handleImport} onExport={async () => { const path = await window.virgue.app.exportData(); if (path) pushActivity('Export complete', path, 'positive') }} onCookieImport={() => setShowCookieImport(true)} onError={(message) => setError(message)} onActivity={pushActivity} />}
-          {activeView === 'control' && <ControlView accounts={snapshot?.controlAccounts ?? []} commands={snapshot?.controlCommands ?? []} control={snapshot?.control} settings={snapshot?.settings ?? null} entitlements={entitlements} onSettings={handleSetting} onError={(message) => setError(message)} onActivity={pushActivity} />}
-          {activeView === 'activity' && <ActivityCentreView activity={activity} sessions={sessionSnapshot} accounts={accounts} games={games} onSelect={(id) => { setSelectedId(id); setActiveView('accounts') }} onCopy={handleCopyText} onRejoin={async (session) => { await handleLaunch(session.placeId, session.jobId || session.targetJobId, undefined, undefined, session.accountId) }} />}
+          {activeView === 'utilities' && <UtilitiesView selectedAccount={selectedAccount} onImport={handleImport} onExport={async () => { const path = await window.virgue.app.exportData(); if (path) pushActivity('Export complete', path, 'positive') }} onCookieImport={() => setShowCookieImport(true)} onOpenAccounts={() => setActiveView('accounts')} onAccountUtility={(input) => handleAccountUtility(input, false)} onError={(message) => setError(message)} onActivity={pushActivity} />}
+          {activeView === 'control' && <ControlView accounts={snapshot?.controlAccounts ?? []} settings={snapshot?.settings ?? null} entitlements={entitlements} onSettings={handleSetting} onError={(message) => setError(message)} onActivity={pushActivity} />}
+          {activeView === 'activity' && <AnalyticsView activity={activity} sessions={sessionSnapshot} accounts={accounts} games={games} onSelect={(id) => { setSelectedId(id); setActiveView('accounts') }} onCopy={handleCopyText} onRejoin={async (session) => { await handleLaunch(session.placeId, session.jobId || session.targetJobId, undefined, undefined, session.accountId) }} onAdd={handleAddAccount} onOpenAccounts={() => setActiveView('accounts')} />}
           {activeView === 'settings' && <SettingsView settings={snapshot?.settings ?? null} client={snapshot?.client} webApi={snapshot?.webApi} watcher={snapshot?.watcher} control={snapshot?.control} entitlements={entitlements} accountCount={uniqueWorkspaceAccounts.length} gameCount={games.length} onSettings={handleSetting} onClientUpdate={(client) => setSnapshot((current) => current ? { ...current, client } : current)} onWebApiUpdate={(webApi) => setSnapshot((current) => current ? { ...current, webApi } : current)} onControl={handleControlSetting} onMultiInstanceChange={handleMultiInstanceSetting} onError={(message) => setError(message)} onActivity={pushActivity} />}
         </div>
       </main>
@@ -687,7 +732,7 @@ function UpdateBanner({ update, onDownload, onInstall, onCheck, onDismiss }: { u
   return <section className={`update-banner ${isError ? 'is-error' : ''}`} role={isError ? 'alert' : 'status'} aria-live="polite"><div><strong>{heading}</strong><p>{message}</p></div><div className="update-banner-actions">{update.state === 'available' && <button type="button" className="primary-button" onClick={onDownload}>Download update</button>}{update.state === 'downloaded' && <button type="button" className="primary-button" onClick={onInstall}>Restart and install</button>}{update.state === 'downloading' && <span className="update-progress" aria-label={`${update.percent ?? 0}% downloaded`}>{Math.round(update.percent ?? 0)}%</span>}{isError && <button type="button" className="outline-button" onClick={onCheck}>Try again</button>}<button type="button" className="text-button" onClick={onDismiss}>Dismiss</button></div></section>
 }
 
-function AccountMenu({ session, busy, entitlements, isOpen, onToggle, onOpenSettings, onSignOut }: { session: VirgueAuthSession; busy: boolean; entitlements: PlanEntitlements; isOpen: boolean; onToggle: () => void; onOpenSettings: () => void; onSignOut: () => Promise<void> }) {
+function AccountMenu({ session, busy, entitlements, avatarUrl, isOpen, onToggle, onOpenSettings, onSignOut }: { session: VirgueAuthSession; busy: boolean; entitlements: PlanEntitlements; avatarUrl: string; isOpen: boolean; onToggle: () => void; onOpenSettings: () => void; onSignOut: () => Promise<void> }) {
   const menuRef = useRef<VirgueAccountMenuElement | null>(null)
 
   useEffect(() => {
@@ -712,17 +757,18 @@ function AccountMenu({ session, busy, entitlements, isOpen, onToggle, onOpenSett
     menu.name = session.user.name
     menu.email = session.user.email
     menu.plan = entitlements.displayName
+    menu.avatarUrl = avatarUrl
     menu.signedInState = true
     menu.busyState = busy
     menu.open = isOpen
-  }, [busy, entitlements.displayName, isOpen, session.user.email, session.user.name])
+  }, [avatarUrl, busy, entitlements.displayName, isOpen, session.user.email, session.user.name])
 
   return createElement('virgue-account-menu', { ref: menuRef })
 }
 
-function ViewButton({ active, icon, label, onClick, count }: { active: boolean; icon: IconName; label: string; onClick: () => void; count?: number }) { return <button type="button" className={`view-button ${active ? 'active' : ''}`} onClick={onClick}><Icon name={icon} size={16} /><span>{label}</span>{count !== undefined && count > 0 && <span className="nav-count">{count}</span>}</button> }
+function ViewButton({ active, icon, label, onClick, count }: { active: boolean; icon: IconName; label: string; onClick: () => void; count?: number }) { return <button type="button" className={`view-button ${active ? 'active' : ''}`} aria-current={active ? 'page' : undefined} onClick={onClick}><Icon name={icon} size={16} /><span>{label}</span>{count !== undefined && count > 0 && <span className="nav-count">{count}</span>}</button> }
 
-function AccountsView(props: { accounts: Account[]; allAccounts: Account[]; games: GameCollection[]; entitlements: PlanEntitlements; selectedAccount: Account | null; selectedGameId: string; selectedCategoryId: string; search: string; sortMode: 'status' | 'name' | 'last-used' | 'sessions'; onSort: (value: 'status' | 'name' | 'last-used' | 'sessions') => void; showCookieImport: boolean; launchingMany: boolean; onSearch: (value: string) => void; onSelect: (id: string) => void; onAdd: () => void; onImport: () => void; onCookieImport: () => void; onCookieClose: () => void; onRemove: () => void; onLaunch: (placeId: string, jobId: string, vipLink?: string, followUserId?: string) => void; onLaunchMany: (targets: Array<{ accountId: string; placeId?: string; jobId?: string }>) => void; onUpdate: (input: UpdateAccountInput) => void; onTransfer: (input: AccountTransferInput) => Promise<boolean>; onOpenBrowser: () => void }) {
+function AccountsView(props: { accounts: Account[]; allAccounts: Account[]; games: GameCollection[]; entitlements: PlanEntitlements; selectedAccount: Account | null; selectedGameId: string; selectedCategoryId: string; search: string; sortMode: 'status' | 'name' | 'last-used' | 'sessions'; onSort: (value: 'status' | 'name' | 'last-used' | 'sessions') => void; showCookieImport: boolean; launchingMany: boolean; onSearch: (value: string) => void; onSelect: (id: string) => void; onResetScope: () => void; onAdd: () => void; onImport: () => void; onCookieImport: () => void; onCookieClose: () => void; onRemove: () => void; onLaunch: (placeId: string, jobId: string, vipLink?: string, followUserId?: string) => void; onLaunchMany: (targets: Array<{ accountId: string; placeId?: string; jobId?: string }>) => void; onUpdate: (input: UpdateAccountInput) => void; onToggleFavorite: (id: string) => Promise<void>; onTransfer: (input: AccountTransferInput) => Promise<boolean>; onOpenBrowser: () => void }) {
   const { accounts, allAccounts, games, selectedGameId, selectedCategoryId, search, showCookieImport } = props
   const [showTransfer, setShowTransfer] = useState(false)
   const uniqueWorkspaceAccounts = uniqueAccounts(allAccounts)
@@ -731,6 +777,10 @@ function AccountsView(props: { accounts: Account[]; allAccounts: Account[]; game
   const sourceCategory = sourceGame?.categories.find((category) => category.id === selectedCategoryId)
   const sectionAccounts = allAccounts.filter((account) => selectedGameId === 'all' || account.gameId === selectedGameId).filter((account) => selectedCategoryId === 'all' || account.categoryId === selectedCategoryId)
   const sectionLabel = selectedGameId === 'all' ? 'All games' : [sourceGame?.name, sourceCategory?.name].filter(Boolean).join(' / ') || 'Game'
+  const hasSearch = Boolean(search.trim())
+  const hasScope = selectedGameId !== 'all' || selectedCategoryId !== 'all'
+  const recentCount = uniqueWorkspaceAccounts.filter((account) => isAccountRecentlyUsed(account)).length
+  const favoriteCount = uniqueWorkspaceAccounts.filter((account) => account.favorite).length
 
   return <>
     {showCookieImport && <CookieImportPanel games={games} onClose={props.onCookieClose} onImported={props.onImport} />}
@@ -738,14 +788,18 @@ function AccountsView(props: { accounts: Account[]; allAccounts: Account[]; game
       <label className="search-field"><Icon name="search" size={17} /><span className="sr-only">Search profiles</span><input value={search} onChange={(event) => props.onSearch(event.target.value)} placeholder="Search profiles" /></label>
       <div className="toolbar-actions">
         <span className="toolbar-meta">{accounts.length} shown <span className="toolbar-rule" /> {sectionLabel}</span>
+        <label className="sort-field"><span>Sort by</span><select aria-label="Sort profiles" title="Recommended prioritizes favourites and recently used profiles. Username sorts alphabetically." value={props.sortMode} onChange={(event) => props.onSort(event.target.value as 'status' | 'name' | 'last-used' | 'sessions')}><option value="status">Recommended</option><option value="last-used">Last used</option><option value="name">Username (A–Z)</option><option value="sessions">Launches</option></select></label>
         <button type="button" className="text-button" disabled={accountLimitReached} title={accountLimitReached ? getPlanLimitError(props.entitlements, 'accounts') : undefined} onClick={props.onAdd}><Icon name="plus" size={15} /> Add Account</button>
         <button type="button" className="text-button" disabled={!props.entitlements.bulkLaunch || accounts.length === 0 || props.launchingMany} title={!props.entitlements.bulkLaunch ? getPlanFeatureError(props.entitlements, 'bulk-launch') : undefined} onClick={() => props.onLaunchMany(accounts.map((account) => ({ accountId: account.id, placeId: account.placeId, jobId: account.jobId })))}><Icon name={props.launchingMany ? 'clock' : props.entitlements.bulkLaunch ? 'launch' : 'gem'} size={15} /> {props.launchingMany ? 'Launching...' : props.entitlements.bulkLaunch ? 'Bulk launch' : 'Bulk launch · Pro'}</button>
         <button type="button" className="text-button" disabled={sectionAccounts.length === 0} onClick={() => setShowTransfer(true)}><Icon name="arrow" size={15} /> Transfer section</button>
         <button type="button" className="text-button" onClick={props.onImport}><Icon name="import" size={15} /> Import JSON</button>
       </div>
     </div>
-    {accounts.length > 0 ? <div className="account-grid">{accounts.map((account, index) => <AccountCard key={account.id} account={account} index={index} selected={account.id === props.selectedAccount?.id} game={games.find((candidate) => candidate.id === account.gameId)} onSelect={() => props.onSelect(account.id)} />)}</div> : <EmptyState hasSearch={Boolean(search || selectedGameId !== 'all' || selectedCategoryId !== 'all')} onReset={() => { props.onSearch(''); }} onAdd={props.onAdd} />}
-    <div className="feature-strip"><span><Icon name="users" size={15} /> {formatCount(uniqueWorkspaceAccounts.length, 'local profile')}</span><span><Icon name="clock" size={15} /> {uniqueWorkspaceAccounts.filter((account) => account.lastUsed).length} recently used</span></div>
+    {accounts.length > 0 ? <div className="account-grid">{accounts.map((account, index) => <AccountCard key={account.id} account={account} index={index} selected={account.id === props.selectedAccount?.id} recent={isAccountRecentlyUsed(account)} game={games.find((candidate) => candidate.id === account.gameId)} onSelect={() => props.onSelect(account.id)} onToggleFavorite={() => props.onToggleFavorite(account.id)} />)}</div> : <EmptyState hasSearch={hasSearch} hasScope={hasScope} onReset={() => { props.onSearch(''); }} onResetScope={props.onResetScope} onAdd={props.onAdd} />}
+    {(recentCount > 0 || favoriteCount > 0) && <div className="workspace-insights" aria-label="Workspace highlights">
+      {recentCount > 0 && <span><Icon name="clock" size={15} /> {formatCount(recentCount, 'profile')} used recently</span>}
+      {favoriteCount > 0 && <span><Icon name="star" size={15} filled /> {formatCount(favoriteCount, 'favourite')} saved</span>}
+    </div>}
     {showTransfer && <AccountTransferModal accounts={sectionAccounts} games={games} sourceLabel={sectionLabel} onClose={() => setShowTransfer(false)} onTransfer={props.onTransfer} />}
   </>
 }
@@ -785,8 +839,19 @@ function CategoryIconPicker({ categoryName, categoryId, icon, open, busy, onTogg
   </div>
 }
 
-function AccountCard({ account, index, selected, game, onSelect }: { account: Account; index: number; selected: boolean; game?: GameCollection; onSelect: () => void }) {
-  return <button type="button" className={`account-card ${selected ? 'selected' : ''}`} style={{ '--card-delay': `${index * 35}ms`, '--account-accent': account.accent } as CSSProperties} onClick={onSelect}><div className="account-card-top"><div className="avatar-block">{account.avatarUrl ? <img src={account.avatarUrl} alt="" /> : <span>{getInitials(account)}</span>}</div><span className={`status-label ${account.status}`}><span className="status-dot" />{STATUS_LABELS[account.status]}</span></div><div className="account-card-copy"><strong>{account.alias || account.username}</strong><span>@{account.username}</span></div><div className="account-card-bottom"><span>{game?.name ?? 'Unassigned'} / {game?.categories.find((category) => category.id === account.categoryId)?.name ?? 'General'}</span><span>{account.sessions} {account.sessions === 1 ? 'launch' : 'launches'}</span></div></button>
+function AccountCard({ account, index, selected, recent, game, onSelect, onToggleFavorite }: { account: Account; index: number; selected: boolean; recent: boolean; game?: GameCollection; onSelect: () => void; onToggleFavorite: () => void }) {
+  const accountName = account.alias || account.username
+  const categoryName = game?.categories.find((category) => category.id === account.categoryId)?.name ?? 'General'
+  const prioritySignals = [
+    ...(account.favorite ? [{ key: 'favorite', label: 'Favourite' }] : []),
+    ...(recent ? [{ key: 'recent', label: 'Recently used' }] : []),
+  ]
+
+  return <div className="account-card-shell"><button type="button" className={`account-card ${selected ? 'selected' : ''}`} style={{ '--card-delay': `${index * 35}ms`, '--account-accent': account.accent } as CSSProperties} onClick={onSelect}>
+    <div className="account-card-top"><div className="avatar-block">{account.avatarUrl ? <img src={account.avatarUrl} alt="" /> : <span>{getInitials(account)}</span>}</div>{(account.status === 'running' || account.status === 'offline') && <span className={`status-label ${account.status}`}><span className="status-dot" />{STATUS_LABELS[account.status]}</span>}</div>
+    <div className="account-card-copy"><strong>{accountName}</strong><span className="account-card-handle">@{account.username}</span>{prioritySignals.length > 0 && <span className="account-card-priority" aria-label={prioritySignals.map((signal) => signal.label).join(' and ')}>{prioritySignals.map((signal, signalIndex) => <span className="account-card-priority-group" key={signal.key}>{signalIndex > 0 && <span className="account-card-priority-divider" aria-hidden="true">|</span>}<span className={signal.key}><span className="account-card-priority-marker" aria-hidden="true"><Icon name={signal.key === 'favorite' ? 'star' : 'clock'} size={11} filled={signal.key === 'favorite'} /></span>{signal.label}</span></span>)}</span>}</div>
+    <div className="account-card-bottom"><span className="account-card-location"><Icon name="game" size={12} /><span>{game?.name ?? 'Unassigned'}</span><span className="account-card-separator">/</span><span>{categoryName}</span></span></div>
+  </button><button type="button" className={`account-favorite-toggle ${account.favorite ? 'active' : ''}`} aria-label={account.favorite ? `Remove ${accountName} from favourites` : `Favourite ${accountName}`} aria-pressed={account.favorite} title={account.favorite ? 'Remove from favourites' : 'Add to favourites'} onClick={() => void onToggleFavorite()}><Icon name="star" size={15} filled={account.favorite} /></button></div>
 }
 
 function AccountDetail({ account, games, launching, onLogin, onLaunch, onUpdate, onTransfer, onUtility, onRemove, onOpenBrowser, onCopy }: { account: Account; games: GameCollection[]; launching: boolean; onLogin: (input: RobloxLoginInput) => Promise<void>; onLaunch: (placeId: string, jobId: string, vipLink?: string, followUserId?: string) => void; onUpdate: (input: UpdateAccountInput) => Promise<void>; onTransfer: (input: AccountTransferInput) => Promise<boolean>; onUtility: (input: AccountUtilityInput) => Promise<AccountUtilityResult | null>; onRemove: () => void; onOpenBrowser: () => void; onCopy: (kind: AccountCopyKind) => Promise<boolean> }) {
@@ -939,31 +1004,30 @@ function AccountDetail({ account, games, launching, onLogin, onLaunch, onUpdate,
   return <div className={'detail-card ' + (showActions ? 'modal-open' : '')}>
     <div className="detail-card-header">
       <div className="detail-avatar">{account.avatarUrl ? <img src={account.avatarUrl} alt={account.username + ' avatar'} /> : <span>{getInitials(account)}</span>}</div>
-      <div><span className="eyebrow">Selected profile</span><h2>{account.alias || account.username}</h2><p>@{account.username}{account.displayName ? ' / ' + account.displayName : ''}</p></div>
+      <div className="detail-card-identity"><span className="eyebrow">Selected profile</span><h2>{account.alias || account.username}</h2><p>@{account.username}{account.displayName ? ' / ' + account.displayName : ''}</p></div>
       <button type="button" className={'icon-button ' + (showActions ? 'active' : '')} aria-label="Open account actions" aria-expanded={showActions} onClick={openActions}><Icon name="more" size={18} /></button>
     </div>
     <div className="detail-status"><span className={'status-label ' + account.status}><span className="status-dot" />{STATUS_LABELS[account.status]}</span><span>{account.hasCredentials ? 'Secure session' : account.userId ? 'Reconnect required' : 'Not connected'}</span></div>
-    <div className="detail-actions-row">
+    <section className="detail-card-section detail-quick-actions"><div className="detail-section-heading"><strong>Quick actions</strong><span>{account.hasCredentials ? 'Account tools' : 'Connect to unlock'}</span></div><div className="detail-actions-row">
       {!account.hasCredentials && <button type="button" className="primary-button compact-button" onClick={() => void onLogin({ gameId: account.gameId, categoryId: account.categoryId })}><Icon name="browser" size={15} /> {account.userId ? 'Reconnect Roblox' : 'Connect Roblox'}</button>}
       <button type="button" className="outline-button compact-button" disabled={!account.hasCredentials} onClick={onOpenBrowser}><Icon name="browser" size={15} /> Open browser</button>
       <button type="button" className={'outline-button compact-button ' + (copied === 'username' ? 'copy-confirmed' : '')} onClick={() => void copy('username')}><Icon name={copied === 'username' ? 'check' : 'copy'} size={15} /> {copied === 'username' ? 'Copied' : 'Copy username'}</button>
       <button type="button" className={'outline-button compact-button ' + (copied === 'profile' ? 'copy-confirmed' : '')} onClick={() => void copy('profile')}><Icon name={copied === 'profile' ? 'check' : 'globe'} size={15} /> {copied === 'profile' ? 'Copied' : 'Profile link'}</button>
-    </div>
-    <div className="form-stack">
+    </div></section>
+    <section className="detail-card-section detail-launch-section"><div className="detail-section-heading"><strong>Launch target</strong><span>Place, server, or player</span></div><div className="form-stack">
       <label className="field-label">Place ID<input value={placeId} onChange={(event) => setPlaceId(event.target.value)} placeholder="For example 1818" onBlur={save} /></label>
       <label className="field-label">Job ID <span className="muted-label">Optional</span><input value={jobId} onChange={(event) => setJobId(event.target.value)} placeholder="Specific server instance" onBlur={save} /></label>
       <label className="field-label">Follow user ID <span className="muted-label">Optional</span><input value={followUserId} onChange={(event) => setFollowUserId(event.target.value)} placeholder="Join a user's current game" /></label>
       <button type="button" className="outline-button compact-button" disabled={!account.hasCredentials || launching || !followUserId.trim()} onClick={() => onLaunch(placeId, '', undefined, followUserId.trim())}><Icon name="users" size={15} /> Follow user</button>
       <button type="button" className="primary-button launch-button" disabled={!account.hasCredentials || launching} onClick={() => onLaunch(placeId.trim() || selectedGame?.placeId || account.placeId, jobId)}><Icon name={launching ? 'clock' : 'launch'} size={17} /> {launching ? 'Launching...' : 'Launch Roblox'}</button>
-    </div>
-    <div className="detail-rule" />
-    <div className="form-stack compact-form">
+    </div></section>
+    <section className="detail-card-section detail-profile-section"><div className="detail-section-heading"><strong>Profile details</strong><span>Saved as you edit</span></div><div className="form-stack compact-form">
       <label className="field-label">Game<select value={gameId} onChange={(event) => { setGameId(event.target.value); setCategoryId(games.find((game) => game.id === event.target.value)?.categories[0]?.id ?? '') }} onBlur={save}>{games.map((game) => <option value={game.id} key={game.id}>{game.name}</option>)}</select></label>
       <label className="field-label">Category<select value={categoryId} onChange={(event) => setCategoryId(event.target.value)} onBlur={save}>{(selectedGame?.categories ?? []).map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}</select></label>
       <label className="field-label">Alias<input value={alias} onChange={(event) => setAlias(event.target.value)} onBlur={save} /></label>
       <label className="field-label">Description<textarea value={description} onChange={(event) => setDescription(event.target.value)} onBlur={save} rows={2} /></label>
-    </div>
-    <div className="detail-actions"><span className="detail-meta">{account.sessions} launches recorded</span><button type="button" className="text-button danger" onClick={onRemove}><Icon name="trash" size={14} /> Remove profile</button></div>
+    </div></section>
+    <div className="detail-actions"><button type="button" className="text-button danger" onClick={onRemove}><Icon name="trash" size={14} /> Remove profile</button></div>
     {showActions && createPortal(
       <div className="action-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowActions(false) }}>
         <section className="action-modal" role="dialog" aria-modal="true" aria-labelledby="account-actions-title" onMouseDown={(event) => event.stopPropagation()}>
@@ -1049,6 +1113,7 @@ function GamesView({ games, accounts, entitlements, selectedGame: selectedGamePr
   const selectedGame = selectedGameProp ?? games[0] ?? null
   const gameLimitReached = entitlements.maxGames !== null && games.length >= entitlements.maxGames
   const gameRefreshKey = games.map((game) => game.id + ':' + game.placeId).join('|')
+  const revealRef = useMotionReveal<HTMLElement>()
 
   useEffect(() => { if (!selectedGameProp && games[0]) onSelect(games[0].id) }, [games, onSelect, selectedGameProp])
   useEffect(() => {
@@ -1091,7 +1156,7 @@ function GamesView({ games, accounts, entitlements, selectedGame: selectedGamePr
     if (saved) setCategoryIconOpenId(null)
   }
 
-  return <section className="games-view"><div className="game-layout"><div className="game-card-list">{games.map((game) => <button type="button" className={'game-card ' + (selectedGame?.id === game.id ? 'selected' : '')} key={game.id} onClick={() => onSelect(game.id)}><div className="game-card-top"><span className="game-card-identity"><span className="game-thumbnail">{thumbnail(game, 17)}</span></span><span className="game-card-count">{countFor(game.id)} profiles</span></div><h2>{game.name}</h2><p>{game.description}</p>{game.creatorName && <span className="game-live-line">{game.creatorName} · {formatMetric(game.playing)} playing · {formatMetric(game.visits)} visits</span>}<div className="game-card-bottom"><span>{game.placeId || 'No place id'}</span><span className="game-favorite">{game.favorite && <Icon name="star" size={13} filled />}<span>{game.favorite ? 'Favorite' : 'Not favorite'}</span></span></div></button>)}<button type="button" className={'game-card add-game-card ' + (gameLimitReached ? 'limit-reached' : '')} disabled={gameLimitReached} title={gameLimitReached ? getPlanLimitError(entitlements, 'games') : undefined} onClick={() => setShowForm((current) => !current)}><Icon name={gameLimitReached ? 'shield' : 'plus'} size={22} /><strong>{gameLimitReached ? 'Game limit reached' : 'New game'}</strong><span>{gameLimitReached ? getPlanLimitError(entitlements, 'games') : 'Add a Roblox game ID and the live details will fill in automatically.'}</span></button></div><div className="game-editor">{showForm && <form className="inline-editor" onSubmit={(event) => { event.preventDefault(); onCreate({ name, placeId, description }); setName(''); setPlaceId(''); setDescription(''); setShowForm(false) }}><span className="eyebrow">New collection</span><h2>Make a game shelf</h2><label className="field-label">Name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Dungeon Quest Reborn" autoFocus /></label><label className="field-label">Game ID / Place ID<input value={placeId} onChange={(event) => setPlaceId(event.target.value)} placeholder="77649408247578" /></label><label className="field-label">Description<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} placeholder="What belongs in this game collection?" /></label><button type="submit" className="primary-button" disabled={!name.trim()}>Create game <Icon name="arrow" size={16} /></button></form>}{selectedGame ? <div className="game-editor-card"><div className="game-editor-header"><div className="game-editor-identity"><span className="game-thumbnail large">{thumbnail(selectedGame, 22)}</span><div><span className="eyebrow">Selected game</span><h2>{selectedGame.name}</h2><p>{selectedGame.placeId || 'Add a game ID to unlock live Roblox data.'}</p></div></div><button type="button" className={'icon-button favorite-toggle ' + (selectedGame.favorite ? 'active' : '')} aria-label={selectedGame.favorite ? 'Remove game from favorites' : 'Add game to favorites'} aria-pressed={selectedGame.favorite} onClick={() => void window.virgue.games.toggleFavorite(selectedGame.id).then(onUpdate)}><Icon name="star" size={18} filled={selectedGame.favorite} /></button></div><div className="game-live-panel"><div className="game-live-heading"><span><Icon name="globe" size={14} /> Live Roblox information</span><span>{refreshing ? 'Refreshing...' : selectedGame.infoUpdatedAt ? 'Updated ' + formatRelativeTime(selectedGame.infoUpdatedAt) : 'Waiting for first refresh'}</span></div><div className="game-metrics"><span><strong>{selectedGame.creatorName || '—'}</strong><small>Creator</small></span><span><strong>{formatMetric(selectedGame.playing)}</strong><small>Playing now</small></span><span><strong>{formatMetric(selectedGame.visits)}</strong><small>Visits</small></span></div></div><label className="field-label">Game name<input defaultValue={selectedGame.name} onBlur={(event) => void window.virgue.games.update(selectedGame.id, { name: event.target.value }).then(onUpdate)} /></label><label className="field-label">Game ID / Place ID<input defaultValue={selectedGame.placeId} onBlur={(event) => void window.virgue.games.update(selectedGame.id, { placeId: event.target.value }).then(onUpdate)} /></label><label className="field-label">Description<textarea defaultValue={selectedGame.description} rows={2} onBlur={(event) => void window.virgue.games.update(selectedGame.id, { description: event.target.value }).then(onUpdate)} /></label><div className="category-editor"><div className="panel-heading"><span>Sub-categories</span><span>{selectedGame.categories.length}</span></div>{selectedGame.categories.map((item) => <div className={'category-editor-row ' + (categoryIconOpenId === item.id ? 'icon-menu-open' : '')} key={item.id}>{editingCategoryId === item.id ? <div className="category-edit-control"><input value={editingCategoryName} onChange={(event) => setEditingCategoryName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void saveCategoryName() } if (event.key === 'Escape') cancelCategoryRename() }} autoFocus /><button type="button" className="icon-button mini-button" aria-label="Save category name" disabled={categorySaving || !editingCategoryName.trim()} onClick={() => void saveCategoryName()}><Icon name={categorySaving ? 'clock' : 'check'} size={13} /></button><button type="button" className="icon-button mini-button" aria-label="Cancel category rename" onClick={cancelCategoryRename}><Icon name="close" size={13} /></button></div> : <><CategoryIconPicker categoryId={item.name} icon={item.icon ?? 'folder'} open={categoryIconOpenId === item.id} busy={categorySaving} onToggle={() => setCategoryIconOpenId((current) => current === item.id ? null : item.id)} onPick={(icon) => void saveCategoryIcon(item.id, icon)} /><span className="category-name">{item.name}</span><span className="category-count">{countFor(selectedGame.id, item.id)}</span><button type="button" className="icon-button mini-button" aria-label={'Rename ' + item.name} onClick={() => beginCategoryRename(item.id, item.name)}><Icon name="edit" size={13} /></button>{selectedGame.categories.length > 1 && <button type="button" className="icon-button mini-button" aria-label={'Remove ' + item.name} onClick={() => onCategoryRemove(selectedGame.id, item.id)}><Icon name="trash" size={13} /></button>}</>}</div>)}<div className="category-add"><input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="New category, e.g. Fighters" /><button type="button" className="primary-button" disabled={!category.trim()} onClick={() => { onCategoryCreate(selectedGame.id, category); setCategory('') }}><Icon name="plus" size={15} /> Add</button></div></div><div className="game-editor-footer"><button type="button" className="text-button danger" onClick={() => onRemove(selectedGame.id)}><Icon name="trash" size={14} /> Remove game collection</button></div></div> : <div className="no-selection"><div className="empty-mark"><Icon name="game" size={22} /></div><h2>Choose a game</h2><p>Games replace the old flat groups. Categories keep storage, fighters, and other roles together.</p></div>}</div></div></section>
+  return <section ref={revealRef} className="games-view motion-reveal"><div className="game-layout"><div className="game-card-list">{games.map((game) => <button type="button" className={'game-card ' + (selectedGame?.id === game.id ? 'selected ' : '') + (game.favorite ? 'favorite' : '')} key={game.id} onClick={() => onSelect(game.id)}><div className="game-card-top"><span className="game-card-identity"><span className="game-thumbnail">{thumbnail(game, 17)}</span></span><span className="game-card-count">{countFor(game.id)} profiles</span></div><h2>{game.name}</h2><p>{game.description}</p>{game.creatorName && <span className="game-live-line">{game.creatorName} · {formatMetric(game.playing)} playing · {formatMetric(game.visits)} visits</span>}<div className="game-card-bottom"><span className="game-place-meta"><span>Place ID</span><code>{game.placeId || 'Not set'}</code></span>{game.favorite && <span className="game-favorite active"><Icon name="star" size={13} filled /><span>Favourited</span></span>}</div></button>)}<button type="button" className={'game-card add-game-card ' + (gameLimitReached ? 'limit-reached' : '')} disabled={gameLimitReached} title={gameLimitReached ? getPlanLimitError(entitlements, 'games') : undefined} onClick={() => setShowForm((current) => !current)}><Icon name={gameLimitReached ? 'shield' : 'plus'} size={22} /><strong>{gameLimitReached ? 'Game limit reached' : 'New game'}</strong><span>{gameLimitReached ? getPlanLimitError(entitlements, 'games') : 'Add a Roblox game ID and the live details will fill in automatically.'}</span></button></div><div className="game-editor">{showForm && <form className="inline-editor" onSubmit={(event) => { event.preventDefault(); onCreate({ name, placeId, description }); setName(''); setPlaceId(''); setDescription(''); setShowForm(false) }}><span className="eyebrow">New collection</span><h2>Make a game shelf</h2><label className="field-label">Name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Dungeon Quest Reborn" autoFocus /></label><label className="field-label">Game ID / Place ID<input value={placeId} onChange={(event) => setPlaceId(event.target.value)} placeholder="77649408247578" /></label><label className="field-label">Description<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} placeholder="What belongs in this game collection?" /></label><button type="submit" className="primary-button" disabled={!name.trim()}>Create game <Icon name="arrow" size={16} /></button></form>}{selectedGame ? <div className="game-editor-card"><div className="game-editor-header"><div className="game-editor-identity"><span className="game-thumbnail large">{thumbnail(selectedGame, 22)}</span><div><span className="eyebrow">Selected game</span><h2>{selectedGame.name}</h2><p className="game-editor-place"><Icon name="game" size={12} /><code>{selectedGame.placeId || 'Add a game ID to unlock live Roblox data.'}</code></p></div></div><button type="button" className={'icon-button favorite-toggle ' + (selectedGame.favorite ? 'active' : '')} title={selectedGame.favorite ? 'Remove game from favourites' : 'Add game to favourites'} aria-label={selectedGame.favorite ? 'Remove game from favorites' : 'Add game to favorites'} aria-pressed={selectedGame.favorite} onClick={() => void window.virgue.games.toggleFavorite(selectedGame.id).then(onUpdate)}><Icon name="star" size={18} filled={selectedGame.favorite} /></button></div><div className="game-live-panel"><div className="game-live-heading"><span><Icon name="globe" size={14} /> <strong>Live game data</strong></span><span className="game-live-updated">{refreshing ? 'Refreshing...' : selectedGame.infoUpdatedAt ? 'Updated ' + formatRelativeTime(selectedGame.infoUpdatedAt) : 'Waiting for first refresh'}</span></div><div className="game-metrics"><span><strong>{selectedGame.creatorName || '—'}</strong><small>Creator</small></span><span><strong>{formatMetric(selectedGame.playing)}</strong><small>Playing now</small></span><span><strong>{formatMetric(selectedGame.visits)}</strong><small>Visits</small></span></div></div><label className="field-label">Game name<input defaultValue={selectedGame.name} onBlur={(event) => void window.virgue.games.update(selectedGame.id, { name: event.target.value }).then(onUpdate)} /></label><label className="field-label">Game ID / Place ID<input defaultValue={selectedGame.placeId} onBlur={(event) => void window.virgue.games.update(selectedGame.id, { placeId: event.target.value }).then(onUpdate)} /></label><label className="field-label">Description<textarea defaultValue={selectedGame.description} rows={2} onBlur={(event) => void window.virgue.games.update(selectedGame.id, { description: event.target.value }).then(onUpdate)} /></label><div className="category-editor"><div className="panel-heading"><span>Sub-categories</span><span>{selectedGame.categories.length}</span></div>{selectedGame.categories.map((item) => <div className={'category-editor-row ' + (categoryIconOpenId === item.id ? 'icon-menu-open' : '')} key={item.id}>{editingCategoryId === item.id ? <div className="category-edit-control"><input value={editingCategoryName} onChange={(event) => setEditingCategoryName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void saveCategoryName() } if (event.key === 'Escape') cancelCategoryRename() }} autoFocus /><button type="button" className="icon-button mini-button" aria-label="Save category name" disabled={categorySaving || !editingCategoryName.trim()} onClick={() => void saveCategoryName()}><Icon name={categorySaving ? 'clock' : 'check'} size={13} /></button><button type="button" className="icon-button mini-button" aria-label="Cancel category rename" onClick={cancelCategoryRename}><Icon name="close" size={13} /></button></div> : <><CategoryIconPicker categoryId={item.name} icon={item.icon ?? 'folder'} open={categoryIconOpenId === item.id} busy={categorySaving} onToggle={() => setCategoryIconOpenId((current) => current === item.id ? null : item.id)} onPick={(icon) => void saveCategoryIcon(item.id, icon)} /><span className="category-name">{item.name}</span><span className="category-count">{countFor(selectedGame.id, item.id)}</span><button type="button" className="icon-button mini-button" aria-label={'Rename ' + item.name} onClick={() => beginCategoryRename(item.id, item.name)}><Icon name="edit" size={13} /></button>{selectedGame.categories.length > 1 && <button type="button" className="icon-button mini-button" aria-label={'Remove ' + item.name} onClick={() => onCategoryRemove(selectedGame.id, item.id)}><Icon name="trash" size={13} /></button>}</>}</div>)}<div className="category-add"><input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="New category, e.g. Fighters" /><button type="button" className="primary-button" disabled={!category.trim()} onClick={() => { onCategoryCreate(selectedGame.id, category); setCategory('') }}><Icon name="plus" size={15} /> Add</button></div></div><div className="game-editor-footer"><button type="button" className="text-button danger" onClick={() => onRemove(selectedGame.id)}><Icon name="trash" size={14} /> Remove game collection</button></div></div> : <div className="no-selection"><div className="empty-mark"><Icon name="game" size={22} /></div><h2>Choose a game</h2><p>Games replace the old flat groups. Categories keep storage, fighters, and other roles together.</p></div>}</div></div></section>
 }
 
 function sessionStatusLabel(session: SessionRecord): string {
@@ -1187,7 +1252,7 @@ function SessionsView({ accounts, games, sessions, onSelect, onCopy, onStop, onC
   const revealRef = useMotionReveal<HTMLElement>()
   const activeSessions = sessions.active
   return <section ref={revealRef} className="sessions-view motion-reveal">
-    <div className="section-banner"><div><span className="eyebrow">Session Guardian</span><h2>{activeSessions.length > 0 ? 'Roblox sessions in motion' : 'Nothing is running'}</h2><p>Process identity and Roblox presence are tracked independently, with stale data expired automatically.</p></div><div className="session-banner-actions"><div className="session-count" aria-label={`${activeSessions.length} active sessions`}>{activeSessions.length.toString().padStart(2, '0')}</div></div></div>
+    <div className="section-banner session-section-banner"><div className="section-banner-copy"><span className="eyebrow">Session Guardian</span><h2>{activeSessions.length > 0 ? 'Roblox sessions in motion' : 'Nothing is running'}</h2><p>Process identity and Roblox presence are tracked independently. Stale data expires automatically so this board stays trustworthy.</p></div><div className="session-banner-actions"><div className="session-count" aria-label={`${activeSessions.length} active sessions`}>{activeSessions.length.toString().padStart(2, '0')}</div></div></div>
     <SessionList sessions={activeSessions} accounts={accounts} games={games} onSelect={onSelect} onCopy={onCopy} onStop={onStop} />
     <RecoveryQueue jobs={sessions.recoveryJobs} accounts={accounts} onCancel={onCancelRecovery} />
   </section>
@@ -1214,6 +1279,7 @@ function ServersView({ selectedAccount, recentGames, launching, onLaunch, onCopy
   const [sortMode, setSortMode] = useState<ServerFilterCriteria['sort']>('default')
   const [excludeVisited, setExcludeVisited] = useState(false)
   const [includeFavoritesOnly, setIncludeFavoritesOnly] = useState(false)
+  const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false)
   const [finderState, setFinderState] = useState<ServerFinderState>({ presets: [], history: [], preferences: [], lastKnown: null })
   const [presetName, setPresetName] = useState('')
   const [joinState, setJoinState] = useState<{ phase: 'idle' | 'launching' | 'launched' | 'failed'; serverId: string; message: string }>({ phase: 'idle', serverId: '', message: '' })
@@ -1340,6 +1406,7 @@ function ServersView({ selectedAccount, recentGames, launching, onLaunch, onCopy
   }, [servers, serverFilter, regionFilter, pingFilter, playerOrder])
   const regionPendingCount = Object.values(regionLoading).filter(Boolean).length
   const filtersActive = Boolean(serverFilter.trim()) || regionFilter !== 'all' || playerOrder !== 'none' || pingFilter !== 'all' || Boolean(minPlayers || maxPlayers || maxPing || excludeVisited || includeFavoritesOnly || sortMode !== 'default')
+  const advancedFilterCount = [Boolean(minPlayers), Boolean(maxPlayers), Boolean(maxPing), sortMode !== 'default', excludeVisited, includeFavoritesOnly].filter(Boolean).length
   const copyServerJobId = async (event: ReactMouseEvent<HTMLButtonElement>, serverId: string) => {
     event.stopPropagation()
     if (!(await onCopy(serverId))) return
@@ -1398,24 +1465,29 @@ function ServersView({ selectedAccount, recentGames, launching, onLaunch, onCopy
         <div><span className="eyebrow">Refine results</span><h2>Server filters</h2></div>
         <div className="server-filter-heading-actions"><span>{regionPendingCount > 0 ? 'Resolving ' + regionPendingCount + ' regions' : selectedAccount?.hasCredentials ? 'Regions refresh with the list' : 'Connect an account for regions'}</span><button type="button" className="text-button" disabled={!filtersActive} onClick={() => { setServerFilter(''); setRegionFilter('all'); setPlayerOrder('none'); setPingFilter('all'); setMinPlayers(''); setMaxPlayers(''); setMaxPing(''); setExcludeVisited(false); setIncludeFavoritesOnly(false); setSortMode('default') }}>Clear filters</button></div>
       </div>
-      <div className="server-filter-grid">
+      <div className="server-filter-grid server-filter-quick-grid">
         <label className="field-label">Job ID<input value={serverFilter} onChange={(event) => setServerFilter(event.target.value)} placeholder="Search a server job ID" /></label>
         <label className="field-label">Region<select value={regionFilter} onChange={(event) => setRegionFilter(event.target.value)}><option value="all">All regions</option>{regions.map((region) => <option value={region} key={region}>{region}</option>)}</select></label>
         <label className="field-label">Players<select value={playerOrder} onChange={(event) => setPlayerOrder(event.target.value as ServerPlayerOrder)}><option value="none">Default order</option><option value="highest">Highest to lowest</option><option value="lowest">Lowest to highest</option></select></label>
         <label className="field-label">Ping<select value={pingFilter} onChange={(event) => setPingFilter(event.target.value as ServerPingFilter)}><option value="all">Any ping</option><option value="fast">Up to 50 ms</option><option value="mid">51 to 150 ms</option><option value="slow">Over 150 ms</option><option value="unknown">Unknown ping</option></select></label>
+      </div>
+      <details className="server-filter-advanced" open={advancedFiltersOpen} onToggle={(event) => setAdvancedFiltersOpen(event.currentTarget.open)}>
+        <summary><span className="server-filter-advanced-copy"><strong>Advanced filters</strong><small>Optional player, ping, ranking, and preference rules</small></span><span className="server-filter-advanced-count">{advancedFilterCount > 0 ? `${advancedFilterCount} active` : 'Optional'}</span></summary>
+        <div className="server-filter-grid server-filter-advanced-grid">
         <label className="field-label">Min players<input type="number" min="0" value={minPlayers} onChange={(event) => setMinPlayers(event.target.value)} placeholder="Any" /></label>
         <label className="field-label">Max players<input type="number" min="0" value={maxPlayers} onChange={(event) => setMaxPlayers(event.target.value)} placeholder="Any" /></label>
         <label className="field-label">Max ping<input type="number" min="0" value={maxPing} onChange={(event) => setMaxPing(event.target.value)} placeholder="Any ms" /></label>
         <label className="field-label">Rank by<select value={sortMode} onChange={(event) => setSortMode(event.target.value as ServerFilterCriteria['sort'])}><option value="default">Roblox order</option><option value="score">Best Match score</option><option value="ping">Lowest ping</option><option value="players">Fewest players</option><option value="newest">Newest seen</option></select></label>
         <label className="check-label"><input type="checkbox" checked={excludeVisited} onChange={(event) => setExcludeVisited(event.target.checked)} /> Exclude visited</label>
         <label className="check-label"><input type="checkbox" checked={includeFavoritesOnly} onChange={(event) => setIncludeFavoritesOnly(event.target.checked)} /> Favourites only</label>
-      </div>
-      <div className="server-filter-summary">{servers.length > 0 ? filteredServers.length + ' of ' + servers.length + ' servers shown' : 'Refresh a place to load filter options'} · {sortMode === 'score' ? 'Scores reward lower ping, lower occupancy, freshness, known region, and favourites.' : 'Use Best Match for explainable ranking.'}</div>
+        </div>
+      </details>
+      <div className="server-filter-summary"><span>{servers.length > 0 ? filteredServers.length + ' of ' + servers.length + ' servers shown' : 'Refresh a place to load filter options'} · {sortMode === 'score' ? 'Scores reward lower ping, lower occupancy, freshness, known region, and favourites.' : 'Use Best Match for explainable ranking.'}</span><button type="button" className="outline-button compact-button server-apply-filters" disabled={!placeId.trim() || loading} onClick={() => void loadPage(undefined, 0, criteria)}><Icon name="refresh" size={13} /> Apply filters</button></div>
     </article>
 
     <article className="server-finder-tools"><div><span className="eyebrow">Repeatable searches</span><h3>Saved presets</h3><p>{finderState.presets.length > 0 ? 'Apply a named filter for this game and account.' : 'Save a quiet, low-ping, or nearly-empty search for this game.'}</p></div><div className="server-preset-save"><input value={presetName} onChange={(event) => setPresetName(event.target.value)} placeholder="Preset name" aria-label="Server preset name" /><button type="button" className="outline-button compact-button" disabled={!presetName.trim() || !selectedAccount?.gameId} onClick={() => void savePreset()}>Save preset</button></div><div className="server-preset-list">{finderState.presets.map((preset) => <div className="server-preset" key={preset.id}><button type="button" className="text-button" onClick={() => applyPreset(preset)}>{preset.name}</button><small>{preset.criteria.sort === 'score' ? 'Best Match' : 'Saved filters'}</small><button type="button" className="text-button danger" onClick={() => void window.virgue.servers.deletePreset({ placeId, gameId: preset.gameId, presetId: preset.id, accountId: preset.accountId }).then(setFinderState).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Preset could not be deleted.'))}>Delete</button></div>)}</div></article>
 
-    <div className="server-list-card"><div className="server-list-head"><span>Job ID</span><span>Players</span><span>Ping</span><span>Region</span><span>Action</span></div>{servers.length > 0 && filteredServers.length > 0 ? filteredServers.map((server) => <div className={`server-row ${server.isAvoided ? 'avoided' : ''}`} key={server.id}><span className="server-id" title={server.id}>{server.score !== undefined && <strong className="server-score">{server.score}</strong>}{server.id.length > 18 ? server.id.slice(0, 18) + '...' : server.id}</span><span>{server.playing}/{server.maxPlayers}</span><span>{server.ping > 0 ? server.ping + ' ms' : 'Unknown'}</span><span className={regionLoading[server.id] ? 'server-region pending' : 'server-region'}>{regionLoading[server.id] ? 'Resolving...' : server.region === 'Unknown' ? 'Unknown' : server.region}</span><span className="server-actions"><button type="button" className="outline-button compact-button server-copy-button" title="Copy full Job ID" onClick={(event) => void copyServerJobId(event, server.id)}><Icon name={copiedJobId === server.id ? 'check' : 'copy'} size={13} /> {copiedJobId === server.id ? 'Copied' : 'Copy ID'}</button><button type="button" className={'text-button server-flag-button ' + (server.isFavorite ? 'active' : '')} onClick={() => void toggleServerPreference(server, 'favorite')} title={server.isFavorite ? 'Remove favourite' : 'Favourite server'}>★</button><button type="button" className={'text-button server-flag-button ' + (server.isAvoided ? 'active' : '')} onClick={() => void toggleServerPreference(server, 'avoid')} title={server.isAvoided ? 'Allow server again' : 'Avoid server'}>×</button><button type="button" className="primary-button compact-button join-server-button" disabled={!selectedAccount?.hasCredentials || launching} title={!selectedAccount ? 'Select an account in Accounts first' : !selectedAccount.hasCredentials ? 'Connect this account first' : launching ? 'Roblox is starting' : 'Join this server'} onClick={() => void joinTarget(server.id)}><Icon name={launching ? 'clock' : 'launch'} size={13} /> {launching ? 'Launching…' : 'Join server'}</button></span></div>) : <div className="empty-state compact-empty"><div className="empty-mark"><Icon name="server" size={24} /></div><h2>{servers.length > 0 ? 'No matching servers' : 'Refresh a place'}</h2><p>{servers.length > 0 ? 'Try another Job ID, region, player order, or ping range.' : 'Fetch public servers and join a specific Job ID as the selected account.'}</p></div>}</div>
+    <div className="server-list-card"><div className="server-results-heading"><div><span className="eyebrow">Server results</span><h2>{servers.length > 0 ? `${filteredServers.length} matches` : 'Public servers'}</h2></div><span className="server-results-meta">{servers.length > 0 ? `${filteredServers.length} of ${servers.length} shown` : 'Refresh to load live servers'}</span></div><div className="server-list-head"><span>Job ID</span><span>Players</span><span>Ping</span><span>Region</span><span>Action</span></div>{servers.length > 0 && filteredServers.length > 0 ? filteredServers.map((server) => <div className={`server-row ${server.isAvoided ? 'avoided' : ''}`} key={server.id}><span className="server-id" title={server.id}>{server.score !== undefined && <strong className="server-score">{server.score}</strong>}{server.id.length > 18 ? server.id.slice(0, 18) + '...' : server.id}</span><span>{server.playing}/{server.maxPlayers}</span><span>{server.ping > 0 ? server.ping + ' ms' : 'Unknown'}</span><span className={regionLoading[server.id] ? 'server-region pending' : 'server-region'}>{regionLoading[server.id] ? 'Resolving...' : server.region === 'Unknown' ? 'Unknown' : server.region}</span><span className="server-actions"><button type="button" className="outline-button compact-button server-copy-button" title="Copy full Job ID" onClick={(event) => void copyServerJobId(event, server.id)}><Icon name={copiedJobId === server.id ? 'check' : 'copy'} size={13} /> {copiedJobId === server.id ? 'Copied' : 'Copy ID'}</button><button type="button" className={'text-button server-flag-button ' + (server.isFavorite ? 'active' : '')} onClick={() => void toggleServerPreference(server, 'favorite')} title={server.isFavorite ? 'Remove favourite' : 'Favourite server'}>★</button><button type="button" className={'text-button server-flag-button ' + (server.isAvoided ? 'active' : '')} onClick={() => void toggleServerPreference(server, 'avoid')} title={server.isAvoided ? 'Allow server again' : 'Avoid server'}>×</button><button type="button" className="primary-button compact-button join-server-button" disabled={!selectedAccount?.hasCredentials || launching} title={!selectedAccount ? 'Select an account in Accounts first' : !selectedAccount.hasCredentials ? 'Connect this account first' : launching ? 'Roblox is starting' : 'Join this server'} onClick={() => void joinTarget(server.id)}><Icon name={launching ? 'clock' : 'launch'} size={13} /> {launching ? 'Launching…' : 'Join server'}</button></span></div>) : <div className="empty-state compact-empty"><div className="empty-mark"><Icon name="server" size={24} /></div><h2>{servers.length > 0 ? 'No matching servers' : 'Refresh a place'}</h2><p>{servers.length > 0 ? 'Try another Job ID, region, player order, or ping range.' : 'Fetch public servers and join a specific Job ID as the selected account.'}</p></div>}</div>
 
     <div className="server-pagination"><span>{servers.length > 0 ? filteredServers.length + ' of ' + servers.length + ' shown' : 'No server page loaded'}{source === 'Offline cache' ? ' · expired servers are hidden' : ''}</span><div><button type="button" className="outline-button compact-button" disabled={!previousCursor || loading} onClick={() => void loadPage(previousCursor, -1)}><Icon name="chevron" size={14} /> Previous</button><span className="server-page-number">Page {pageNumber}</span><button type="button" className="outline-button compact-button" disabled={!nextCursor || loading} onClick={() => void loadPage(nextCursor, 1)}>Next <Icon name="chevron" size={14} /></button></div></div>
 
@@ -1454,140 +1526,198 @@ const UTILITY_ACTIONS: Record<UtilityAction, UtilityActionMeta> = {
   'join-group': { label: 'Join group', description: 'Send a group join request using a group ID or Roblox group link.', valueLabel: 'Group ID or link', valuePlaceholder: 'Group ID or group URL' },
 }
 
-function UtilitiesView({ selectedAccount, onImport, onExport, onCookieImport, onError, onActivity }: { selectedAccount: Account | null; onImport: () => void; onExport: () => void; onCookieImport: () => void; onError: (message: string) => void; onActivity: (message: string, detail: string, tone?: ActivityTone) => void }) {
+function UtilitiesView({ selectedAccount, onImport, onExport, onCookieImport, onOpenAccounts, onAccountUtility, onError, onActivity }: { selectedAccount: Account | null; onImport: () => void; onExport: () => void; onCookieImport: () => void; onOpenAccounts: () => void; onAccountUtility: (input: AccountUtilityInput) => Promise<AccountUtilityResult | null>; onError: (message: string) => void; onActivity: (message: string, detail: string, tone?: ActivityTone) => void }) {
   const [quickCode, setQuickCode] = useState('')
   const [browserUrl, setBrowserUrl] = useState('https://www.roblox.com/home')
   const [browserScript, setBrowserScript] = useState('')
+  const [utilityAction, setUtilityAction] = useState<UtilityAction>('refresh')
+  const [utilityValue, setUtilityValue] = useState('')
+  const [utilitySecondaryValue, setUtilitySecondaryValue] = useState('')
+  const [utilityMessage, setUtilityMessage] = useState('')
+  const [utilityBusy, setUtilityBusy] = useState(false)
   const [gameQuery, setGameQuery] = useState('')
   const [games, setGames] = useState<GameSearchResult[]>([])
+  const [gameBusy, setGameBusy] = useState(false)
+  const [gameSearched, setGameSearched] = useState(false)
   const [playerQuery, setPlayerQuery] = useState('')
   const [players, setPlayers] = useState<PlayerLookup[]>([])
+  const [playerBusy, setPlayerBusy] = useState(false)
+  const [playerSearched, setPlayerSearched] = useState(false)
+  const [outfit, setOutfit] = useState<OutfitPreview | null>(null)
+  const [outfitPlayer, setOutfitPlayer] = useState('')
+  const [outfitBusy, setOutfitBusy] = useState(false)
   const [universe, setUniverse] = useState<UniverseInfo | null>(null)
+  const [universeBusy, setUniverseBusy] = useState(false)
+  const [placeSearched, setPlaceSearched] = useState(false)
   const [placeId, setPlaceId] = useState(selectedAccount?.placeId ?? '')
+  const revealRef = useMotionReveal<HTMLElement>()
+
   useEffect(() => {
     if (selectedAccount?.placeId) setPlaceId(selectedAccount.placeId)
+    setQuickCode('')
+    setUtilityAction('refresh')
+    setUtilityValue('')
+    setUtilitySecondaryValue('')
+    setUtilityMessage('')
   }, [selectedAccount?.id, selectedAccount?.placeId])
+
+  const actionMeta = UTILITY_ACTIONS[utilityAction]
+  const requiresUtilityValue = Boolean(actionMeta.valueLabel && !actionMeta.valueOptions && !utilityValue.trim()) || Boolean(actionMeta.secondaryLabel && !utilitySecondaryValue.trim())
+  const utilityAccountState = selectedAccount ? (selectedAccount.hasCredentials ? 'Ready to run' : selectedAccount.userId ? 'Reconnect required' : 'Connect account') : 'Choose an account'
+
+  const chooseUtility = (next: UtilityAction) => {
+    const nextMeta = UTILITY_ACTIONS[next]
+    setUtilityAction(next)
+    setUtilityValue(nextMeta.valueOptions?.[0] ?? '')
+    setUtilitySecondaryValue('')
+    setUtilityMessage('')
+  }
+
+  const runAccountUtility = async () => {
+    if (!selectedAccount?.hasCredentials || requiresUtilityValue || utilityBusy) return
+    setUtilityBusy(true)
+    setUtilityMessage('')
+    try {
+      const result = await onAccountUtility({ accountId: selectedAccount.id, action: utilityAction, value: utilityValue, secondaryValue: utilitySecondaryValue })
+      if (result) setUtilityMessage(result.message)
+    } finally {
+      setUtilityBusy(false)
+    }
+  }
 
   const searchGames = async (event: FormEvent) => {
     event.preventDefault()
+    setGameSearched(true)
+    if (!gameQuery.trim()) {
+      setGames([])
+      return
+    }
+    setGameBusy(true)
     try {
-      setGames(await window.virgue.games.search(gameQuery))
+      setGames(await window.virgue.games.search(gameQuery.trim()))
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : 'Game search failed.')
+    } finally {
+      setGameBusy(false)
     }
   }
+
   const searchPlayers = async (event: FormEvent) => {
     event.preventDefault()
+    setPlayerSearched(true)
+    if (!playerQuery.trim()) {
+      setPlayers([])
+      return
+    }
+    setPlayerBusy(true)
     try {
-      const result = await window.virgue.tools.searchPlayer(playerQuery)
+      const result = await window.virgue.tools.searchPlayer(playerQuery.trim())
       setPlayers(result.players)
+      setOutfit(null)
+      setOutfitPlayer('')
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : 'Player search failed.')
+    } finally {
+      setPlayerBusy(false)
     }
   }
+
   const inspectUniverse = async (event: FormEvent) => {
     event.preventDefault()
+    setPlaceSearched(true)
+    if (!placeId.trim()) {
+      setUniverse(null)
+      return
+    }
+    setUniverseBusy(true)
     try {
-      const result = await window.virgue.tools.getUniverse(placeId)
+      const result = await window.virgue.tools.getUniverse(placeId.trim())
       setUniverse(result.universe)
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : 'Universe lookup failed.')
+    } finally {
+      setUniverseBusy(false)
     }
   }
 
-  return <section className="utilities-view">
-    <div className="utility-section-heading"><div><span className="eyebrow">Workspace tools</span><h2>Look up and manage</h2></div><span>Account actions live with the selected profile.</span></div>
+  const inspectOutfit = async (player: PlayerLookup) => {
+    setOutfitBusy(true)
+    try {
+      setOutfit(await window.virgue.tools.getOutfit(player.id))
+      setOutfitPlayer(player.username)
+      onActivity('Outfit loaded', player.username, 'positive')
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : 'Outfit lookup failed.')
+    } finally {
+      setOutfitBusy(false)
+    }
+  }
+
+  return <section ref={revealRef} className="utilities-view motion-reveal">
+    <div className="utility-overview">
+      <div className="utility-overview-copy"><span className="eyebrow">Toolbox</span><h2>Make the next Roblox task obvious.</h2><p>Run account commands, inspect live Roblox data, and move workspace files without leaving this tab.</p></div>
+      <div className={`utility-account-context ${selectedAccount ? '' : 'is-empty'}`}>
+        <span className="utility-context-label">Working account</span>
+        {selectedAccount ? <div className="utility-account-summary"><span className="utility-context-avatar">{selectedAccount.avatarUrl ? <img src={selectedAccount.avatarUrl} alt={`${selectedAccount.username} avatar`} /> : getInitials(selectedAccount)}</span><span className="utility-account-name"><strong>{selectedAccount.alias || selectedAccount.username}</strong><small>@{selectedAccount.username}</small></span><span className="utility-account-health"><span className={`status-dot ${selectedAccount.status}`} /><strong>{utilityAccountState}</strong><small>{selectedAccount.hasCredentials ? 'Secure session available' : 'Open Accounts to connect'}</small></span></div> : <div className="utility-empty-account"><strong>No account selected</strong><span>Choose a profile to unlock account actions and custom browser access.</span><button type="button" className="text-button" onClick={onOpenAccounts}>Choose an account <Icon name="arrow" size={14} /></button></div>}
+      </div>
+    </div>
+
+    <article className="utility-command-panel" aria-labelledby="utility-command-title">
+      <div className="utility-command-heading"><div><span className="eyebrow">Account actions</span><h2 id="utility-command-title">Run a task on the selected account.</h2><p>Refresh identity, read account signals, or make a targeted Roblox change. The scope stays visible before anything runs.</p></div><div className={`utility-account-state ${selectedAccount?.hasCredentials ? '' : 'needs-login'}`}><span className={`status-dot ${selectedAccount?.hasCredentials ? 'ready' : 'idle'}`} />{utilityAccountState}</div></div>
+      <div className="utility-command-form">
+        <label className="field-label utility-command-task">Task<select value={utilityAction} disabled={!selectedAccount || utilityBusy} onChange={(event) => chooseUtility(event.target.value as UtilityAction)}>{(Object.keys(UTILITY_ACTIONS) as UtilityAction[]).map((action) => <option value={action} key={action}>{UTILITY_ACTIONS[action].label}</option>)}</select></label>
+        {actionMeta.valueLabel && <label className="field-label utility-command-field">{actionMeta.valueLabel}{actionMeta.valueOptions ? <select value={utilityValue || actionMeta.valueOptions[0]} disabled={utilityBusy} onChange={(event) => setUtilityValue(event.target.value)}>{actionMeta.valueOptions.map((option) => <option value={option} key={option}>{option}</option>)}</select> : <input type={actionMeta.valueType ?? 'text'} value={utilityValue} disabled={utilityBusy} onChange={(event) => setUtilityValue(event.target.value)} placeholder={actionMeta.valuePlaceholder} />}</label>}
+        {actionMeta.secondaryLabel && <label className="field-label utility-command-field">{actionMeta.secondaryLabel}<input type={actionMeta.valueType ?? 'text'} value={utilitySecondaryValue} disabled={utilityBusy} onChange={(event) => setUtilitySecondaryValue(event.target.value)} placeholder={actionMeta.secondaryPlaceholder} /></label>}
+        <div className="utility-command-description"><strong>{actionMeta.label}</strong><p>{actionMeta.description}</p></div>
+        <button type="button" className="primary-button utility-run-button" disabled={!selectedAccount?.hasCredentials || requiresUtilityValue || utilityBusy} onClick={() => void runAccountUtility()}>{utilityBusy ? 'Running...' : actionMeta.label} <Icon name={utilityBusy ? 'clock' : 'arrow'} size={15} /></button>
+      </div>
+      {utilityMessage && <div className="utility-command-feedback" role="status"><Icon name="check" size={15} /><span>{utilityMessage}</span></div>}
+    </article>
+
+    <div className="utility-section-heading"><div><span className="eyebrow">Explore tools</span><h2>Search, inspect, and organize</h2></div><span>Results stay in place while you work.</span></div>
 
     <div className="utility-grid">
-      <article className="utility-card utility-card-wide utility-session-card">
-        <div className="utility-card-heading"><span className="utility-icon coral"><Icon name="browser" size={19} /></span><div><span className="eyebrow">Sessions</span><h2>Open or import a session</h2></div></div>
+      <article className="utility-card utility-card-wide utility-session-card" aria-labelledby="utility-session-title">
+        <div className="utility-card-heading"><span className="utility-icon coral"><Icon name="browser" size={19} /></span><div><span className="eyebrow">Sessions</span><h2 id="utility-session-title">Open or import a session</h2></div></div>
         <p>Use the isolated Roblox browser for a normal account session. Import is for a cookie or credential set you already have.</p>
-        <div className="utility-session-actions"><button type="button" className="outline-button" onClick={onCookieImport}><Icon name="import" size={16} /> Import existing session</button>{selectedAccount?.hasCredentials && <div className="quick-login"><input value={quickCode} onChange={(event) => setQuickCode(event.target.value)} placeholder="Six-digit Quick Login" maxLength={6} /><button type="button" className="text-button" disabled={quickCode.length !== 6} onClick={() => void window.virgue.accounts.quickLogin({ accountId: selectedAccount.id, code: quickCode }).then((result) => onActivity(result.message, 'Quick Login completed', 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Quick Login failed.'))}>Validate <Icon name="arrow" size={15} /></button></div>}</div>
-        <div className="utility-browser-form"><label className="field-label">Roblox URL<input value={browserUrl} onChange={(event) => setBrowserUrl(event.target.value)} placeholder="https://www.roblox.com/home" /></label><label className="field-label">Page script <span className="muted-label">Optional</span><textarea rows={2} value={browserScript} onChange={(event) => setBrowserScript(event.target.value)} placeholder="Runs after the Roblox page loads" /></label><button type="button" className="outline-button" disabled={!selectedAccount?.hasCredentials} onClick={() => void window.virgue.accounts.openBrowser(selectedAccount!.id, { url: browserUrl, javascript: browserScript }).then((result) => onActivity('Custom browser opened', result.message, 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Custom browser failed.'))}><Icon name="browser" size={15} /> Open custom browser</button></div>
+        <div className="utility-session-actions"><button type="button" className="outline-button" onClick={onCookieImport}><Icon name="import" size={16} /> Import existing session</button>{selectedAccount?.hasCredentials ? <div className="quick-login"><input value={quickCode} onChange={(event) => setQuickCode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Six-digit Quick Login" inputMode="numeric" maxLength={6} aria-label="Six-digit Quick Login" /><button type="button" className="text-button" disabled={quickCode.length !== 6} onClick={() => void window.virgue.accounts.quickLogin({ accountId: selectedAccount.id, code: quickCode }).then((result) => onActivity(result.message, 'Quick Login completed', 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Quick Login failed.'))}>Validate <Icon name="arrow" size={15} /></button></div> : <span className="utility-session-hint">Connect an account to validate Quick Login codes.</span>}</div>
+        <div className="utility-browser-form"><label className="field-label">Roblox URL<input value={browserUrl} onChange={(event) => setBrowserUrl(event.target.value)} placeholder="https://www.roblox.com/home" /></label><label className="field-label">Page script <span className="muted-label">Optional</span><textarea rows={2} value={browserScript} onChange={(event) => setBrowserScript(event.target.value)} placeholder="Runs after the Roblox page loads" /></label><button type="button" className="outline-button" disabled={!selectedAccount?.hasCredentials} title={!selectedAccount?.hasCredentials ? 'Connect an account first' : undefined} onClick={() => void window.virgue.accounts.openBrowser(selectedAccount!.id, { url: browserUrl, javascript: browserScript }).then((result) => onActivity('Custom browser opened', result.message, 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Custom browser failed.'))}><Icon name="browser" size={15} /> Open custom browser</button></div>
       </article>
 
-      <article className="utility-card">
-        <div className="utility-card-heading"><span className="utility-icon"><Icon name="game" size={19} /></span><div><span className="eyebrow">Games</span><h2>Find a game</h2></div></div>
-        <p>Search by Roblox game name, then use a result as the next place to inspect.</p>
-        <form className="utility-search-form" onSubmit={(event) => void searchGames(event)}><input value={gameQuery} onChange={(event) => setGameQuery(event.target.value)} placeholder="Search games" aria-label="Search Roblox games" /><button type="submit" className="icon-button" aria-label="Search Roblox games"><Icon name="search" size={16} /></button></form>
-        <div className="utility-results">{games.slice(0, 3).map((game) => <div className="result-row" key={game.placeId}><span><strong>{game.name}</strong><small>{game.creatorName} / {game.playing.toLocaleString()} playing</small></span><button type="button" className="icon-button mini-button" aria-label={'Use ' + game.name + ' place ID'} onClick={() => setPlaceId(game.placeId)}><Icon name="arrow" size={14} /></button></div>)}</div>
+      <article className="utility-card utility-lookup-card" aria-labelledby="utility-games-title">
+        <div className="utility-card-heading"><span className="utility-icon"><Icon name="game" size={19} /></span><div><span className="eyebrow">Games</span><h2 id="utility-games-title">Find a game</h2></div></div>
+        <p>Search by name, then send a result straight to the place inspector.</p>
+        <form className="utility-search-form" onSubmit={(event) => void searchGames(event)}><input value={gameQuery} onChange={(event) => setGameQuery(event.target.value)} placeholder="Search games" aria-label="Search Roblox games" /><button type="submit" className="icon-button" aria-label="Search Roblox games" disabled={gameBusy}><Icon name={gameBusy ? 'clock' : 'search'} size={16} /></button></form>
+        <div className="utility-results">{gameBusy ? <div className="utility-loading-state" role="status"><span className="utility-loading-mark" /><span>Searching Roblox games</span></div> : games.length > 0 ? games.slice(0, 3).map((game) => <div className="result-row" key={game.placeId}><span><strong>{game.name}</strong><small>{game.creatorName} · {game.playing.toLocaleString()} playing · {game.visits.toLocaleString()} visits</small></span><button type="button" className="text-button utility-result-action" aria-label={'Use ' + game.name + ' place ID'} onClick={() => { setPlaceId(game.placeId); setUniverse(null); setPlaceSearched(false) }}>Use <Icon name="arrow" size={14} /></button></div>) : <div className="utility-empty-result"><span className="utility-empty-mark"><Icon name="search" size={15} /></span><span>{gameSearched ? 'No games matched that search.' : 'Search a title to see creator, player, and visit data.'}</span></div>}</div>
       </article>
 
-      <article className="utility-card">
-        <div className="utility-card-heading"><span className="utility-icon"><Icon name="users" size={19} /></span><div><span className="eyebrow">Players</span><h2>Find a player</h2></div></div>
-        <p>Inspect a username's display name, current presence, and avatar.</p>
-        <form className="utility-search-form" onSubmit={(event) => void searchPlayers(event)}><input value={playerQuery} onChange={(event) => setPlayerQuery(event.target.value)} placeholder="Player username" aria-label="Search Roblox players" /><button type="submit" className="icon-button" aria-label="Search Roblox players"><Icon name="search" size={16} /></button></form>
-        <div className="utility-results">{players.slice(0, 2).map((player) => <div className="result-row" key={player.id}><span><strong>{player.displayName} <small>@{player.username}</small></strong><small>{player.presence?.lastLocation || 'Offline'}</small></span><button type="button" className="icon-button mini-button" aria-label={'Inspect ' + player.username + ' outfit'} onClick={() => void window.virgue.tools.getOutfit(player.id).then(() => onActivity('Outfit loaded', player.username, 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Outfit lookup failed.'))}><Icon name="shirt" size={14} /></button></div>)}</div>
+      <article className="utility-card utility-lookup-card" aria-labelledby="utility-players-title">
+        <div className="utility-card-heading"><span className="utility-icon"><Icon name="users" size={19} /></span><div><span className="eyebrow">Players</span><h2 id="utility-players-title">Find a player</h2></div></div>
+        <p>Check a username's display name, presence, and current outfit.</p>
+        <form className="utility-search-form" onSubmit={(event) => void searchPlayers(event)}><input value={playerQuery} onChange={(event) => setPlayerQuery(event.target.value)} placeholder="Player username" aria-label="Search Roblox players" /><button type="submit" className="icon-button" aria-label="Search Roblox players" disabled={playerBusy}><Icon name={playerBusy ? 'clock' : 'search'} size={16} /></button></form>
+        <div className="utility-results">{playerBusy ? <div className="utility-loading-state" role="status"><span className="utility-loading-mark" /><span>Searching Roblox players</span></div> : players.length > 0 ? players.slice(0, 2).map((player) => <div className="result-row" key={player.id}><span><strong>{player.displayName} <small>@{player.username}</small></strong><small><span className={`status-dot ${player.presence?.type === 'in-game' ? 'running' : player.presence?.type === 'offline' ? 'offline' : 'ready'}`} /> {player.presence?.lastLocation || 'Offline'}</small></span><button type="button" className="text-button utility-result-action" disabled={outfitBusy} aria-label={'Inspect ' + player.username + ' outfit'} onClick={() => void inspectOutfit(player)}>Outfit <Icon name={outfitBusy ? 'clock' : 'shirt'} size={14} /></button></div>) : <div className="utility-empty-result"><span className="utility-empty-mark"><Icon name="users" size={15} /></span><span>{playerSearched ? 'No players matched that username.' : 'Search a username to inspect presence and outfit details.'}</span></div>}</div>
+        {outfit && <div className="utility-outfit-result"><span className="utility-outfit-avatar">{outfit.avatarUrl ? <img src={outfit.avatarUrl} alt={`${outfitPlayer} outfit`} /> : <Icon name="shirt" size={17} />}</span><span><strong>{outfitPlayer}'s outfit</strong><small>{outfit.assets.length} visible assets · {outfit.assets.slice(0, 3).join(' · ')}</small></span></div>}
       </article>
 
-      <article className="utility-card">
-        <div className="utility-card-heading"><span className="utility-icon"><Icon name="globe" size={19} /></span><div><span className="eyebrow">Places</span><h2>Inspect a universe</h2></div></div>
-        <p>Read a place's creator, visits, and current player count.</p>
-        <form className="utility-search-form" onSubmit={(event) => void inspectUniverse(event)}><input value={placeId} onChange={(event) => setPlaceId(event.target.value)} placeholder="Place ID" aria-label="Place ID for universe lookup" /><button type="submit" className="icon-button" aria-label="Inspect universe"><Icon name="search" size={16} /></button></form>
-        {universe && <div className="universe-result"><strong>{universe.name}</strong><span>{universe.creatorName} / {universe.playing.toLocaleString()} playing / {universe.visits.toLocaleString()} visits</span></div>}
+      <article className="utility-card utility-lookup-card" aria-labelledby="utility-place-title">
+        <div className="utility-card-heading"><span className="utility-icon"><Icon name="globe" size={19} /></span><div><span className="eyebrow">Places</span><h2 id="utility-place-title">Inspect a universe</h2></div></div>
+        <p>Read a place's creator, visits, player count, and playability.</p>
+        <form className="utility-search-form" onSubmit={(event) => void inspectUniverse(event)}><input value={placeId} onChange={(event) => setPlaceId(event.target.value)} placeholder="Place ID" aria-label="Place ID for universe lookup" inputMode="numeric" /><button type="submit" className="icon-button" aria-label="Inspect universe" disabled={universeBusy}><Icon name={universeBusy ? 'clock' : 'search'} size={16} /></button></form>
+        <div className="utility-results">{universeBusy ? <div className="utility-loading-state" role="status"><span className="utility-loading-mark" /><span>Inspecting place data</span></div> : universe ? <div className="universe-result"><div className="universe-result-main"><strong>{universe.name}</strong><span>By {universe.creatorName}</span></div><div className="universe-metrics"><span><strong>{universe.playing.toLocaleString()}</strong><small>playing</small></span><span><strong>{universe.visits.toLocaleString()}</strong><small>visits</small></span><span className={universe.isPlayable ? 'is-playable' : 'is-unplayable'}><strong>{universe.isPlayable ? 'Yes' : 'No'}</strong><small>playable</small></span></div></div> : <div className="utility-empty-result"><span className="utility-empty-mark"><Icon name="globe" size={15} /></span><span>{placeSearched ? 'No universe data returned for that place.' : 'Paste a place ID or use a game result to inspect it.'}</span></div>}</div>
       </article>
 
-      <article className="utility-card">
-        <div className="utility-card-heading"><span className="utility-icon"><Icon name="archive" size={19} /></span><div><span className="eyebrow">Storage</span><h2>Move local data</h2></div></div>
-        <p>Export profile metadata, import a workspace, or open the folder used by this installation.</p>
-        <div className="utility-button-stack"><button type="button" className="outline-button" onClick={onImport}><Icon name="import" size={16} /> Import JSON</button><button type="button" className="outline-button" onClick={onExport}><Icon name="download" size={16} /> Export JSON</button><button type="button" className="text-button" onClick={() => void window.virgue.app.openDataFolder()}><Icon name="folder" size={15} /> Open data folder</button></div>
+      <article className="utility-card utility-storage-card" aria-labelledby="utility-storage-title">
+        <div className="utility-card-heading"><span className="utility-icon"><Icon name="archive" size={19} /></span><div><span className="eyebrow">Storage</span><h2 id="utility-storage-title">Move local data</h2></div></div>
+        <p>Back up profile metadata, restore a workspace, or open the folder used by this installation.</p>
+        <div className="utility-button-stack"><button type="button" className="outline-button" onClick={onImport}><Icon name="import" size={16} /> Import JSON</button><button type="button" className="primary-button" onClick={onExport}><Icon name="download" size={16} /> Export JSON</button><button type="button" className="text-button" onClick={() => void window.virgue.app.openDataFolder().then(() => onActivity('Data folder opened', 'Local workspace files are ready to browse', 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Data folder could not be opened.'))}><Icon name="folder" size={15} /> Open data folder</button></div>
+        <span className="utility-storage-note"><Icon name="shield" size={13} /> Data stays local until you choose to export it.</span>
       </article>
     </div>
-
   </section>
-}
-
-const WINDOW_INPUT_KEYS: Array<{ code: WindowInputKey; label: string; group: 'movement' | 'arrow' | 'action' | 'hotbar' }> = [
-  { code: 'KeyW', label: 'W', group: 'movement' },
-  { code: 'KeyA', label: 'A', group: 'movement' },
-  { code: 'KeyS', label: 'S', group: 'movement' },
-  { code: 'KeyD', label: 'D', group: 'movement' },
-  { code: 'ArrowUp', label: '↑', group: 'arrow' },
-  { code: 'ArrowLeft', label: '←', group: 'arrow' },
-  { code: 'ArrowDown', label: '↓', group: 'arrow' },
-  { code: 'ArrowRight', label: '→', group: 'arrow' },
-  { code: 'Space', label: 'Space', group: 'action' },
-  { code: 'ShiftLeft', label: 'Shift', group: 'action' },
-  { code: 'KeyE', label: 'E', group: 'action' },
-  { code: 'KeyQ', label: 'Q', group: 'action' },
-  { code: 'KeyR', label: 'R', group: 'action' },
-  { code: 'KeyF', label: 'F', group: 'action' },
-  { code: 'Digit1', label: '1', group: 'hotbar' },
-  { code: 'Digit2', label: '2', group: 'hotbar' },
-  { code: 'Digit3', label: '3', group: 'hotbar' },
-  { code: 'Digit4', label: '4', group: 'hotbar' },
-  { code: 'Digit5', label: '5', group: 'hotbar' },
-  { code: 'Digit6', label: '6', group: 'hotbar' },
-  { code: 'Digit7', label: '7', group: 'hotbar' },
-  { code: 'Digit8', label: '8', group: 'hotbar' },
-  { code: 'Digit9', label: '9', group: 'hotbar' },
-  { code: 'Digit0', label: '0', group: 'hotbar' },
-]
-
-function windowInputLabel(key: WindowInputKey): string {
-  return WINDOW_INPUT_KEYS.find((candidate) => candidate.code === key)?.label ?? key
-}
-
-function WindowInputPad({ disabled, onSend }: { disabled: boolean; onSend: (key: WindowInputKey) => void }) {
-  const movement = WINDOW_INPUT_KEYS.filter((key) => key.group === 'movement')
-  const arrows = WINDOW_INPUT_KEYS.filter((key) => key.group === 'arrow')
-  const actions = WINDOW_INPUT_KEYS.filter((key) => key.group === 'action')
-  const hotbar = WINDOW_INPUT_KEYS.filter((key) => key.group === 'hotbar')
-  const keyButton = (key: { code: WindowInputKey; label: string }) => <button type="button" key={key.code} disabled={disabled} aria-label={`Send ${key.label}`} onClick={() => onSend(key.code)}>{key.label}</button>
-  return <>
-    <div className="background-direction-pads">
-      <div className="worker-movement-pad" aria-label="Movement keys"><span />{keyButton(movement[0]!)}<span />{keyButton(movement[1]!)}{keyButton(movement[2]!)}{keyButton(movement[3]!)}</div>
-      <div className="worker-movement-pad" aria-label="Arrow keys"><span />{keyButton(arrows[0]!)}<span />{keyButton(arrows[1]!)}{keyButton(arrows[2]!)}{keyButton(arrows[3]!)}</div>
-    </div>
-    <div className="worker-action-keys">{actions.map(keyButton)}</div>
-    <div className="background-hotbar-keys" aria-label="Hotbar keys">{hotbar.map(keyButton)}</div>
-  </>
 }
 
 interface ControlViewProps {
   accounts: ControlAccount[]
-  commands: ControlCommand[]
-  control?: ControlSettings
   settings: AppSettings | null
   entitlements: PlanEntitlements
   onSettings: (input: Partial<AppSettings>, announce?: boolean) => Promise<void>
@@ -1595,16 +1725,32 @@ interface ControlViewProps {
   onActivity: (message: string, detail: string, tone?: ActivityTone) => void
 }
 
-function ControlView({ accounts, commands, control, settings, entitlements, onSettings, onError, onActivity }: ControlViewProps) {
+function ControlView({ accounts, settings, entitlements, onSettings, onError, onActivity }: ControlViewProps) {
   const [background, setBackground] = useState<BackgroundInputSnapshot | null>(null)
   const [protectedStatus, setProtectedStatus] = useState<ProtectedSessionStatus | null>(null)
-  const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([])
-  const [durationMs, setDurationMs] = useState(180)
-  const [sending, setSending] = useState(false)
   const [sessionAction, setSessionAction] = useState<'setup' | 'start' | 'stop' | null>(null)
   const [loadError, setLoadError] = useState('')
-  const [lastResult, setLastResult] = useState<BackgroundInputCommandResult | null>(null)
+  const [autoHotkey, setAutoHotkey] = useState<AutoHotkeySnapshot | null>(null)
+  const [ahkSelectedId, setAhkSelectedId] = useState<string | null>(null)
+  const [ahkSelectionInitialized, setAhkSelectionInitialized] = useState(false)
+  const ahkEditorRef = useRef<HTMLDivElement | null>(null)
+  const [ahkName, setAhkName] = useState('Keep alt active')
+  const [ahkContent, setAhkContent] = useState('SetTimer KeepAltActive, 52500\n\nKeepAltActive() {\n  if WinExist("ahk_exe RobloxPlayerBeta.exe") {\n    WinActivate\n    Send "{e}"\n  }\n}\n')
+  const [ahkBusy, setAhkBusy] = useState<string | null>(null)
+  const [ahkAi, setAhkAi] = useState<AhkAiStatus | null>(null)
+  const [ahkAiPrompt, setAhkAiPrompt] = useState('')
+  const [ahkAiResult, setAhkAiResult] = useState<AhkAiGenerationResult | null>(null)
+  const [ahkAiError, setAhkAiError] = useState('')
   const proAccess = entitlements.isolatedWorkerInput
+
+  useEffect(() => {
+    if (ahkSelectionInitialized || !autoHotkey?.scripts.length) return
+    const first = autoHotkey.scripts[0]!
+    setAhkSelectedId(first.id)
+    setAhkName(first.name)
+    setAhkContent(first.content)
+    setAhkSelectionInitialized(true)
+  }, [ahkSelectionInitialized, autoHotkey?.scripts])
 
   useEffect(() => {
     if (!proAccess) {
@@ -1612,32 +1758,51 @@ function ControlView({ accounts, commands, control, settings, entitlements, onSe
       return
     }
     let active = true
+    let loadInFlight = false
     const load = async () => {
+      if (!active || loadInFlight) return
+      loadInFlight = true
       try {
-        const [status, snapshot] = await Promise.all([
-          window.virgue.protectedSession.getStatus(),
-          window.virgue.backgroundInput.getSessions(),
-        ])
+        const status = await window.virgue.protectedSession.getStatus()
         if (!active) return
         setProtectedStatus(status)
-        setBackground(snapshot)
-        setLoadError('')
-        setSelectedSessionIds((current) => current.filter((id) => snapshot.sessions.some((session) => session.id === id && session.state === 'ready')))
+
+        const ahkSnapshot = await window.virgue.autoHotkey.getSnapshot()
+        if (!active) return
+        setAutoHotkey(ahkSnapshot)
+        const aiStatus = await window.virgue.autoHotkey.getAiStatus()
+        if (!active) return
+        setAhkAi(aiStatus)
+
+        if (status.phase !== 'ready') {
+          setLoadError(status.phase === 'error' ? status.message : '')
+          return
+        }
+
+        try {
+          const snapshot = await window.virgue.backgroundInput.getSessions()
+          if (!active) return
+          setBackground(snapshot)
+          setLoadError('')
+        } catch (caught) {
+          if (active) setLoadError(caught instanceof Error ? caught.message : 'Active Roblox sessions could not be read.')
+        }
       } catch (caught) {
         if (active) setLoadError(caught instanceof Error ? caught.message : 'Active Roblox sessions could not be read.')
+      } finally {
+        loadInFlight = false
       }
     }
     void load()
-    const timer = window.setInterval(() => { void load() }, 3000)
+    const timer = window.setInterval(() => { void load() }, ahkAi?.generating ? 250 : 3000)
     return () => {
       active = false
       window.clearInterval(timer)
     }
-  }, [proAccess, settings?.backgroundInputMainAccountId])
+  }, [proAccess, settings?.backgroundInputMainAccountId, ahkAi?.generating])
 
   const runSessionAction = async (action: 'setup' | 'start' | 'stop') => {
     setSessionAction(action)
-    setLastResult(null)
     try {
       const status = action === 'setup'
         ? (await window.virgue.protectedSession.setup()).status
@@ -1647,7 +1812,6 @@ function ControlView({ accounts, commands, control, settings, entitlements, onSe
       setProtectedStatus(status)
       const snapshot = await window.virgue.backgroundInput.getSessions()
       setBackground(snapshot)
-      setSelectedSessionIds([])
       onActivity(
         status.phase === 'ready' ? 'Protected Session ready' : 'Protected Session stopped',
         status.message,
@@ -1667,60 +1831,140 @@ function ControlView({ accounts, commands, control, settings, entitlements, onSe
       await onSettings({ backgroundInputMainAccountId: accountId }, false)
       const snapshot = await window.virgue.backgroundInput.getSessions()
       setBackground(snapshot)
-      setSelectedSessionIds((current) => current.filter((id) => snapshot.sessions.some((session) => session.id === id && session.state === 'ready')))
-      setLastResult(null)
-      onActivity('Main account protected', snapshot.sessions.find((session) => session.accountId === accountId)?.accountLabel ?? 'Virgue will exclude this account from background controls.', 'positive')
+      onActivity('Main account protected', snapshot.sessions.find((session) => session.accountId === accountId)?.accountLabel ?? 'Virgue will exclude this account from alt automation.', 'positive')
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : 'Main account protection could not be saved.')
     }
   }
 
-  const toggleSession = (sessionId: string) => {
-    setLastResult(null)
-    setSelectedSessionIds((current) => current.includes(sessionId) ? current.filter((id) => id !== sessionId) : [...current, sessionId].slice(0, 8))
+  const selectAhkScript = (id: string) => {
+    const script = autoHotkey?.scripts.find((candidate) => candidate.id === id)
+    if (!script) return
+    setAhkSelectedId(script.id)
+    setAhkName(script.name)
+    setAhkContent(script.content)
+    setAhkSelectionInitialized(true)
   }
 
-  const sendBackgroundInput = async (key: WindowInputKey) => {
-    if (!background?.protectedAccountId) return onError('Choose the Roblox account you are actively playing first.')
-    if (selectedSessionIds.length === 0) return onError('Select at least one ready alt client.')
-    setSending(true)
+  const newAhkScript = () => {
+    setAhkSelectionInitialized(true)
+    setAhkSelectedId(null)
+    setAhkName('New automation')
+    setAhkContent('#Requires AutoHotkey v2.0\n\n; This script runs inside Virgue\'s protected alt desktop.\n')
+  }
+
+  const saveAhkScript = async () => {
+    setAhkBusy('save')
     try {
-      const result = await window.virgue.backgroundInput.send({ sessionIds: selectedSessionIds, key, durationMs })
-      setLastResult(result)
-      const posted = result.results.filter((item) => item.status === 'posted')
-      const failed = result.results.filter((item) => item.status === 'failed')
-      if (posted.length > 0) onActivity('Protected input sent', `${windowInputLabel(key)} → ${formatCount(posted.length, 'alt client')}`, 'positive')
-      if (failed.length > 0) onError(failed.map((item) => `${item.accountLabel}: ${item.message}`).join(' '))
-    } catch (caught) {
-      onError(caught instanceof Error ? caught.message : 'The protected input could not be sent.')
-    } finally {
-      setSending(false)
-    }
+      const snapshot = await window.virgue.autoHotkey.save({ id: ahkSelectedId ?? undefined, name: ahkName, content: ahkContent })
+      setAutoHotkey(snapshot)
+      const saved = snapshot.scripts.find((script) => script.id === ahkSelectedId) ?? snapshot.scripts.at(-1)
+      if (saved) { setAhkSelectedId(saved.id); setAhkName(saved.name); setAhkContent(saved.content) }
+      onActivity('AutoHotkey script saved', ahkName.trim(), 'positive')
+    } catch (caught) { onError(caught instanceof Error ? caught.message : 'The AutoHotkey script could not be saved.') }
+    finally { setAhkBusy(null) }
+  }
+
+  const runAhkScript = async () => {
+    if (!ahkSelectedId) return onError('Save the script before running it.')
+    setAhkBusy('run')
+    try {
+      const snapshot = await window.virgue.autoHotkey.run(ahkSelectedId)
+      setAutoHotkey(snapshot)
+      onActivity('AutoHotkey script running', ahkName, 'positive')
+    } catch (caught) { onError(caught instanceof Error ? caught.message : 'The AutoHotkey script could not be started.') }
+    finally { setAhkBusy(null) }
+  }
+
+  const stopAhkScript = async () => {
+    if (!ahkSelectedId) return
+    setAhkBusy('stop')
+    try {
+      const snapshot = await window.virgue.autoHotkey.stop(ahkSelectedId)
+      setAutoHotkey(snapshot)
+      onActivity('AutoHotkey script stopped', ahkName, 'normal')
+    } catch (caught) { onError(caught instanceof Error ? caught.message : 'The AutoHotkey script could not be stopped.') }
+    finally { setAhkBusy(null) }
+  }
+
+  const removeAhkScript = async () => {
+    if (!ahkSelectedId || !window.confirm(`Delete “${ahkName}”?`)) return
+    setAhkBusy('remove')
+    try {
+      const snapshot = await window.virgue.autoHotkey.remove(ahkSelectedId)
+      setAutoHotkey(snapshot)
+      newAhkScript()
+      onActivity('AutoHotkey script deleted', ahkName, 'normal')
+    } catch (caught) { onError(caught instanceof Error ? caught.message : 'The AutoHotkey script could not be deleted.') }
+    finally { setAhkBusy(null) }
+  }
+
+  const downloadAhkAi = async () => {
+    setAhkAiError('')
+    try { setAhkAi(await window.virgue.autoHotkey.downloadAiModel()) }
+    catch (caught) { setAhkAiError(caught instanceof Error ? caught.message : 'The local AI model could not be downloaded.') }
+  }
+
+  const generateAhkScript = async () => {
+    setAhkAiError('')
+    setAhkAiResult(null)
+    setAhkAi((current) => current ? { ...current, generating: true, runtimeActive: true, generationStage: 'loading-model', generationDetail: 'Starting local generation.', generationTrace: [] } : current)
+    try {
+      const result = await window.virgue.autoHotkey.generateAiScript(ahkAiPrompt)
+      setAhkAiResult(result)
+      setAhkAi(await window.virgue.autoHotkey.getAiStatus())
+    } catch (caught) { setAhkAiError(caught instanceof Error ? caught.message : 'The local assistant could not generate a script.') }
+  }
+
+  const cancelAhkAi = async () => {
+    setAhkAi(await window.virgue.autoHotkey.cancelAi())
+    setAhkAiError('The local AI request was cancelled.')
+  }
+
+  const useGeneratedAhk = () => {
+    if (!ahkAiResult) return
+    setAhkSelectionInitialized(true)
+    setAhkSelectedId(null)
+    setAhkName('AI generated automation')
+    setAhkContent(ahkAiResult.script)
+    onActivity('Generated script opened', 'Review it, give it a name, then save it when ready.', 'positive')
+    window.requestAnimationFrame(() => ahkEditorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
   }
 
   const sessions = background?.sessions ?? []
   const readySessions = sessions.filter((session) => session.state === 'ready')
   const mainAccount = accounts.find((account) => account.accountId === background?.protectedAccountId)
-  const postedCount = lastResult?.results.filter((item) => item.status === 'posted').length ?? 0
-  const failedCount = lastResult?.results.filter((item) => item.status === 'failed').length ?? 0
   const sessionReady = protectedStatus?.phase === 'ready'
-  const controlsDisabled = sending || !sessionReady || !background?.protectedAccountId || selectedSessionIds.length === 0
+  const aiStage = ahkAi?.generationStage ?? 'loading-model'
+  const aiStageOrder: NonNullable<AhkAiStatus['generationStage']>[] = ['loading-model', 'reading-request', 'planning-script', 'writing-script', 'validating', 'unloading']
+  const aiStageDisplay: Record<NonNullable<AhkAiStatus['generationStage']>, { label: string; detail: string; summary: string; orb: OrbState; variants: string[] }> = {
+    'loading-model': { label: 'Waking the local model', detail: 'Loading only what this request needs.', summary: 'The assistant stays off until you ask it to generate.', orb: 'connecting', variants: ['Opening a short-lived local worker.', 'Allocating the selected model for this request.', 'Keeping the rest of Virgue idle.'] },
+    'reading-request': { label: 'Reading your brief', detail: 'Identifying triggers, targets, and timing.', summary: 'Pulling the action, target window, and constraints from your description.', orb: 'searching', variants: ['Finding the action you want automated.', 'Separating hotkeys from repeated actions.', 'Checking which app should receive the input.'] },
+    'planning-script': { label: 'Planning the flow', detail: 'Choosing hotkeys, timers, and window guards.', summary: 'Turning the request into a small, reviewable AutoHotkey v2 plan.', orb: 'composing', variants: ['Choosing a clear trigger and stop path.', 'Adding a Roblox window guard where it fits.', 'Keeping the script focused on the requested behavior.'] },
+    'writing-script': { label: 'Writing AutoHotkey v2', detail: 'Composing the script around those constraints.', summary: 'Generating runnable code with the bundled AutoHotkey v2 guidance.', orb: 'weaving', variants: ['Composing the functions and hotkeys.', 'Writing the timing logic in v2 syntax.', 'Keeping the generated file ready for review.'] },
+    validating: { label: 'Checking the result', detail: 'Scanning syntax, risky operations, and Roblox targeting.', summary: 'Running local validation and a safety scan before showing the script.', orb: 'solving', variants: ['Checking for AutoHotkey v2 syntax issues.', 'Scanning for risky system operations.', 'Preparing a clear review summary.'] },
+    unloading: { label: 'Releasing the model', detail: 'Closing the worker and returning memory to Windows.', summary: 'The local model is being unloaded after this request.', orb: 'shaping', variants: ['Closing the temporary AI worker.', 'Releasing model memory now.', 'Leaving no assistant process running in the background.'] },
+  }
+  const aiStageCopy = aiStageDisplay[aiStage]
+  const aiStageIndex = Math.max(0, aiStageOrder.indexOf(aiStage))
+  const aiThinkingCopy = ahkAi?.generationDetail ?? aiStageCopy.detail
+  const ahkValidationFailed = ahkAiResult?.validationMessage.startsWith('AutoHotkey v2 validation failed') ?? false
+  const revealRef = useMotionReveal<HTMLElement>()
 
-  return <section className="control-view">
+  return <section ref={revealRef} className="control-view motion-reveal">
     <div className="control-header background-control-header">
-      <div><span className="eyebrow">Protected controls</span><h2>Play on your main. Control your alts.</h2><p>Virgue opens alt clients on a separate Windows desktop and sends normal, bounded key presses there. Your main game keeps focus on this desktop.</p></div>
-      <span className={`worker-plan-badge ${sessionReady ? 'ready' : ''}`}><Icon name={proAccess ? 'shield' : 'gem'} size={15} /> {sessionReady ? 'Session active' : 'Virgue Pro'}</span>
+      <div><span className="eyebrow">Protected controls</span><h2>Play on your main. Automate your alts.</h2><p>Virgue opens alt clients on a separate Windows desktop where your AutoHotkey scripts can run. Your main game keeps focus on this desktop.</p></div>
     </div>
 
-    {!proAccess ? <div className="background-upgrade-card"><div><strong>Protected Session is included with Virgue Pro</strong><p>Keep alt input on a separate Windows desktop while your main game remains uninterrupted.</p></div><button type="button" className="primary-button" onClick={() => void window.virgue.app.openExternal(PRICING_URL)}>View Pro <Icon name="arrow" size={15} /></button></div> : <>
+    {!proAccess ? <div className="background-upgrade-card"><div><strong>Protected Session is included with Virgue Pro</strong><p>Keep alt automation on a separate Windows desktop while your main game remains uninterrupted.</p></div><button type="button" className="primary-button" onClick={() => void window.virgue.app.openExternal(PRICING_URL)}>View Pro <Icon name="arrow" size={15} /></button></div> : <>
       {!protectedStatus || protectedStatus.phase !== 'ready' ? <div className={`protected-session-gate ${protectedStatus?.phase === 'error' || protectedStatus?.phase === 'unavailable' ? 'warning' : ''}`}>
         <span className="protected-session-gate-icon"><Icon name={protectedStatus?.phase === 'error' || protectedStatus?.phase === 'unavailable' ? 'warning' : 'shield'} size={22} /></span>
         <div><strong>{protectedStatus?.phase === 'starting' ? 'Opening your alt desktop…' : protectedStatus?.phase === 'error' ? 'Protected Session needs attention' : protectedStatus?.phase === 'unavailable' ? 'Protected Session is unavailable' : protectedStatus?.configured ? 'Your alt desktop is ready to start' : 'Set up once. Use it every day.'}</strong><p>{protectedStatus?.message ?? 'Checking this Windows installation…'}</p></div>
         {protectedStatus?.phase !== 'unavailable' && <button type="button" className="primary-button" disabled={sessionAction !== null || protectedStatus?.phase === 'starting'} onClick={() => void runSessionAction(protectedStatus?.configured ? 'start' : 'setup')}>{sessionAction === 'setup' ? 'Setting up…' : sessionAction === 'start' || protectedStatus?.phase === 'starting' ? 'Starting…' : protectedStatus?.configured ? 'Start session' : 'Set up Protected Session'} <Icon name="arrow" size={15} /></button>}
       </div> : <div className="protected-session-live">
         <span className="background-protection-icon"><Icon name="shield" size={19} /></span>
-        <div><strong>Alt desktop active</strong><p>Windows session {protectedStatus.childSessionId ?? 'ready'} is isolated from the desktop where you play.</p></div>
-        <button type="button" className="text-button" disabled={sessionAction !== null} onClick={() => void runSessionAction('stop')}>{sessionAction === 'stop' ? 'Stopping…' : 'Stop session'}</button>
+        <div><strong>Alt desktop active</strong><p>Windows session {protectedStatus.childSessionId ?? 'ready'} is isolated from the desktop where you play. Open it when an alt needs hands-on interaction.</p></div>
+        <div className="protected-session-live-actions"><button type="button" className="outline-button compact-button" onClick={() => void window.virgue.protectedSession.showViewer().then(() => onActivity('Alt desktop shown', 'The protected desktop is now visible for hands-on interaction.', 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'The child-session viewer could not be shown.'))}><Icon name="browser" size={14} /> Show alt desktop</button><button type="button" className="text-button danger" disabled={sessionAction !== null} onClick={() => void runSessionAction('stop')}><Icon name="trash" size={14} /> {sessionAction === 'stop' ? 'Stopping…' : 'Stop session'}</button></div>
       </div>}
 
       <div className={`background-protection-bar ${background?.protectedAccountId ? 'protected' : ''}`}>
@@ -1731,135 +1975,103 @@ function ControlView({ accounts, commands, control, settings, entitlements, onSe
 
       {loadError && <div className="background-inline-error" role="alert"><Icon name="warning" size={15} /> {loadError}</div>}
 
-      <div className="background-console-grid">
-        <article className="background-session-card">
-          <div className="panel-heading"><span>Alt clients</span><button type="button" className="text-button" disabled={!sessionReady || readySessions.length === 0} onClick={() => { setLastResult(null); setSelectedSessionIds(readySessions.slice(0, 8).map((session) => session.id)) }}>Select all</button></div>
-          <div className="background-session-list">{sessions.length === 0 ? <div className="worker-empty"><strong>{sessionReady ? 'No alts running yet' : 'Start Protected Session first'}</strong><span>{sessionReady ? 'Launch any account except your main. It will appear here automatically.' : 'Your alt clients will appear here once the separate Windows session is active.'}</span></div> : sessions.map((session) => {
-            const selectable = session.state === 'ready'
-            return <div className={`background-session-row ${session.state}`} key={session.id}>
-              <label className="background-session-select"><input type="checkbox" checked={selectedSessionIds.includes(session.id)} disabled={!selectable} onChange={() => toggleSession(session.id)} /><span><strong>{session.accountLabel}</strong><small>{session.experienceName} · {session.windowTitle || 'Waiting for window'}</small></span></label>
-              <span className={`worker-session-status ${selectable ? 'ready' : session.state}`}>{selectable ? 'Ready' : 'Starting'}</span>
-            </div>
-          })}</div>
-        </article>
-
-        <article className="background-input-card">
-          <div className="panel-heading"><span>Send an input</span><span>{formatCount(selectedSessionIds.length, 'target')}</span></div>
-          <div className="worker-duration-row"><label htmlFor="background-duration">Press length</label><select id="background-duration" value={durationMs} onChange={(event) => { setLastResult(null); setDurationMs(Number(event.target.value)) }}><option value={90}>Tap · 90 ms</option><option value={180}>Short · 180 ms</option><option value={400}>Medium · 400 ms</option><option value={800}>Long · 800 ms</option><option value={1400}>Maximum · 1.4 s</option></select></div>
-          <WindowInputPad disabled={controlsDisabled} onSend={(key) => void sendBackgroundInput(key)} />
-          <p>Each click sends one normal key press inside the alt-only Windows session. Nothing is injected into Roblox and your main desktop never changes focus.</p>
-        </article>
+      <div className="control-section-heading control-session-heading">
+        <div><span className="eyebrow">Live alt sessions</span><h3>Know what is ready</h3><p>Protected Roblox clients appear here. AutoHotkey scripts run inside the active alt desktop without manual targeting.</p></div>
+        <span className="control-section-status">{formatCount(readySessions.length, 'ready alt')} · {formatCount(sessions.length, 'total alt')}</span>
       </div>
 
-      {lastResult && <div className={`background-result ${failedCount > 0 ? 'warning' : 'success'}`} role="status"><Icon name={failedCount > 0 ? 'warning' : 'check'} size={17} /><div><strong>{postedCount > 0 ? `${windowInputLabel(lastResult.key)} sent to ${formatCount(postedCount, 'alt')}` : 'Input was not sent'}</strong><p>{failedCount > 0 ? `${formatCount(failedCount, 'client')} rejected the command. See the error above.` : 'The key stayed inside the alt desktop; your main game kept focus.'}</p></div></div>}
+      <article className="background-session-card control-session-overview">
+        <div className="panel-heading"><span>Alt clients</span><span>{formatCount(sessions.length, 'client')}</span></div>
+        <div className="background-session-list">{sessions.length === 0 ? <div className="worker-empty"><strong>{sessionReady ? 'No alts running yet' : 'Protected Session is optional'}</strong><span>{sessionReady ? 'Launch any account except your main. It will appear here automatically.' : 'Launch alts normally from Accounts, or start Protected Session to route them to a separate desktop with protected controls.'}</span></div> : sessions.map((session) => {
+          const ready = session.state === 'ready'
+          return <div className={`background-session-row ${session.state}`} key={session.id}>
+            <div className="control-session-identity"><span className={`control-session-dot ${ready ? 'ready' : session.state}`} aria-hidden="true" /><span><strong>{session.accountLabel}</strong><small>{session.experienceName} · {session.windowTitle || 'Waiting for window'}</small></span></div>
+            <span className={`worker-session-status ${ready ? 'ready' : session.state}`}>{ready ? 'Ready' : 'Starting'}</span>
+          </div>
+        })}</div>
+      </article>
+
+      <div className="control-section-heading control-ahk-heading">
+        <div><span className="eyebrow">Custom automation</span><h3>Build with AutoHotkey</h3><p>Write, review, and run scripts inside the protected alt desktop when you need more control.</p></div>
+        <span className="control-section-status">{autoHotkey?.installed ? 'Ready to edit' : 'Install required'}</span>
+      </div>
+
+      <article className="ahk-card">
+        <div className="panel-heading"><span>Script workspace</span><span>{autoHotkey?.installed ? `v${autoHotkey.version || '2'} installed` : 'AutoHotkey v2 required'}</span></div>
+        {ahkAi && <section className="ahk-ai-panel">
+          <div className="ahk-ai-heading"><div><span className="eyebrow">Local AHK assistant</span><strong>Describe it. Generate it. Review it.</strong><p>Runs privately on this PC only when you press Generate, then fully exits and releases its memory.</p></div></div>
+          <div className="ahk-ai-model"><div><strong>{ahkAi.modelName}</strong><span>{ahkAi.totalRamGb} GB system RAM · automatically selected {ahkAi.modelTier === 'standard' ? 'for 8 GB+' : 'for under 8 GB'}</span></div><span>{Math.round(ahkAi.modelSizeBytes / 1024 / 1024)} MB</span></div>
+          {!ahkAi.installed ? <div className="ahk-ai-download"><div><strong>{ahkAi.downloading ? `Downloading… ${ahkAi.progressPercent}%` : 'Download once, use offline'}</strong><p>The model is stored locally. It never starts with Windows or Virgue.</p>{ahkAi.downloading && <div className="ahk-ai-progress"><i style={{ width: `${ahkAi.progressPercent}%` }} /></div>}</div><button type="button" className="primary-button" disabled={ahkAi.downloading} onClick={() => void downloadAhkAi()}>{ahkAi.downloading ? 'Downloading…' : 'Download local model'}</button>{ahkAi.downloading && <button type="button" className="text-button danger" onClick={() => void cancelAhkAi()}>Cancel</button>}</div> : <>
+            <label className="field-label ahk-ai-request">What should the script do?<textarea value={ahkAiPrompt} maxLength={4000} placeholder="Example: While Roblox is active, press E every 52.5 seconds. Add Ctrl+Alt+P to pause and show a small status message." onChange={(event) => setAhkAiPrompt(event.target.value)} /></label>
+             {ahkAi.generating && <div className="ahk-thinking-stack">
+               <div className="ahk-thinking-bubble" data-stage={aiStage} role="status" aria-live="polite"><span className="ahk-thinking-orb"><ThinkingOrb state={aiStageCopy.orb} size={64} theme="light" aria-label={aiStageCopy.label} /></span><div><span>Virgue is thinking · {aiStageIndex + 1}/{aiStageOrder.length}</span><strong>{aiStageCopy.label}</strong><p key={aiThinkingCopy}>{aiThinkingCopy}</p></div><i aria-hidden="true" /></div>
+               <div className="ahk-thinking-trace">
+                 <div className="ahk-thinking-trace-heading"><div><span className="eyebrow">Generation trace</span><strong>What the assistant is doing</strong></div><span>{aiStageIndex + 1} of {aiStageOrder.length}</span></div>
+                 <div className="ahk-thinking-steps">{aiStageOrder.map((stage, index) => <div className={`ahk-thinking-step ${index < aiStageIndex ? 'complete' : ''} ${stage === aiStage ? 'current' : ''}`} key={stage}><span className="ahk-thinking-step-index">{index < aiStageIndex ? <Icon name="check" size={11} /> : index + 1}</span><span><strong>{aiStageDisplay[stage].label}</strong><small>{aiStageDisplay[stage].summary}</small></span></div>)}</div>
+                 {ahkAi.generationTrace && ahkAi.generationTrace.length > 0 && <div className="ahk-thinking-notes" aria-label="Live planning notes">{ahkAi.generationTrace.map((note) => <p key={note}>{note}</p>)}</div>}
+               </div>
+             </div>}
+            <div className="ahk-ai-actions">{ahkAi.generating ? <button type="button" className="outline-button" onClick={() => void cancelAhkAi()}>Cancel generation</button> : <button type="button" className="primary-button" disabled={!ahkAiPrompt.trim()} onClick={() => void generateAhkScript()}><Icon name="spark" size={15} /> Generate locally</button>}<button type="button" className="text-button danger" disabled={ahkAi.generating} onClick={() => void window.virgue.autoHotkey.removeAiModel().then(setAhkAi).catch((caught: unknown) => setAhkAiError(caught instanceof Error ? caught.message : 'The model could not be removed.'))}><Icon name="trash" size={14} /> Remove model</button></div>
+          </>}
+          {ahkAiError && <div className="background-inline-error" role="alert"><Icon name="warning" size={15} /> {ahkAiError}</div>}
+           {ahkAiResult && <AhkAiResultCard result={ahkAiResult} validationFailed={ahkValidationFailed} onReview={useGeneratedAhk} />}
+        </section>}
+        {!autoHotkey?.installed ? <div className="ahk-install"><div><strong>Install AutoHotkey v2 to unlock custom automation</strong><p>Create full keyboard, mouse, timing, and window-control scripts that run inside the protected alt desktop.</p></div><button type="button" className="primary-button" onClick={() => void window.virgue.autoHotkey.openDownload()}>Download AutoHotkey <Icon name="arrow" size={15} /></button></div> : <div className="ahk-workspace">
+          <aside className="ahk-script-list"><button type="button" className="outline-button" onClick={newAhkScript}><Icon name="plus" size={14} /> New script</button>{autoHotkey.scripts.length === 0 ? <p>No saved scripts yet.</p> : autoHotkey.scripts.map((script) => <button type="button" key={script.id} className={`ahk-script-row ${script.id === ahkSelectedId ? 'selected' : ''}`} onClick={() => selectAhkScript(script.id)}><span><strong>{script.name}</strong><small>{script.running ? 'Running in alt session' : `Edited ${formatRelativeTime(script.updatedAt)}`}</small></span>{script.running && <i>Live</i>}</button>)}</aside>
+          <div className="ahk-editor" ref={ahkEditorRef}><label className="field-label">Script name<input value={ahkName} maxLength={60} onChange={(event) => setAhkName(event.target.value)} /></label><label className="field-label">AutoHotkey v2 code<textarea spellCheck={false} value={ahkContent} onChange={(event) => setAhkContent(event.target.value)} /></label><div className="ahk-editor-actions"><button type="button" className="outline-button" disabled={ahkBusy !== null} onClick={() => void saveAhkScript()}>{ahkBusy === 'save' ? 'Saving…' : 'Save script'}</button>{ahkSelectedId && autoHotkey.scripts.find((script) => script.id === ahkSelectedId)?.running ? <button type="button" className="primary-button" disabled={ahkBusy !== null} onClick={() => void stopAhkScript()}><Icon name="square" size={14} /> {ahkBusy === 'stop' ? 'Stopping…' : 'Stop'}</button> : <button type="button" className="primary-button" disabled={ahkBusy !== null || !sessionReady || !ahkSelectedId} onClick={() => void runAhkScript()}><Icon name="play" size={14} /> {ahkBusy === 'run' ? 'Starting…' : 'Run in alt session'}</button>}{ahkSelectedId && <button type="button" className="text-button danger" disabled={ahkBusy !== null} onClick={() => void removeAhkScript()}><Icon name="trash" size={14} /> Delete</button>}</div><p>Scripts run only while Protected Session is active. Review scripts before running them; AutoHotkey can control apps and files available to your Windows account.</p></div>
+        </div>}
+      </article>
+
     </>}
 
-    <details className="legacy-control-details background-advanced-details">
-      <summary><span><strong>Advanced connections</strong><small>Optional controls for another Windows device or a compatible experience.</small></span><Icon name="chevron" size={16} /></summary>
-      <div className="advanced-control-stack">
-        <RemoteWorkerBridge entitlements={entitlements} onError={onError} onActivity={onActivity} />
-        <section className="advanced-control-section"><div className="advanced-control-heading"><div><strong>Experience command bridge</strong><p>Send named commands to experiences that explicitly support Virgue's WebSocket bridge.</p></div></div><LegacyControlBridge accounts={accounts} commands={commands} control={control} onError={onError} onActivity={onActivity} /></section>
-      </div>
-    </details>
   </section>
 }
 
-function RemoteWorkerBridge({ entitlements, onError, onActivity }: { entitlements: PlanEntitlements; onError: (message: string) => void; onActivity: (message: string, detail: string, tone?: ActivityTone) => void }) {
-  const [endpoint, setEndpoint] = useState(() => window.localStorage.getItem('virgue-isolated-worker-endpoint') ?? '')
-  const [password, setPassword] = useState('')
-  const [worker, setWorker] = useState<IsolatedWorkerSnapshot | null>(null)
-  const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([])
-  const [durationMs, setDurationMs] = useState(180)
-  const [connecting, setConnecting] = useState(false)
-  const [sending, setSending] = useState(false)
-  const canConnect = entitlements.isolatedWorkerInput && endpoint.trim().length > 0 && password.length > 0
+function AhkAiResultCard({ result, validationFailed, onReview }: { result: AhkAiGenerationResult; validationFailed: boolean; onReview: () => void }) {
+  const hasWarnings = result.warnings.length > 0
+  const modelLabel = result.modelTier === 'standard' ? 'Standard local model' : 'Low-memory local model'
 
-  const connect = async () => {
-    if (!entitlements.isolatedWorkerInput) return onError(getPlanFeatureError(entitlements, 'isolated-worker-input'))
-    const normalizedEndpoint = endpoint.trim()
-    if (!normalizedEndpoint || !password) return onError('Enter the other PC address and worker password first.')
-    setConnecting(true)
-    try {
-      const snapshot = await window.virgue.isolatedWorker.getSessions({ endpoint: normalizedEndpoint, password })
-      setWorker(snapshot)
-      setSelectedSessionIds((current) => current.filter((id) => snapshot.sessions.some((session) => session.id === id && session.ready)))
-      setEndpoint(normalizedEndpoint)
-      window.localStorage.setItem('virgue-isolated-worker-endpoint', normalizedEndpoint)
-      onActivity('Worker connected', `${snapshot.workerName} · ${formatCount(snapshot.sessions.filter((session) => session.ready).length, 'ready client')}`, 'positive')
-    } catch (caught) {
-      setWorker(null)
-      onError(caught instanceof Error ? caught.message : 'The isolated worker could not be reached.')
-    } finally {
-      setConnecting(false)
-    }
-  }
-
-  const toggleSession = (sessionId: string) => {
-    setSelectedSessionIds((current) => current.includes(sessionId) ? current.filter((id) => id !== sessionId) : [...current, sessionId].slice(0, 8))
-  }
-
-  const sendInput = async (key: IsolatedWorkerInputKey) => {
-    if (selectedSessionIds.length === 0) return onError('Select at least one ready worker session.')
-    setSending(true)
-    try {
-      for (const sessionId of selectedSessionIds) {
-        await window.virgue.isolatedWorker.sendInput({ endpoint, password, sessionId, key, durationMs })
-      }
-      const label = windowInputLabel(key)
-      onActivity('Worker input sent', `${label} → ${formatCount(selectedSessionIds.length, 'selected client')}`, 'positive')
-    } catch (caught) {
-      onError(caught instanceof Error ? caught.message : 'The isolated worker input failed.')
-      void connect()
-    } finally {
-      setSending(false)
-    }
-  }
-
-  const readySessions = worker?.sessions.filter((session) => session.ready) ?? []
-  return <section className="advanced-control-section">
-    <div className="advanced-control-heading"><div><strong>Control another Windows device</strong><p>This older connection remains available when you deliberately run alt clients elsewhere.</p></div><span>{worker ? `Connected · ${worker.workerName}` : 'Not connected'}</span></div>
-    <details className="worker-setup-details" open={!worker}>
-      <summary><span><strong>Set up the other PC</strong><small>Three steps the first time you connect.</small></span><Icon name="chevron" size={16} /></summary>
-      <ol className="worker-setup-steps">
-        <li><span className="worker-setup-number">1</span><div><strong>Prepare the worker</strong><p>Install Virgue on the other PC or VM and launch the Roblox alt accounts there.</p></div></li>
-        <li><span className="worker-setup-number">2</span><div><strong>Turn on the worker connection</strong><p>On that PC, open Settings → Privacy &amp; security. Save a 12+ character API password, enable Require password, Allow external API clients, and Isolated worker input, then start the Web API.</p></div></li>
-        <li><span className="worker-setup-number">3</span><div><strong>Connect from here</strong><p>Enter the other PC’s local address below, such as <code>http://192.168.1.40:7963</code>, then connect and choose the clients to control.</p></div></li>
-      </ol>
-    </details>
-
-    <div className="worker-connection-card">
-      <div className="panel-heading"><span>Connect the worker</span><span>{worker ? `Connected · ${worker.workerName}` : 'Waiting for the other PC'}</span></div>
-      <div className="worker-connection-fields">
-        <label className="field-label">Worker address (other PC)<input value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="http://192.168.1.40:7963" autoCapitalize="off" spellCheck={false} /></label>
-        <label className="field-label">Worker password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Web API password" autoComplete="off" /></label>
-        <button type="button" className="primary-button" disabled={connecting || !canConnect} onClick={() => void connect()}><Icon name={connecting ? 'clock' : worker ? 'refresh' : 'server'} size={15} /> {connecting ? 'Connecting…' : worker ? 'Refresh worker' : 'Connect worker'}</button>
+  return <>
+    <article className={`ahk-ai-result ${validationFailed ? 'needs-review' : ''}`} aria-live="polite" aria-labelledby="ahk-ai-result-title">
+      <div className="ahk-ai-result-top">
+        <div className="ahk-ai-result-status">
+          <span className={`ahk-ai-result-icon ${validationFailed ? 'needs-review' : 'complete'}`}><Icon name={validationFailed ? 'warning' : 'check'} size={17} /></span>
+          <div>
+            <span className="eyebrow">Generation complete</span>
+            <strong id="ahk-ai-result-title">{validationFailed ? 'Script needs review' : 'Script ready for review'}</strong>
+            <p>{result.explanation}</p>
+          </div>
+        </div>
+        <button type="button" className="primary-button ahk-ai-review-button" onClick={onReview}>Review script <Icon name="arrow" size={14} /></button>
       </div>
-      <p className="worker-safety-note"><Icon name="shield" size={14} /> Keep the worker on a trusted local network. Never expose port 7963 to the public internet.</p>
-    </div>
-
-    {worker && <div className="worker-console-grid">
-      <article className="worker-session-card">
-        <div className="panel-heading"><span>Alt clients</span><button type="button" className="text-button" onClick={() => setSelectedSessionIds(readySessions.slice(0, 8).map((session) => session.id))}>Select ready</button></div>
-        <div className="worker-session-list">{worker.sessions.length === 0 ? <div className="worker-empty"><strong>No managed Roblox clients</strong><span>Launch an alt from Virgue on the worker, then refresh this connection.</span></div> : worker.sessions.map((session) => <label className={`worker-session-row ${session.ready ? '' : 'unavailable'}`} key={session.id}><input type="checkbox" checked={selectedSessionIds.includes(session.id)} disabled={!session.ready} onChange={() => toggleSession(session.id)} /><span><strong>{session.accountLabel}</strong><small>{session.experienceName} · {session.windowTitle || 'Waiting for window'}</small></span><span className={`worker-session-status ${session.ready ? 'ready' : ''}`}>{session.ready ? 'Ready' : session.status}</span></label>)}</div>
-      </article>
-
-      <article className="worker-input-card">
-        <div className="panel-heading"><span>One-shot input</span><span>{formatCount(selectedSessionIds.length, 'target')}</span></div>
-        <div className="worker-duration-row"><label htmlFor="worker-duration">Press length</label><select id="worker-duration" value={durationMs} onChange={(event) => setDurationMs(Number(event.target.value))}><option value={90}>Tap · 90 ms</option><option value={180}>Short · 180 ms</option><option value={400}>Medium · 400 ms</option><option value={800}>Long · 800 ms</option><option value={1400}>Maximum · 1.4 s</option></select></div>
-        <WindowInputPad disabled={sending} onSend={(key) => void sendInput(key)} />
-        <p>Each click is bounded and released automatically. There is no recording, looping, scripting, or unattended mode.</p>
-      </article>
-    </div>}
-  </section>
-}
-
-function LegacyControlBridge({ accounts, commands, control, onError, onActivity }: { accounts: ControlAccount[]; commands: ControlCommand[]; control?: ControlSettings; onError: (message: string) => void; onActivity: (message: string, detail: string, tone?: ActivityTone) => void }) {
-  const [target, setTarget] = useState('all')
-  const [command, setCommand] = useState('')
-  const [payload, setPayload] = useState('')
-  const [started, setStarted] = useState(control?.enabled ?? false)
-  useEffect(() => { setStarted(control?.enabled ?? false) }, [control?.enabled])
-  return <div className="legacy-control-body"><div className="legacy-control-toolbar"><span>Listening on {control?.allowExternalConnections ? 'all interfaces' : 'localhost'}:{control?.port ?? 5242}</span><button type="button" className={started ? 'outline-button' : 'primary-button'} onClick={() => void (started ? window.virgue.control.stop().then(() => { setStarted(false); onActivity('Control server stopped', 'Client connections are paused', 'warning') }) : window.virgue.control.start().then(() => { setStarted(true); onActivity('Control server started', 'Waiting for control clients', 'positive') })).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Control server failed.'))}><Icon name={started ? 'square' : 'play'} size={16} /> {started ? 'Stop server' : 'Start control server'}</button></div><div className="control-grid"><div className="control-accounts">{accounts.map((account) => <div className="control-account-row" key={account.accountId}><span className={`status-dot ${account.connected ? 'running' : 'offline'}`} /><span className="control-account-name"><strong>{account.username}</strong><small>{account.placeId || 'No place'} / {account.jobId || 'No job'}</small></span><span>{account.connected ? 'Connected' : 'Waiting'}</span><label className="check-label"><input type="checkbox" checked={account.autoRelaunch} onChange={(event) => void window.virgue.control.setAutoRelaunch(account.accountId, event.target.checked, 1800)} /> Relaunch</label></div>)}</div><div className="command-card"><div className="panel-heading"><span>Send command</span><span>Compatible clients only</span></div><label className="field-label">Target<select value={target} onChange={(event) => setTarget(event.target.value)}><option value="all">All connected accounts</option>{accounts.map((account) => <option value={account.accountId} key={account.accountId}>{account.username}</option>)}</select></label><label className="field-label">Command<input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="Teleport, Rejoin, Mute…" /></label><label className="field-label">Payload <span className="muted-label">Optional</span><textarea rows={3} value={payload} onChange={(event) => setPayload(event.target.value)} placeholder="Command payload" /></label><button type="button" className="primary-button" disabled={!command.trim()} onClick={() => void window.virgue.control.send({ target, command, payload }).then((item) => { setCommand(''); setPayload(''); onActivity('Command queued', `${item.command} → ${item.target}`, 'positive') }).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Command failed.'))}>Send command <Icon name="arrow" size={16} /></button></div></div><div className="command-log"><div className="panel-heading"><span>Command log</span><span>{commands.length}</span></div>{commands.slice(0, 12).map((item) => <div className="command-log-row" key={item.id}><span className={`command-status ${item.status}`} /> <strong>{item.command}</strong><span>{item.target}</span><small>{new Date(item.createdAt).toLocaleTimeString()}</small></div>)}</div></div>
+      <div className="ahk-ai-result-facts" aria-label="Generation checks">
+        <div className={`ahk-ai-result-fact ${validationFailed ? 'needs-review' : ''}`}>
+          <span className="ahk-ai-fact-icon"><Icon name={validationFailed ? 'warning' : 'check'} size={13} /></span>
+          <span><small>Validation</small><strong>{validationFailed ? 'Needs review' : 'Syntax passed'}</strong><small className="ahk-ai-result-fact-detail">{result.validationMessage}</small></span>
+        </div>
+        <div className="ahk-ai-result-fact">
+          <span className="ahk-ai-fact-icon"><Icon name="spark" size={13} /></span>
+          <span><small>Model</small><strong>{modelLabel}</strong><small className="ahk-ai-result-fact-detail">{result.modelName}</small></span>
+        </div>
+        <div className={`ahk-ai-result-fact ${hasWarnings ? 'has-warning' : ''}`}>
+          <span className="ahk-ai-fact-icon"><Icon name={hasWarnings ? 'warning' : 'shield'} size={13} /></span>
+          <span><small>Safety scan</small><strong>{hasWarnings ? formatCount(result.warnings.length, 'review note') : 'Clear'}</strong><small className="ahk-ai-result-fact-detail">{hasWarnings ? 'Review the note below.' : 'No risky operations detected.'}</small></span>
+        </div>
+      </div>
+      {validationFailed && <div className="ahk-ai-result-warning"><Icon name="warning" size={14} /><span>{result.validationMessage}</span></div>}
+      {hasWarnings && <div className="ahk-ai-result-warning"><Icon name="warning" size={14} /><span>{result.warnings.join(' ')}</span></div>}
+    </article>
+    {result.generationTrace.length > 0 && <details className="ahk-ai-trace-copy">
+      <summary>
+        <span className="ahk-ai-trace-summary-copy"><span className="eyebrow">Generation notes</span><strong>See how the local assistant approached it</strong></span>
+        <span className="ahk-ai-trace-summary-action">{formatCount(result.generationTrace.length, 'note')} <Icon name="chevron" size={14} /></span>
+      </summary>
+      <div className="ahk-ai-trace-content">
+        <div className="ahk-ai-trace-list">{result.generationTrace.map((note) => <p key={note}><i aria-hidden="true" />{note}</p>)}</div>
+        <small>These are concise notes returned by the local model, not hidden chain-of-thought.</small>
+      </div>
+    </details>}
+  </>
 }
 
 const SETTING_HELP: Record<string, string> = {
@@ -1882,12 +2094,17 @@ const SETTING_HELP: Record<string, string> = {
   'Enable isolated worker input': 'Exposes bounded input controls for managed Roblox clients on this installation. Only enable this inside a VM or secondary Windows PC dedicated to alt clients.',
 }
 
+function SettingsCardHeading({ label, description, icon }: { label: string; description: string; icon: IconName }) {
+  return <div className="panel-heading settings-card-heading"><div className="settings-card-heading-copy"><strong>{label}</strong><span>{description}</span></div><Icon name={icon} size={16} /></div>
+}
+
 function SettingsView({ settings, client, webApi, watcher, control, entitlements, accountCount, gameCount, onSettings, onClientUpdate, onWebApiUpdate, onControl, onMultiInstanceChange, onError, onActivity }: { settings: AppSettings | null; client?: AppSnapshot['client']; webApi?: WebApiSettings; watcher?: WatcherSettings; control?: ControlSettings; entitlements: PlanEntitlements; accountCount: number; gameCount: number; onSettings: (input: Partial<AppSettings>) => void; onClientUpdate: (client: AppSnapshot['client']) => void; onWebApiUpdate: (webApi: WebApiSettings) => void; onControl: (input: Partial<ControlSettings>) => void; onMultiInstanceChange: (enabled: boolean) => Promise<MultiInstanceChangeResult>; onError: (message: string) => void; onActivity: (message: string, detail: string, tone?: ActivityTone) => void }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('features')
   const [multiInstanceIssue, setMultiInstanceIssue] = useState<'clients' | 'guard' | null>(null)
   const [closingRoblox, setClosingRoblox] = useState(false)
   const multiInstanceRecovery = false
   const revealRef = useMotionReveal<HTMLElement>()
+  const activeTabContent = SETTINGS_TAB_CONTENT[activeTab]
   const toggle = (key: 'asyncJoin' | 'runOnStartup' | 'autoCookieRefresh' | 'showPresence', value: boolean) => onSettings({ [key]: value })
   const updateWatcher = (input: WatcherUpdateInput) => void window.virgue.watcher.update(input).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Watcher settings could not be saved.'))
   const changeMultiInstance = async (value: boolean) => {
@@ -1910,9 +2127,17 @@ function SettingsView({ settings, client, webApi, watcher, control, entitlements
   }
 
   return <section ref={revealRef} className="settings-view motion-reveal">
+    <header className="settings-page-intro">
+      <div className="settings-page-intro-copy">
+        <span className="eyebrow">Settings / {SETTINGS_TABS.find((tab) => tab.id === activeTab)?.label}</span>
+        <h2>{activeTabContent.title}</h2>
+        <p>{activeTabContent.description}</p>
+      </div>
+      <div className="settings-save-note"><span className="status-dot running" /> Changes save automatically</div>
+    </header>
     <div className="settings-navigation-layout">
       <nav className="settings-navigation" aria-label="Settings sections">
-        <div className="settings-navigation-plan"><span>Current plan</span><strong>{entitlements.displayName}</strong></div>
+        <div className="settings-navigation-plan"><span>Current plan</span><strong>{entitlements.displayName}</strong><small>{accountCount} profiles · {gameCount} collections</small></div>
         <div className="settings-tabs" role="tablist" aria-orientation="vertical">
           {SETTINGS_TABS.map((tab) => <button type="button" key={tab.id} id={`settings-tab-${tab.id}`} className={`settings-tab ${activeTab === tab.id ? 'active' : ''}`} role="tab" aria-selected={activeTab === tab.id} aria-controls={`settings-panel-${tab.id}`} onClick={() => setActiveTab(tab.id)}><span className="settings-tab-icon"><Icon name={tab.icon} size={16} /></span><span><strong>{tab.label}</strong><small>{tab.description}</small></span><Icon name="arrow" size={14} /></button>)}
         </div>
@@ -1921,29 +2146,41 @@ function SettingsView({ settings, client, webApi, watcher, control, entitlements
       <div id={`settings-panel-${activeTab}`} className="settings-tab-content" role="tabpanel" aria-labelledby={`settings-tab-${activeTab}`}>
       {activeTab === 'features' && <>
         <div className="settings-grid">
-          <article className="settings-card">
-            <div className="panel-heading"><span>General</span><Icon name="settings" size={16} /></div>
-            <SettingToggle label="Async launching" checked={settings?.asyncJoin ?? false} onChange={(value) => toggle('asyncJoin', value)} />
-            <SettingToggle label="Run on Windows startup" checked={settings?.runOnStartup ?? false} onChange={(value) => toggle('runOnStartup', value)} />
-            <SettingToggle label="Multiple Roblox sessions" checked={settings?.multiInstance ?? false} onChange={(value) => void changeMultiInstance(value)} />
-            {multiInstanceIssue && <div className="setting-recovery" role="alert"><strong>{multiInstanceIssue === 'clients' ? 'Close Roblox before enabling this' : 'Multi-session guard needs attention'}</strong><span>{multiInstanceIssue === 'clients' ? 'Roblox Player is still holding its single-session guard. This action closes RobloxPlayerBeta.exe only; it does not close Studio, but unsaved game progress will be lost.' : 'No Roblox Player clients were detected, but the helper did not become ready. Try enabling the setting again; if it continues, restart the manager and try once more.'}</span><button type="button" className="primary-button" disabled={closingRoblox} onClick={() => multiInstanceIssue === 'clients' ? void closeRobloxAndEnable() : void changeMultiInstance(true)}><Icon name={multiInstanceIssue === 'clients' ? 'trash' : 'refresh'} size={15} /> {multiInstanceIssue === 'clients' ? closingRoblox ? 'Closing Roblox clients…' : 'Close all Roblox clients and enable' : 'Retry enabling multiple sessions'}</button></div>}
-            {multiInstanceRecovery && <div className="setting-recovery" role="alert"><strong>Close Roblox before enabling this</strong><span>Multiple sessions needs the Roblox Player guard to be free. This action force-closes RobloxPlayerBeta.exe only; it does not close Studio, but unsaved game progress will be lost.</span><button type="button" className="primary-button" disabled={closingRoblox} onClick={() => void closeRobloxAndEnable()}><Icon name="trash" size={15} /> {closingRoblox ? 'Closing Roblox clients…' : 'Close all Roblox clients and enable'}</button></div>}
-            <SettingToggle label="Refresh stale session cookies" checked={settings?.autoCookieRefresh ?? false} onChange={(value) => toggle('autoCookieRefresh', value)} />
-            <SettingToggle label="Show live presence" checked={settings?.showPresence ?? true} onChange={(value) => toggle('showPresence', value)} />
-            <SettingField label="Launch delay" description="Wait time between sequential account launches." suffix="sec"><input type="number" min="0" max="60" value={settings?.launchDelay ?? 8} onChange={(event) => onSettings({ launchDelay: Number(event.target.value) })} /></SettingField>
-            <SettingField label="Recent games" description="Controls how many recent game shortcuts are retained." suffix="items"><input type="number" min="1" max="50" value={settings?.maxRecentGames ?? 8} onChange={(event) => onSettings({ maxRecentGames: Number(event.target.value) })} /></SettingField>
-            <SettingField label="Presence refresh" description="Controls how often the automatic watcher asks Roblox for presence updates." suffix="sec"><input type="number" min="1" max="300" value={settings?.presenceUpdateRate ?? 30} onChange={(event) => onSettings({ presenceUpdateRate: Number(event.target.value) })} /></SettingField>
+          <article className="settings-card settings-card-general">
+            <SettingsCardHeading label="Workspace defaults" description="Decide how launches, sessions, and presence behave." icon="settings" />
+            <div className="settings-card-section">
+              <div className="settings-section-intro"><strong>Launch behavior</strong><span>These choices apply to every new launch unless a profile overrides them.</span></div>
+              <SettingToggle label="Async launching" checked={settings?.asyncJoin ?? false} onChange={(value) => toggle('asyncJoin', value)} />
+              <SettingToggle label="Run on Windows startup" checked={settings?.runOnStartup ?? false} onChange={(value) => toggle('runOnStartup', value)} />
+              <SettingToggle label="Multiple Roblox sessions" checked={settings?.multiInstance ?? false} onChange={(value) => void changeMultiInstance(value)} />
+              {multiInstanceIssue && <div className="setting-recovery" role="alert"><strong>{multiInstanceIssue === 'clients' ? 'Close Roblox before enabling this' : 'Multi-session guard needs attention'}</strong><span>{multiInstanceIssue === 'clients' ? 'Roblox Player is still holding its single-session guard. This action closes RobloxPlayerBeta.exe only; it does not close Studio, but unsaved game progress will be lost.' : 'No Roblox Player clients were detected, but the helper did not become ready. Try enabling the setting again; if it continues, restart the manager and try once more.'}</span><button type="button" className="primary-button" disabled={closingRoblox} onClick={() => multiInstanceIssue === 'clients' ? void closeRobloxAndEnable() : void changeMultiInstance(true)}><Icon name={multiInstanceIssue === 'clients' ? 'trash' : 'refresh'} size={15} /> {multiInstanceIssue === 'clients' ? closingRoblox ? 'Closing Roblox clients…' : 'Close all Roblox clients and enable' : 'Retry enabling multiple sessions'}</button></div>}
+              {multiInstanceRecovery && <div className="setting-recovery" role="alert"><strong>Close Roblox before enabling this</strong><span>Multiple sessions needs the Roblox Player guard to be free. This action force-closes RobloxPlayerBeta.exe only; it does not close Studio, but unsaved game progress will be lost.</span><button type="button" className="primary-button" disabled={closingRoblox} onClick={() => void closeRobloxAndEnable()}><Icon name="trash" size={15} /> {closingRoblox ? 'Closing Roblox clients…' : 'Close all Roblox clients and enable'}</button></div>}
+            </div>
+            <div className="settings-card-section">
+              <div className="settings-section-intro"><strong>Refresh and history</strong><span>Balance fresh presence data with the amount of local shortcut history you keep.</span></div>
+              <SettingToggle label="Refresh stale session cookies" checked={settings?.autoCookieRefresh ?? false} onChange={(value) => toggle('autoCookieRefresh', value)} />
+              <SettingToggle label="Show live presence" checked={settings?.showPresence ?? true} onChange={(value) => toggle('showPresence', value)} />
+              <SettingField label="Launch delay" description="Wait time between sequential account launches." suffix="sec"><input type="number" min="0" max="60" value={settings?.launchDelay ?? 8} onChange={(event) => onSettings({ launchDelay: Number(event.target.value) })} /></SettingField>
+              <SettingField label="Recent games" description="Controls how many recent game shortcuts are retained." suffix="items"><input type="number" min="1" max="50" value={settings?.maxRecentGames ?? 8} onChange={(event) => onSettings({ maxRecentGames: Number(event.target.value) })} /></SettingField>
+              <SettingField label="Presence refresh" description="Controls how often the automatic watcher asks Roblox for presence updates." suffix="sec"><input type="number" min="1" max="300" value={settings?.presenceUpdateRate ?? 30} onChange={(event) => onSettings({ presenceUpdateRate: Number(event.target.value) })} /></SettingField>
+            </div>
           </article>
 
-          <article className="settings-card">
-            <div className="panel-heading"><span>Watcher</span><Icon name="watch" size={16} /></div>
-            <SettingToggle label="Enable Roblox watcher" checked={watcher?.enabled ?? false} onChange={(value) => updateWatcher({ enabled: value })} />
-            <SettingToggle label="Close when Roblox is unreachable" checked={watcher?.closeIfNoConnection ?? false} onChange={(value) => updateWatcher({ closeIfNoConnection: value })} />
-            <SettingToggle label="Close low-memory clients" checked={watcher?.closeIfMemoryLow ?? false} onChange={(value) => updateWatcher({ closeIfMemoryLow: value })} />
-            <SettingToggle label="Close unexpected window titles" checked={watcher?.closeIfWindowTitle ?? false} onChange={(value) => updateWatcher({ closeIfWindowTitle: value })} />
-            <SettingField label="Expected title" description="Title text the watcher uses when deciding whether a Roblox window is expected."><input value={watcher?.expectedWindowTitle ?? 'Roblox'} onChange={(event) => updateWatcher({ expectedWindowTitle: event.target.value })} /></SettingField>
-            <SettingField label="Memory floor" description="Minimum Roblox process memory in megabytes before the low-memory rule can close it." suffix="MB"><input type="number" min="32" max="4096" value={watcher?.memoryLowMb ?? 200} onChange={(event) => updateWatcher({ memoryLowMb: Number(event.target.value) })} /></SettingField>
-            <button type="button" className="outline-button" onClick={() => void window.virgue.watcher.check().then((result) => onActivity('Watcher checked', result.message, result.closed > 0 ? 'warning' : 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Watcher failed.'))}><Icon name="refresh" size={15} /> Check now</button>
+          <article className="settings-card settings-card-watcher">
+            <SettingsCardHeading label="Roblox watcher" description="Apply safety rules to managed Roblox windows in the background." icon="watch" />
+            <div className="settings-card-section">
+              <div className="settings-section-intro"><strong>Safety rules</strong><span>Turn on the checks you want the watcher to enforce while Roblox is running.</span></div>
+              <SettingToggle label="Enable Roblox watcher" checked={watcher?.enabled ?? false} onChange={(value) => updateWatcher({ enabled: value })} />
+              <SettingToggle label="Close when Roblox is unreachable" checked={watcher?.closeIfNoConnection ?? false} onChange={(value) => updateWatcher({ closeIfNoConnection: value })} />
+              <SettingToggle label="Close low-memory clients" checked={watcher?.closeIfMemoryLow ?? false} onChange={(value) => updateWatcher({ closeIfMemoryLow: value })} />
+              <SettingToggle label="Close unexpected window titles" checked={watcher?.closeIfWindowTitle ?? false} onChange={(value) => updateWatcher({ closeIfWindowTitle: value })} />
+            </div>
+            <div className="settings-card-section">
+              <div className="settings-section-intro"><strong>Detection thresholds</strong><span>Tell the watcher what a healthy Roblox window looks like.</span></div>
+              <SettingField label="Expected title" description="Title text the watcher uses when deciding whether a Roblox window is expected."><input value={watcher?.expectedWindowTitle ?? 'Roblox'} onChange={(event) => updateWatcher({ expectedWindowTitle: event.target.value })} /></SettingField>
+              <SettingField label="Memory floor" description="Minimum Roblox process memory in megabytes before the low-memory rule can close it." suffix="MB"><input type="number" min="32" max="4096" value={watcher?.memoryLowMb ?? 200} onChange={(event) => updateWatcher({ memoryLowMb: Number(event.target.value) })} /></SettingField>
+              <button type="button" className="outline-button settings-check-button" onClick={() => void window.virgue.watcher.check().then((result) => onActivity('Watcher checked', result.message, result.closed > 0 ? 'warning' : 'positive')).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Watcher failed.'))}><Icon name="refresh" size={15} /> Check now</button>
+            </div>
           </article>
 
           <ClientPerformanceSettings client={client} onClientUpdate={onClientUpdate} onError={onError} onActivity={onActivity} />
@@ -1982,19 +2219,27 @@ function WebApiSettingsCard({ webApi, isolatedWorkerAllowed, onUpdate, onError, 
     setPassword('')
     onActivity('Web API password saved', 'The password is stored in Windows credential encryption.', 'positive')
   }
-  return <article className="settings-card settings-card-wide">
-    <div className="panel-heading"><span>Local Web API</span><Icon name="globe" size={16} /></div>
-    <p className="settings-copy">Keep integrations local by default. Only expose routes that a trusted tool needs.</p>
-    <SettingToggle label="Enable Web API" checked={webApi?.enabled ?? false} onChange={(value) => void updateWebApi({ enabled: value })} />
-    <SettingToggle label="Require password" checked={webApi?.requirePassword ?? false} onChange={(value) => void updateWebApi({ requirePassword: value })} />
-    <SettingToggle label="Allow account listing" checked={webApi?.allowGetAccounts ?? true} onChange={(value) => void updateWebApi({ allowGetAccounts: value })} />
-    <SettingToggle label="Allow launch route" checked={webApi?.allowLaunchAccount ?? false} onChange={(value) => void updateWebApi({ allowLaunchAccount: value })} />
-    <SettingToggle label="Allow cookie route" checked={webApi?.allowGetCookie ?? false} onChange={(value) => void updateWebApi({ allowGetCookie: value })} />
-    <SettingToggle label="Allow account editing" checked={webApi?.allowAccountEditing ?? false} onChange={(value) => void updateWebApi({ allowAccountEditing: value })} />
-    <SettingToggle label="Allow external API clients" checked={webApi?.allowExternalConnections ?? false} onChange={(value) => void updateWebApi({ allowExternalConnections: value })} />
-    <SettingToggle label="Enable isolated worker input" checked={webApi?.allowSessionInput ?? false} onChange={toggleWorker} />
-    <SettingField label="Port" description="Local port used by the Web API. It must stay between 1024 and 65535."><input type="number" min="1024" max="65535" value={webApi?.port ?? 7963} onChange={(event) => void updateWebApi({ port: Number(event.target.value) })} /></SettingField>
-    <SettingField label="API password" description={webApi?.passwordSet ? 'A password is saved. Enter a replacement only when you want to change it.' : 'Use at least 12 characters before enabling isolated worker input.'}><div className="web-api-password-control"><input type="password" value={password} placeholder={webApi?.passwordSet ? 'Password saved' : 'At least 12 characters'} onChange={(event) => setPassword(event.target.value)} /><button type="button" className="outline-button" disabled={!password.trim()} onClick={() => void savePassword()}>Save</button></div></SettingField>
+  return <article className="settings-card settings-card-wide settings-privacy-card">
+    <SettingsCardHeading label="Local Web API" description="Keep integrations local by default. Only expose routes that a trusted tool needs." icon="globe" />
+    <div className="settings-card-section">
+      <div className="settings-section-intro"><strong>API access</strong><span>Control which local routes are available to trusted tools.</span></div>
+      <SettingToggle label="Enable Web API" checked={webApi?.enabled ?? false} onChange={(value) => void updateWebApi({ enabled: value })} />
+      <SettingToggle label="Require password" checked={webApi?.requirePassword ?? false} onChange={(value) => void updateWebApi({ requirePassword: value })} />
+      <SettingToggle label="Allow account listing" checked={webApi?.allowGetAccounts ?? true} onChange={(value) => void updateWebApi({ allowGetAccounts: value })} />
+      <SettingToggle label="Allow launch route" checked={webApi?.allowLaunchAccount ?? false} onChange={(value) => void updateWebApi({ allowLaunchAccount: value })} />
+      <SettingToggle label="Allow cookie route" checked={webApi?.allowGetCookie ?? false} onChange={(value) => void updateWebApi({ allowGetCookie: value })} />
+      <SettingToggle label="Allow account editing" checked={webApi?.allowAccountEditing ?? false} onChange={(value) => void updateWebApi({ allowAccountEditing: value })} />
+    </div>
+    <div className="settings-card-section">
+      <div className="settings-section-intro"><strong>Network boundary</strong><span>Keep the service on this computer unless a trusted device needs access.</span></div>
+      <SettingToggle label="Allow external API clients" checked={webApi?.allowExternalConnections ?? false} onChange={(value) => void updateWebApi({ allowExternalConnections: value })} />
+      <SettingToggle label="Enable isolated worker input" checked={webApi?.allowSessionInput ?? false} onChange={toggleWorker} />
+      <SettingField label="Port" description="Local port used by the Web API. It must stay between 1024 and 65535."><input type="number" min="1024" max="65535" value={webApi?.port ?? 7963} onChange={(event) => void updateWebApi({ port: Number(event.target.value) })} /></SettingField>
+    </div>
+    <div className="settings-card-section settings-credentials-section">
+      <div className="settings-section-intro"><strong>Credentials</strong><span>Passwords are stored using Windows credential encryption.</span></div>
+      <SettingField className="settings-api-password-field" label="API password" description={webApi?.passwordSet ? 'A password is saved. Enter a replacement only when you want to change it.' : 'Use at least 12 characters before enabling isolated worker input.'}><div className="web-api-password-control"><input type="password" value={password} placeholder={webApi?.passwordSet ? 'Password saved' : 'At least 12 characters'} onChange={(event) => setPassword(event.target.value)} /><button type="button" className="outline-button" disabled={!password.trim()} onClick={() => void savePassword()}>Save password</button></div></SettingField>
+    </div>
     <div className="web-api-actions">{webApi?.enabled ? <><span className="web-api-running"><span className="status-dot running" /> Running on {webApi.allowExternalConnections ? 'private network' : 'localhost'}:{webApi.port}</span><button type="button" className="text-button danger" onClick={() => void window.virgue.webApi.stop().then((updated) => { onUpdate(updated); onActivity('Web API stopped', 'Local integrations are paused.', 'warning') }).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Web API could not be stopped.'))}>Stop API</button></> : <button type="button" className="outline-button" onClick={() => void window.virgue.webApi.start().then((updated) => { onUpdate(updated); onActivity('Web API started', `${updated.allowExternalConnections ? 'Network' : 'Localhost'}:${updated.port}`, 'positive') }).catch((caught: unknown) => onError(caught instanceof Error ? caught.message : 'Web API failed.'))}><Icon name="play" size={15} /> Start API</button>}</div>
   </article>
 }
@@ -2105,8 +2350,7 @@ function ClientPerformanceSettings({ client, onClientUpdate, onError, onActivity
   }
 
   return <article className="settings-card settings-card-wide settings-performance-card">
-    <div className="panel-heading"><span>Roblox client performance</span><Icon name="settings" size={16} /></div>
-    <p className="settings-copy">Set defaults for new Roblox Player launches. Account-level overrides still take precedence.</p>
+    <SettingsCardHeading label="Roblox client performance" description="Set defaults for new Roblox Player launches. Account-level overrides still take precedence." icon="settings" />
     <div className="settings-performance-sections">
       <div className="settings-performance-section">
         <div className="settings-performance-section-heading"><strong>Frame rate</strong><span>Choose the default cap for new clients.</span></div>
@@ -2128,18 +2372,13 @@ function ClientPerformanceSettings({ client, onClientUpdate, onError, onActivity
   </article>
 }
 
-function SettingHint({ label, description }: { label: string; description: string }) {
-  const tooltipId = 'setting-tip-' + label.toLowerCase().replace(/[^a-z0-9]+/g, '-')
-  return <span className="setting-hint" tabIndex={0} aria-describedby={tooltipId} aria-label={label + ': ' + description} onClick={(event) => event.preventDefault()}><span className="setting-hint-mark" aria-hidden="true">i</span><span className="setting-tooltip" id={tooltipId} role="tooltip">{description}</span></span>
-}
-
 function SettingToggle({ label, checked, onChange, description }: { label: string; checked: boolean; onChange: (checked: boolean) => void; description?: string }) {
   const explanation = description ?? SETTING_HELP[label] ?? 'Explains what this setting changes.'
-  return <label className="setting-row"><span className="setting-row-label"><span>{label}</span><SettingHint label={label} description={explanation} /></span><input type="checkbox" aria-label={label} checked={checked} onChange={(event) => onChange(event.target.checked)} /><span className="toggle-ui" aria-hidden="true"><span /></span></label>
+  return <label className="setting-row"><span className="setting-row-label"><span className="setting-row-copy"><strong>{label}</strong><small>{explanation}</small></span></span><input type="checkbox" aria-label={label} checked={checked} onChange={(event) => onChange(event.target.checked)} /><span className="toggle-ui" aria-hidden="true"><span /></span></label>
 }
 
 function SettingField({ label, description, suffix, className = '', children }: { label: string; description: string; suffix?: string; className?: string; children: ReactNode }) {
-  return <label className={`setting-field field-label ${className}`.trim()}><span className="setting-field-label"><span>{label}</span><SettingHint label={label} description={description} /></span><span className={`setting-field-control ${suffix ? 'has-suffix' : ''}`}>{children}{suffix && <span>{suffix}</span>}</span></label>
+  return <label className={`setting-field field-label ${className}`.trim()}><span className="setting-field-label"><span className="setting-field-copy"><strong>{label}</strong><small>{description}</small></span></span><span className={`setting-field-control ${suffix ? 'has-suffix' : ''}`}>{children}{suffix && <span>{suffix}</span>}</span></label>
 }
 const THEME_HELP: Record<AppSettings['theme'], string> = {
   neo: 'The signature Virgue palette: cream grid, coral actions, yellow accents, and hard ink shadows.',
@@ -2167,7 +2406,7 @@ function ControlSettingsPanel({ control, onChange }: { control?: ControlSettings
   </section>
 }
 
-function EmptyState({ hasSearch, onReset, onAdd }: { hasSearch: boolean; onReset: () => void; onAdd: () => void }) { return <div className="empty-state"><div className="empty-mark"><Icon name={hasSearch ? 'search' : 'users'} size={26} /></div><h2>{hasSearch ? 'No profiles match' : 'Your workspace is empty'}</h2><p>{hasSearch ? 'Try another search or game category.' : 'Log in to Roblox to add your first connected account.'}</p>{hasSearch ? <button type="button" className="outline-button" onClick={onReset}>Clear filters</button> : <button type="button" className="primary-button" onClick={onAdd}><Icon name="plus" size={17} /> Add Account</button>}</div> }
+function EmptyState({ hasSearch, hasScope, onReset, onResetScope, onAdd }: { hasSearch: boolean; hasScope: boolean; onReset: () => void; onResetScope: () => void; onAdd: () => void }) { return <div className="empty-state"><div className="empty-mark"><Icon name={hasSearch ? 'search' : hasScope ? 'folder' : 'users'} size={26} /></div><h2>{hasSearch ? 'No profiles match' : hasScope ? 'No profiles in this view' : 'Account desk is empty'}</h2><p>{hasSearch ? 'Try another search or choose a different game group.' : hasScope ? 'This game or category is empty. Choose another group or add a profile here.' : 'Log in to Roblox to add your first connected account.'}</p>{hasSearch ? <button type="button" className="outline-button" onClick={onReset}>Clear search</button> : hasScope ? <button type="button" className="outline-button" onClick={onResetScope}>View all profiles</button> : <button type="button" className="primary-button" onClick={onAdd}><Icon name="plus" size={17} /> Add Account</button>}</div> }
 
 function sessionEventTone(event: SessionEvent): ActivityTone {
   if (event.severity === 'success') return 'positive'
@@ -2236,11 +2475,11 @@ function SessionHistoryRow({ session, account, game, onSelect, onCopy, onRejoin 
       <div><span className="session-history-label">Duration</span><strong>{formatSessionDuration(session)}</strong><span>Started {formatSessionTimestamp(session.startedAt)}{session.endedAt ? ` · Ended ${formatSessionTimestamp(session.endedAt)}` : ''}</span></div>
       <div className="session-history-server"><span className="session-history-label">Last server</span><strong title={jobId || undefined}>{jobId ? `${jobId.slice(0, 18)}...` : 'No Job ID recorded'}</strong><span>{sessionHistoryReason(session)}</span></div>
     </div>
-    <div className="session-history-actions"><button type="button" className="outline-button compact-button" onClick={() => onSelect(session.accountId)}><Icon name="users" size={13} /> Open account</button>{jobId && <button type="button" className="text-button" onClick={() => void onCopy(jobId)}><Icon name="copy" size={13} /> Copy ID</button>}<button type="button" className="primary-button compact-button" disabled={!canRejoin || rejoining} title={!account ? 'The account is no longer in this workspace' : !account.hasCredentials ? 'Connect this account before rejoining' : !placeId ? 'This session has no Place ID' : 'Launch this account into the last known server'} onClick={() => void handleRejoin()}><Icon name={rejoining ? 'clock' : 'launch'} size={13} /> {rejoining ? 'Launching...' : jobId ? 'Rejoin server' : 'Launch again'}</button></div>
+    <div className="session-history-actions"><button type="button" className="outline-button compact-button" disabled={!account} title={!account ? 'This account is no longer in the workspace' : undefined} onClick={() => { if (account) onSelect(session.accountId) }}><Icon name="users" size={13} /> {account ? 'Open account' : 'Account unavailable'}</button>{jobId && <button type="button" className="text-button" onClick={() => void onCopy(jobId)}><Icon name="copy" size={13} /> Copy ID</button>}<button type="button" className="primary-button compact-button" disabled={!canRejoin || rejoining} title={!account ? 'The account is no longer in this workspace' : !account.hasCredentials ? 'Connect this account before rejoining' : !placeId ? 'This session has no Place ID' : 'Launch this account into the last known server'} onClick={() => void handleRejoin()}><Icon name={rejoining ? 'clock' : 'launch'} size={13} /> {rejoining ? 'Launching...' : jobId ? 'Rejoin server' : 'Launch again'}</button></div>
   </article>
 }
 
-function SessionHistoryPanel({ sessions, accounts, games, onSelect, onCopy, onRejoin }: { sessions: SessionSnapshot; accounts: Account[]; games: GameCollection[]; onSelect: (id: string) => void; onCopy: (text: string) => Promise<boolean>; onRejoin: (session: SessionRecord) => Promise<void> }) {
+function SessionHistoryPanel({ sessions, accounts, games, onSelect, onCopy, onRejoin, onAdd, onOpenAccounts }: { sessions: SessionSnapshot; accounts: Account[]; games: GameCollection[]; onSelect: (id: string) => void; onCopy: (text: string) => Promise<boolean>; onRejoin: (session: SessionRecord) => Promise<void>; onAdd: () => void; onOpenAccounts: () => void }) {
   const [query, setQuery] = useState('')
   const [accountFilter, setAccountFilter] = useState('all')
   const [gameFilter, setGameFilter] = useState('all')
@@ -2264,6 +2503,9 @@ function SessionHistoryPanel({ sessions, accounts, games, onSelect, onCopy, onRe
     })
   }, [accounts, accountFilter, dateFilter, gameFilter, games, query, sessions.history, statusFilter])
   const hasFilters = Boolean(query.trim()) || accountFilter !== 'all' || gameFilter !== 'all' || statusFilter !== 'all' || dateFilter !== 'all'
+  const hasSavedHistory = sessions.history.length > 0
+  const emptyActionLabel = accounts.length > 0 ? 'Open accounts' : 'Add account'
+  const emptyAction = accounts.length > 0 ? onOpenAccounts : onAdd
   const clearFilters = () => { setQuery(''); setAccountFilter('all'); setGameFilter('all'); setStatusFilter('all'); setDateFilter('all') }
   const exportHistory = () => {
     const exportedSessions = sessions.history.map((session) => {
@@ -2296,27 +2538,122 @@ function SessionHistoryPanel({ sessions, accounts, games, onSelect, onCopy, onRe
   }
 
   return <section className="session-history-panel" aria-labelledby="session-history-title">
-    <div className="session-history-heading"><div><span className="eyebrow">Persisted locally</span><h3 id="session-history-title">Session history</h3><p>Completed Roblox sessions remain available after the window closes, including their last known server and close reason.</p></div><div className="session-history-heading-actions"><span className="session-history-count">{history.length} of {sessions.history.length} shown</span><button type="button" className="outline-button compact-button" disabled={sessions.history.length === 0} onClick={exportHistory}><Icon name="download" size={13} /> Export JSON</button></div></div>
-    <div className="session-history-toolbar"><label className="field-label">Search history<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Account, game, Job ID, or reason" /></label><label className="field-label">Account<select value={accountFilter} onChange={(event) => setAccountFilter(event.target.value)}><option value="all">All accounts</option>{accounts.filter((account) => sessions.history.some((session) => session.accountId === account.id)).map((account) => <option value={account.id} key={account.id}>{account.alias || account.username}</option>)}</select></label><label className="field-label">Game<select value={gameFilter} onChange={(event) => setGameFilter(event.target.value)}><option value="all">All games</option>{games.filter((game) => sessions.history.some((session) => accounts.find((account) => account.id === session.accountId)?.gameId === game.id)).map((game) => <option value={game.id} key={game.id}>{game.name}</option>)}</select></label><label className="field-label">Status<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as SessionHistoryStatusFilter)}><option value="all">All outcomes</option><option value="exited">Ended normally</option><option value="crashed">Crashed</option></select></label><label className="field-label">When<select value={dateFilter} onChange={(event) => setDateFilter(event.target.value as SessionHistoryDateFilter)}><option value="all">All time</option><option value="today">Today</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option></select></label><button type="button" className="text-button" disabled={!hasFilters} onClick={clearFilters}>Clear filters</button></div>
-    {history.length > 0 ? <div className="session-history-list">{history.map((session) => { const account = accounts.find((candidate) => candidate.id === session.accountId); const game = account ? games.find((candidate) => candidate.id === account.gameId) : undefined; return <SessionHistoryRow key={session.id} session={session} account={account} game={game} onSelect={onSelect} onCopy={onCopy} onRejoin={onRejoin} /> })}</div> : <div className="session-history-empty"><span className="empty-mark"><Icon name="clock" size={22} /></span><div><strong>{sessions.history.length === 0 ? 'No completed sessions yet' : 'No sessions match these filters'}</strong><p>{sessions.history.length === 0 ? 'Once a managed Roblox client closes, its outcome and duration will appear here.' : 'Clear one or more filters to see the saved session records.'}</p></div>{hasFilters && <button type="button" className="outline-button" onClick={clearFilters}>Clear filters</button>}</div>}
+    <div className="session-history-heading"><div><span className="eyebrow">Persisted locally</span><h3 id="session-history-title">Session history</h3><p>Completed Roblox sessions remain available after the window closes, including their last known server and close reason.</p></div>{hasSavedHistory && <div className="session-history-heading-actions"><span className="session-history-count" aria-live="polite">{history.length} of {sessions.history.length} shown</span><button type="button" className="outline-button compact-button" onClick={exportHistory}><Icon name="download" size={13} /> Export JSON</button></div>}</div>
+    {hasSavedHistory && <div className="session-history-toolbar"><label className="field-label">Search history<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Account, game, Job ID, or reason" /></label><label className="field-label">Account<select value={accountFilter} onChange={(event) => setAccountFilter(event.target.value)}><option value="all">All accounts</option>{accounts.filter((account) => sessions.history.some((session) => session.accountId === account.id)).map((account) => <option value={account.id} key={account.id}>{account.alias || account.username}</option>)}</select></label><label className="field-label">Game<select value={gameFilter} onChange={(event) => setGameFilter(event.target.value)}><option value="all">All games</option>{games.filter((game) => sessions.history.some((session) => accounts.find((account) => account.id === session.accountId)?.gameId === game.id)).map((game) => <option value={game.id} key={game.id}>{game.name}</option>)}</select></label><label className="field-label">Status<select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as SessionHistoryStatusFilter)}><option value="all">All outcomes</option><option value="exited">Ended normally</option><option value="crashed">Crashed</option></select></label><label className="field-label">When<select value={dateFilter} onChange={(event) => setDateFilter(event.target.value as SessionHistoryDateFilter)}><option value="all">All time</option><option value="today">Today</option><option value="7d">Last 7 days</option><option value="30d">Last 30 days</option></select></label><button type="button" className="text-button" disabled={!hasFilters} onClick={clearFilters}>Clear filters</button></div>}
+    {history.length > 0 ? <div className="session-history-list">{history.map((session) => { const account = accounts.find((candidate) => candidate.id === session.accountId); const game = account ? games.find((candidate) => candidate.id === account.gameId) : undefined; return <SessionHistoryRow key={session.id} session={session} account={account} game={game} onSelect={onSelect} onCopy={onCopy} onRejoin={onRejoin} /> })}</div> : <div className="session-history-empty"><span className="empty-mark"><Icon name="clock" size={22} /></span><div><strong>{hasSavedHistory ? 'No sessions match these filters' : 'No completed sessions yet'}</strong><p>{hasSavedHistory ? 'Clear one or more filters to see the saved session records.' : 'Once a managed Roblox client closes, its outcome and duration will appear here.'}</p></div>{hasSavedHistory ? hasFilters && <button type="button" className="outline-button" onClick={clearFilters}>Clear filters</button> : <button type="button" className="primary-button" onClick={emptyAction}><Icon name={accounts.length > 0 ? 'users' : 'plus'} size={14} /> {emptyActionLabel}</button>}</div>}
   </section>
 }
 
-function ActivityCentreView({ activity, sessions, accounts, games, onSelect, onCopy, onRejoin }: { activity: ActivityItem[]; sessions: SessionSnapshot; accounts: Account[]; games: GameCollection[]; onSelect: (id: string) => void; onCopy: (text: string) => Promise<boolean>; onRejoin: (session: SessionRecord) => Promise<void> }) {
+type AnalyticsTab = 'overview' | 'history'
+
+function analyticsDateKey(value: Date): string {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
+}
+
+function analyticsDateFrom(value: string | number | null | undefined): Date | null {
+  const timestamp = typeof value === 'number' ? value : value ? Date.parse(value) : NaN
+  return Number.isFinite(timestamp) ? new Date(timestamp) : null
+}
+
+function AnalyticsView({ activity, sessions, accounts, games, onSelect, onCopy, onRejoin, onAdd, onOpenAccounts }: { activity: ActivityItem[]; sessions: SessionSnapshot; accounts: Account[]; games: GameCollection[]; onSelect: (id: string) => void; onCopy: (text: string) => Promise<boolean>; onRejoin: (session: SessionRecord) => Promise<void>; onAdd: () => void; onOpenAccounts: () => void }) {
+  const revealRef = useMotionReveal<HTMLElement>()
+  const [activeTab, setActiveTab] = useState<AnalyticsTab>('overview')
+  const workspaceAccounts = useMemo(() => uniqueAccounts(accounts), [accounts])
+  const favouriteAccounts = useMemo(() => workspaceAccounts.filter((account) => account.favorite), [workspaceAccounts])
+  const recentAccounts = useMemo(() => workspaceAccounts.filter((account) => isAccountRecentlyUsed(account)), [workspaceAccounts])
+  const activeAccountIds = useMemo(() => new Set(sessions.active.map((session) => session.accountId)), [sessions.active])
+  const totalLaunches = useMemo(() => workspaceAccounts.reduce((total, account) => total + Math.max(0, account.sessions), 0), [workspaceAccounts])
+  const sessionCount = sessions.history.length + sessions.active.length
+  const crashedCount = sessions.history.filter((session) => session.status === 'crashed' || session.status === 'unresponsive').length
+  const cleanSessionRate = sessionCount > 0 ? `${Math.max(0, Math.round(((sessionCount - crashedCount) / sessionCount) * 100))}%` : '—'
+  const gameUsage = useMemo(() => games.map((game) => {
+    const gameAccounts = workspaceAccounts.filter((account) => account.gameId === game.id)
+    return { game, profiles: gameAccounts.length, launches: gameAccounts.reduce((total, account) => total + Math.max(0, account.sessions), 0) }
+  }).filter((item) => item.launches > 0).sort((a, b) => b.launches - a.launches || b.profiles - a.profiles || a.game.name.localeCompare(b.game.name)), [games, workspaceAccounts])
+  const categoryUsage = useMemo(() => {
+    const usage = new Map<string, { gameName: string; categoryName: string; profiles: number; launches: number }>()
+    workspaceAccounts.forEach((account) => {
+      const game = games.find((candidate) => candidate.id === account.gameId)
+      const category = game?.categories.find((candidate) => candidate.id === account.categoryId)
+      if (!game || !category) return
+      const key = `${game.id}:${category.id}`
+      const current = usage.get(key) ?? { gameName: game.name, categoryName: category.name, profiles: 0, launches: 0 }
+      current.profiles += 1
+      current.launches += Math.max(0, account.sessions)
+      usage.set(key, current)
+    })
+    return [...usage.values()].filter((item) => item.launches > 0).sort((a, b) => b.launches - a.launches || b.profiles - a.profiles || a.categoryName.localeCompare(b.categoryName))
+  }, [games, workspaceAccounts])
+  const topAccounts = useMemo(() => workspaceAccounts.filter((account) => account.sessions > 0).sort((a, b) => b.sessions - a.sessions || (b.lastUsed ? Date.parse(b.lastUsed) : 0) - (a.lastUsed ? Date.parse(a.lastUsed) : 0) || (a.alias || a.username).localeCompare(b.alias || b.username)), [workspaceAccounts])
+  const heatmapWeeks = useMemo(() => {
+    const counts = new Map<string, number>()
+    const addSignal = (value: string | number | null | undefined) => {
+      const date = analyticsDateFrom(value)
+      if (!date) return
+      const key = analyticsDateKey(date)
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+
+    sessions.history.forEach((session) => addSignal(session.startedAt))
+    sessions.events.forEach((event) => addSignal(event.createdAt))
+    activity.forEach((item) => { if (item.id > 1000000000) addSignal(item.id) })
+    workspaceAccounts.forEach((account) => { if (account.sessions > 0) addSignal(account.lastUsed) })
+
+    const weekStart = new Date()
+    weekStart.setHours(0, 0, 0, 0)
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay() - (26 - 1) * 7)
+    return Array.from({ length: 26 }, (_, weekIndex) => Array.from({ length: 7 }, (_, dayIndex) => {
+      const date = new Date(weekStart)
+      date.setDate(weekStart.getDate() + weekIndex * 7 + dayIndex)
+      return { date, key: analyticsDateKey(date), count: counts.get(analyticsDateKey(date)) ?? 0 }
+    }))
+  }, [activity, sessions.events, sessions.history, workspaceAccounts])
+  const heatmapMax = heatmapWeeks.reduce((maximum, week) => Math.max(maximum, ...week.map((cell) => cell.count)), 0)
+  const heatmapTotal = heatmapWeeks.reduce((total, week) => total + week.reduce((weekTotal, cell) => weekTotal + cell.count, 0), 0)
+  const topGame = gameUsage[0]
+  const topCategory = categoryUsage[0]
+  const isEmptyOverview = workspaceAccounts.length === 0
+  const hasRecordedActivity = heatmapTotal > 0
+  const activitySummary = hasRecordedActivity ? `${formatCount(heatmapTotal, 'activity signal')} recorded in the last 6 months.` : 'No activity recorded in the last 6 months.'
+  const tabs = <div className="analytics-tabs" role="tablist" aria-label="Analytics sections"><button type="button" id="analytics-tab-overview" role="tab" aria-selected={activeTab === 'overview'} aria-controls="analytics-overview-panel" tabIndex={activeTab === 'overview' ? 0 : -1} className={activeTab === 'overview' ? 'active' : ''} onClick={() => setActiveTab('overview')} onKeyDown={(event) => { if (event.key === 'ArrowRight') { event.preventDefault(); setActiveTab('history') } if (event.key === 'ArrowLeft') { event.preventDefault(); setActiveTab('history') } }}><Icon name="chart" size={14} /> Overview</button><button type="button" id="analytics-tab-history" role="tab" aria-selected={activeTab === 'history'} aria-controls="analytics-history-panel" tabIndex={activeTab === 'history' ? 0 : -1} className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')} onKeyDown={(event) => { if (event.key === 'ArrowRight') { event.preventDefault(); setActiveTab('overview') } if (event.key === 'ArrowLeft') { event.preventDefault(); setActiveTab('overview') } }}><Icon name="clock" size={14} /> Workspace history <span>{activity.length + sessions.history.length}</span></button></div>
+
+  const overviewContent = isEmptyOverview ? <section className="analytics-setup-panel" aria-labelledby="analytics-setup-title"><span className="analytics-setup-mark" aria-hidden="true"><Icon name="users" size={25} /></span><div className="analytics-setup-copy"><span className="eyebrow">Start here</span><h3 id="analytics-setup-title">Add a Roblox profile to start tracking usage.</h3><p>Your launches, recent activity, and session health will appear here as soon as the workspace has something to measure.</p></div><button type="button" className="primary-button" onClick={onAdd}><Icon name="plus" size={15} /> Add account</button></section> : <>
+    <section className={`analytics-panel analytics-heatmap-panel ${hasRecordedActivity ? '' : 'is-empty'}`} aria-labelledby="analytics-activity-title"><div className="analytics-panel-heading"><div><span className="eyebrow">Recorded activity</span><h3 id="analytics-activity-title">Usage rhythm</h3></div><span className="analytics-panel-period">Last 6 months</span></div>{hasRecordedActivity ? <><div className="analytics-heatmap"><div className="analytics-weekday-labels" aria-hidden="true">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}</div><div className="analytics-heatmap-body"><div className="analytics-month-labels" aria-hidden="true">{heatmapWeeks.map((week, index) => { const firstCell = week[0]!; const previous = heatmapWeeks[index - 1]?.[0]; const showLabel = index === 0 || firstCell.date.getMonth() !== previous?.date.getMonth(); return <span key={firstCell.key}>{showLabel ? firstCell.date.toLocaleDateString([], { month: 'short' }) : ''}</span> })}</div><div className="analytics-week-grid" role="img" aria-label={activitySummary}>{heatmapWeeks.map((week) => { const firstCell = week[0]!; return <div className="analytics-heat-week" key={firstCell.key}>{week.map((cell) => { const level = cell.count === 0 ? 0 : Math.min(4, Math.max(1, Math.ceil((cell.count / Math.max(1, heatmapMax)) * 4))); return <span className={`analytics-heat-cell level-${level}`} key={cell.key} title={`${cell.count} recorded ${cell.count === 1 ? 'activity' : 'activities'} · ${cell.date.toLocaleDateString([], { month: 'short', day: 'numeric' })}`} /> })}</div> })}</div></div></div><div className="analytics-heatmap-footer"><span>{activitySummary}</span><span className="analytics-legend"><span>Less</span>{[0, 1, 2, 3, 4].map((level) => <i className={`analytics-heat-cell level-${level}`} key={level} />)}<span>More</span></span></div></> : <div className="analytics-activity-empty"><span className="analytics-empty-mark" aria-hidden="true"><Icon name="chart" size={21} /></span><div><strong>No activity recorded yet.</strong><p>Launch a profile from Accounts and this surface will start showing your usage pattern.</p></div><button type="button" className="outline-button compact-button" onClick={onOpenAccounts}>Open accounts <Icon name="arrow" size={14} /></button></div>}</section>
+    <div className="analytics-insight-grid"><section className="analytics-panel analytics-insights-panel"><div className="analytics-panel-heading"><div><span className="eyebrow">At a glance</span><h3>Workspace signals</h3></div><span className="analytics-panel-period">{formatCount(workspaceAccounts.length, 'profile')}</span></div><div className="analytics-insight-list"><div className="analytics-insight-row"><span>Most used game</span><div className="analytics-insight-value"><strong title={topGame?.game.name}>{topGame?.game.name ?? 'No launches yet'}</strong><small>{topGame ? `${formatCount(topGame.launches, 'launch', 'launches')} · ${formatCount(topGame.profiles, 'profile')}` : 'Launch a profile to build this insight'}</small></div></div><div className="analytics-insight-row"><span>Most used category</span><div className="analytics-insight-value"><strong title={topCategory ? `${topCategory.gameName} / ${topCategory.categoryName}` : undefined}>{topCategory?.categoryName ?? 'No category activity yet'}</strong><small>{topCategory ? `${topCategory.gameName} · ${formatCount(topCategory.profiles, 'profile')}` : 'Your category mix will appear here'}</small></div></div><div className="analytics-insight-row"><span>Session health</span><div className="analytics-insight-value"><strong>{cleanSessionRate === '—' ? 'No history yet' : `${cleanSessionRate} clean`}</strong><small>{sessionCount > 0 ? `${formatCount(sessionCount, 'managed session')} recorded` : 'Session outcomes will be tracked here'}</small></div></div><div className="analytics-insight-row"><span>Connected profiles</span><div className="analytics-insight-value"><strong>{formatMetric(workspaceAccounts.filter((account) => account.hasCredentials).length)} / {formatMetric(workspaceAccounts.length)}</strong><small>Ready to launch or reconnect</small></div></div></div></section><section className="analytics-panel analytics-leaderboard"><div className="analytics-panel-heading"><div><span className="eyebrow">By launch count</span><h3>Most used profiles</h3></div><span className="analytics-panel-period">{topAccounts.length > 0 ? `Top ${Math.min(5, topAccounts.length)}` : 'Awaiting launches'}</span></div><div className="analytics-account-list">{topAccounts.length > 0 ? topAccounts.slice(0, 5).map((account) => <button type="button" className="analytics-account-row" key={account.id} onClick={() => onSelect(account.id)}><span className="analytics-account-avatar">{account.avatarUrl ? <img src={account.avatarUrl} alt="" /> : getInitials(account)}</span><span className="analytics-account-name"><strong>{account.alias || account.username}</strong><small>@{account.username}</small></span><span className="analytics-account-count"><strong>{formatMetric(account.sessions)}</strong><small>{account.sessions === 1 ? 'launch' : 'launches'}</small></span><Icon name="arrow" size={14} /></button>) : <div className="analytics-empty"><span className="analytics-empty-mark" aria-hidden="true"><Icon name="launch" size={18} /></span><div><strong>No launches yet</strong><span>Launch a profile to see it ranked here.</span></div><button type="button" className="text-button" onClick={onOpenAccounts}>Open accounts <Icon name="arrow" size={13} /></button></div>}</div></section></div>
+  </>
+
+  return <section ref={revealRef} className="analytics-page motion-reveal">
+    <div className="analytics-page-top"><div><span className="eyebrow">Usage overview</span><h2>{activeTab === 'overview' ? (isEmptyOverview ? 'Your overview starts with one profile.' : 'A clearer read on your workspace.') : 'Live events. Saved sessions.'}</h2><p>{activeTab === 'overview' ? (isEmptyOverview ? 'Add a Roblox profile and this page will turn launches, usage rhythm, and session health into a useful read.' : 'Launch totals, usage rhythm, and the profiles your workspace reaches for most.') : 'Watch workspace actions as they happen, then inspect the account, server, and close reason after a session ends.'}</p></div>{tabs}</div>
+    {activeTab === 'overview' ? <div id="analytics-overview-panel" className="analytics-overview" role="tabpanel" aria-labelledby="analytics-tab-overview" tabIndex={-1}>
+      <div className="analytics-stat-strip">
+        <div className="analytics-stat primary"><span>Total launches</span><strong>{formatMetric(totalLaunches)}</strong><small>{isEmptyOverview ? 'Add a profile to begin' : 'Across saved profiles'}</small></div>
+        <div className="analytics-stat"><span>Active now</span><strong>{formatMetric(activeAccountIds.size)}</strong><small>{isEmptyOverview ? 'Appears after a launch' : activeAccountIds.size === 1 ? 'managed session' : 'managed sessions'}</small></div>
+        <div className="analytics-stat"><span>Favourites</span><strong>{formatMetric(favouriteAccounts.length)}</strong><small>{isEmptyOverview ? 'Keep priority profiles close' : 'Priority profiles'}</small></div>
+        <div className="analytics-stat"><span>Used in 2h</span><strong>{formatMetric(recentAccounts.length)}</strong><small>{isEmptyOverview ? 'Updated from recent use' : 'Recent profiles'}</small></div>
+      </div>
+      {overviewContent}
+    </div> : <div id="analytics-history-panel" role="tabpanel" aria-labelledby="analytics-tab-history" tabIndex={-1}><ActivityCentreView activity={activity} sessions={sessions} accounts={accounts} games={games} onSelect={onSelect} onCopy={onCopy} onRejoin={onRejoin} onAdd={onAdd} onOpenAccounts={onOpenAccounts} /></div>}
+  </section>
+}
+
+function ActivityCentreView({ activity, sessions, accounts, games, onSelect, onCopy, onRejoin, onAdd, onOpenAccounts }: { activity: ActivityItem[]; sessions: SessionSnapshot; accounts: Account[]; games: GameCollection[]; onSelect: (id: string) => void; onCopy: (text: string) => Promise<boolean>; onRejoin: (session: SessionRecord) => Promise<void>; onAdd: () => void; onOpenAccounts: () => void }) {
   const revealRef = useMotionReveal<HTMLElement>()
   const [activeTab, setActiveTab] = useState<ActivityCentreTab>('timeline')
   const positiveCount = activity.filter((item) => item.tone === 'positive').length
   const warningCount = activity.filter((item) => item.tone === 'warning').length
   const crashedCount = sessions.history.filter((session) => session.status === 'crashed').length
+  const hasTimelineData = activity.length > 0 || sessions.events.length > 0
+  const timelineActionLabel = accounts.length > 0 ? 'Open accounts' : 'Add account'
+  const timelineAction = accounts.length > 0 ? onOpenAccounts : onAdd
   const isHistory = activeTab === 'history'
   return <section ref={revealRef} className="activity-centre motion-reveal">
-    <div className="activity-centre-intro"><div><span className="eyebrow">{isHistory ? 'Persisted sessions' : 'This session'}</span><h2>{isHistory ? 'Know what happened after every launch' : 'One clear history for every tool'}</h2><p>{isHistory ? 'Review ended clients, find the account that needs attention, and rejoin a known place without guessing.' : 'Account actions, launches, watcher checks, and saved workspace changes land here as soon as they complete.'}</p></div><div className="activity-centre-count"><strong>{(isHistory ? sessions.history.length : activity.length).toString().padStart(2, '0')}</strong><span>{isHistory ? 'sessions saved' : 'events recorded'}</span></div></div>
-    <div className="activity-centre-tabs" role="tablist" aria-label="Activity centre sections"><button type="button" role="tab" aria-selected={!isHistory} className={`activity-centre-tab ${!isHistory ? 'active' : ''}`} onClick={() => setActiveTab('timeline')}><Icon name="clock" size={15} /> Live timeline <span>{activity.length}</span></button><button type="button" role="tab" aria-selected={isHistory} className={`activity-centre-tab ${isHistory ? 'active' : ''}`} onClick={() => setActiveTab('history')}><Icon name="window" size={15} /> Session history <span>{sessions.history.length}</span></button></div>
-    {isHistory ? <SessionHistoryPanel sessions={sessions} accounts={accounts} games={games} onSelect={onSelect} onCopy={onCopy} onRejoin={onRejoin} /> : <><div className="activity-summary-grid"><div className="positive"><strong>{positiveCount}</strong><span>completed</span></div><div className="normal"><strong>{activity.length - positiveCount - warningCount}</strong><span>informational</span></div><div className="warning"><strong>{warningCount}</strong><span>needs attention</span></div></div>{sessions.events.length > 0 && <div className="activity-guardian-events"><div className="panel-heading"><span>Guardian timeline</span><span className="panel-heading-note">Persisted locally</span></div>{sessions.events.slice(0, 12).map((event) => <article className={`session-event-row ${sessionEventTone(event)}`} key={event.id}><span className="activity-dot" /><div><strong>{event.title}</strong><p>{event.detail}</p></div><time>{formatRelativeTime(event.createdAt)}</time></article>)}</div>}<div className="activity-centre-list">{activity.map((item, index) => <article className={`activity-centre-item ${item.tone}`} key={`${item.id}-${index}`}><span className="activity-centre-marker"><span className={`activity-dot ${item.tone}`} /></span><div className="activity-centre-content"><div><strong>{item.message}</strong><time>{item.id > 1000000000 ? new Date(item.id).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Session start'}</time></div><p>{item.detail}</p></div></article>)}</div></>}
+    <div className="activity-centre-intro"><div><span className="eyebrow">{isHistory ? 'Persisted sessions' : 'Live workspace log'}</span><h2>{isHistory ? 'Review completed sessions with context.' : 'See every workspace event in order.'}</h2><p>{isHistory ? 'Find the account, server, and close reason behind each session, then launch again when it is safe.' : 'Sign-ins, launches, watcher checks, and saved changes land here as they happen.'}</p></div><div className="activity-centre-count"><strong>{formatMetric(isHistory ? sessions.history.length : activity.length)}</strong><span>{isHistory ? 'sessions saved' : 'events recorded'}</span></div></div>
+    <div className="activity-centre-tabs" role="tablist" aria-label="Activity centre sections"><button type="button" id="activity-tab-timeline" role="tab" aria-selected={!isHistory} aria-controls="activity-timeline-panel" tabIndex={!isHistory ? 0 : -1} className={`activity-centre-tab ${!isHistory ? 'active' : ''}`} onClick={() => setActiveTab('timeline')} onKeyDown={(event) => { if (event.key === 'ArrowRight' || event.key === 'ArrowDown') { event.preventDefault(); setActiveTab('history'); requestAnimationFrame(() => document.getElementById('activity-tab-history')?.focus()) } }}><Icon name="clock" size={15} /> Live timeline <span>{activity.length}</span></button><button type="button" id="activity-tab-history" role="tab" aria-selected={isHistory} aria-controls="activity-history-panel" tabIndex={isHistory ? 0 : -1} className={`activity-centre-tab ${isHistory ? 'active' : ''}`} onClick={() => setActiveTab('history')} onKeyDown={(event) => { if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') { event.preventDefault(); setActiveTab('timeline'); requestAnimationFrame(() => document.getElementById('activity-tab-timeline')?.focus()) } }}><Icon name="window" size={15} /> Session history <span>{sessions.history.length}</span></button></div>
+    {isHistory ? <div id="activity-history-panel" role="tabpanel" aria-labelledby="activity-tab-history" tabIndex={-1}><SessionHistoryPanel sessions={sessions} accounts={accounts} games={games} onSelect={onSelect} onCopy={onCopy} onRejoin={onRejoin} onAdd={onAdd} onOpenAccounts={onOpenAccounts} /></div> : <div id="activity-timeline-panel" role="tabpanel" aria-labelledby="activity-tab-timeline" tabIndex={-1}>{hasTimelineData ? <><div className="activity-summary-grid"><div className="positive"><strong>{positiveCount}</strong><span>completed</span></div><div className="normal"><strong>{activity.length - positiveCount - warningCount}</strong><span>informational</span></div><div className="warning"><strong>{warningCount}</strong><span>needs attention</span></div></div>{sessions.events.length > 0 && <div className="activity-guardian-events"><div className="panel-heading"><span>Guardian timeline</span><span className="panel-heading-note">Persisted locally</span></div>{sessions.events.slice(0, 12).map((event) => <article className={`session-event-row ${sessionEventTone(event)}`} key={event.id}><span className="activity-dot" /><div><strong>{event.title}</strong><p>{event.detail}</p></div><time>{formatRelativeTime(event.createdAt)}</time></article>)}</div>}{activity.length > 0 && <div className="activity-centre-list">{activity.map((item, index) => <article className={`activity-centre-item ${item.tone}`} key={`${item.id}-${index}`}><span className="activity-centre-marker"><span className={`activity-dot ${item.tone}`} /></span><div className="activity-centre-content"><div><strong>{item.message}</strong><time>{item.id > 1000000000 ? new Date(item.id).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Session start'}</time></div><p>{item.detail}</p></div></article>)}</div>}</> : <div className="activity-centre-empty"><span className="empty-mark" aria-hidden="true"><Icon name={accounts.length > 0 ? 'clock' : 'users'} size={22} /></span><div><strong>{accounts.length > 0 ? 'No timeline events yet' : 'Your timeline starts with a profile'}</strong><p>{accounts.length > 0 ? 'Workspace actions will appear here as soon as you sign in, launch, or update a profile.' : 'Add a Roblox profile to start capturing launches, checks, and workspace changes.'}</p></div><button type="button" className="primary-button" onClick={timelineAction}><Icon name={accounts.length > 0 ? 'users' : 'plus'} size={14} /> {timelineActionLabel}</button></div>}</div>}
     {isHistory && sessions.history.length > 0 && <div className="session-history-footnote"><span className="activity-dot warning" /><span>{crashedCount > 0 ? `${crashedCount} session${crashedCount === 1 ? '' : 's'} ended unexpectedly. Open its account or rejoin after checking the close reason.` : 'Session outcomes are stored locally and remain available after restarting Virgue.'}</span></div>}
   </section>
 }
 
-function ActivityPanel({ activity }: { activity: ActivityItem[] }) { return <div className="activity-panel"><div className="panel-heading"><span>Recent activity</span><span className="panel-heading-note">This session</span></div><div className="activity-list">{activity.slice(0, 8).map((item, index) => <div className="activity-row" key={`${item.id}-${index}`}><span className={`activity-dot ${item.tone}`} /><div><strong>{item.message}</strong><span>{item.detail}</span></div></div>)}</div></div> }
+function ActivityPanel({ activity }: { activity: ActivityItem[] }) { const visible = activity.slice(0, 6); return <div className="activity-panel" aria-label="Recent workspace activity"><div className="activity-panel-header"><div><span className="eyebrow">Workspace log</span><h2>Recent activity</h2></div></div><div className="activity-list">{visible.map((item, index) => <article className={`activity-row ${item.tone}`} key={`${item.id}-${index}`}><span className="activity-row-marker"><span className={`activity-dot ${item.tone}`} /></span><div><div className="activity-row-top"><strong>{item.message}</strong><time>{item.id > 1000000000 ? new Date(item.id).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Ready'}</time></div><span className="activity-detail">{item.detail}</span></div></article>)}</div></div> }
 
 export default App

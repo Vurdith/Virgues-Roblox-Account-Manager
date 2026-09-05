@@ -1,19 +1,21 @@
 .activity-centre-tabs { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px; border: 3px solid var(--ink); background: var(--panel-strong); box-shadow: var(--shadow-small); }
-.activity-centre-tab { display: inline-flex; min-height: 36px; align-items: center; gap: 7px; padding: 0 12px; border: 2px solid transparent; background: transparent; color: var(--ink-muted); font-size: 11px; font-weight: 800; cursor: pointer; }
+.activity-centre-tab { display: inline-flex; min-height: 36px; align-items: center; gap: 7px; padding: 0 12px; border: 2px solid transparent; background: transparent; color: var(--ink-muted); font-size: 11px; font-weight: 800; cursor: pointer; transition: background .15s ease, border-color .15s ease, color .15s ease, transform .15s ease; }
 .activity-centre-tab:hover { border-color: var(--ink); color: var(--ink); transform: translateY(-1px); }
+.activity-centre-tab:focus-visible { outline: 3px solid var(--accent-deep); outline-offset: 2px; }
 .activity-centre-tab.active { border-color: var(--ink); background: var(--yellow); color: var(--ink); box-shadow: 3px 3px 0 var(--ink); }
 .activity-centre-tab span { min-width: 20px; padding: 3px 5px; border: 1px solid currentColor; font-size: 9px; line-height: 1; text-align: center; }
 .session-history-panel { display: grid; gap: 16px; padding: 17px; border: 3px solid var(--ink); background: var(--panel-strong); box-shadow: var(--shadow); }
-.session-history-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; padding-bottom: 13px; border-bottom: 2px solid var(--line); }
+.session-history-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding-bottom: 13px; border-bottom: 2px solid var(--line); }
 .session-history-heading h3 { margin-top: 5px; font-size: 24px; letter-spacing: -.06em; }
 .session-history-heading p { max-width: 58ch; margin-top: 6px; color: var(--ink-muted); font-size: 11px; line-height: 1.4; }
-.session-history-heading-actions { display: flex; align-items: flex-end; gap: 12px; }
-.session-history-count { flex: none; color: var(--ink-muted); font-size: 10px; font-weight: 800; white-space: nowrap; }
+.session-history-heading-actions { display: flex; align-items: center; gap: 12px; }
+.session-history-count { flex: none; color: var(--ink-muted); font-size: 10px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .session-history-toolbar { display: grid; grid-template-columns: minmax(210px, 1.5fr) repeat(4, minmax(118px, 1fr)) auto; align-items: end; gap: 10px; padding: 13px; border: 2px solid var(--line); background: var(--panel); }
 .session-history-toolbar .field-label { min-width: 0; margin: 0; }
 .session-history-toolbar .text-button { min-height: 38px; white-space: nowrap; }
 .session-history-list { display: grid; gap: 9px; }
-.session-history-row { display: grid; gap: 13px; padding: 14px; border: 3px solid var(--ink); background: var(--panel); box-shadow: var(--shadow-small); }
+.session-history-row { display: grid; gap: 13px; padding: 14px; border: 3px solid var(--ink); background: var(--panel); box-shadow: var(--shadow-small); transition: background .15s ease, transform .15s ease, box-shadow .15s ease; }
+.session-history-row:hover { background: var(--panel-strong); transform: translate(-2px, -2px); box-shadow: var(--shadow); }
 .session-history-row.warning { background: #f9e5df; }
 .session-history-row-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 14px; padding-bottom: 10px; border-bottom: 2px solid var(--line); }
 .session-history-identity { display: flex; min-width: 0; align-items: center; gap: 10px; }
@@ -24,7 +26,7 @@
 .session-history-status.warning { background: #f3c8bf; }
 .session-history-status.positive { background: #d7ead8; }
 .session-history-status .activity-dot { display: block; width: 7px; height: 7px; margin-top: 0; align-self: center; }
-.session-history-details { display: grid; grid-template-columns: minmax(150px, .95fr) minmax(130px, .7fr) minmax(220px, 1.5fr); gap: 16px; }
+.session-history-details { display: grid; grid-template-columns: minmax(150px, .95fr) minmax(130px, .7fr) minmax(220px, 1.5fr); align-items: start; gap: 16px; }
 .session-history-details > div { display: grid; min-width: 0; gap: 4px; }
 .session-history-label { color: var(--ink-muted); font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .session-history-details strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -33,11 +35,12 @@
 .session-history-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .session-history-actions .text-button { min-height: 32px; }
 .session-history-actions .primary-button { margin-left: auto; }
-.session-history-empty { display: flex; align-items: center; gap: 13px; padding: 22px; border: 2px dashed var(--line); background: var(--panel); }
+.session-history-actions button:disabled { cursor: not-allowed; opacity: .55; transform: none; }
+.session-history-empty { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 13px; min-height: 116px; padding: 22px; border: 2px dashed var(--line); background: var(--panel); }
 .session-history-empty .empty-mark { flex: none; }
 .session-history-empty strong { display: block; font-size: 13px; }
 .session-history-empty p { margin-top: 4px; color: var(--ink-muted); font-size: 11px; line-height: 1.4; }
-.session-history-empty .outline-button { margin-left: auto; flex: none; }
+.session-history-empty .outline-button, .session-history-empty .primary-button { flex: none; margin-left: auto; white-space: nowrap; }
 .session-history-footnote { display: flex; align-items: center; gap: 8px; padding: 10px 13px; border: 2px solid var(--line); background: #f6edcf; color: var(--ink-muted); font-size: 10px; line-height: 1.4; }
 .session-history-footnote .activity-dot { width: 7px; height: 7px; flex: none; }
 
@@ -60,6 +63,6 @@
   .session-history-actions { align-items: stretch; flex-direction: column; }
   .session-history-actions .primary-button { margin-left: 0; }
   .session-history-actions button { width: 100%; justify-content: center; }
-  .session-history-empty { align-items: flex-start; flex-wrap: wrap; }
-  .session-history-empty .outline-button { margin-left: 0; }
+  .session-history-empty { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+  .session-history-empty .outline-button, .session-history-empty .primary-button { grid-column: 2; justify-self: start; margin-left: 0; }
 }

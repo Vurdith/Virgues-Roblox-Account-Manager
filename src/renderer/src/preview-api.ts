@@ -168,6 +168,8 @@ function createPreviewApi(): VirgueApi {
   let serverPreferences: ServerPreference[] = []
   let sessionSnapshot: SessionSnapshot = { active: [], history: [], events: [], recoveryJobs: [], checkedAt: now() }
   let authSession: VirgueAuthSession | null = null
+  let previewAhkScripts: import('@shared/types').AutoHotkeyScript[] = []
+  let previewAiGenerating = false
   const sessionListeners = new Set<(event: SessionEvent) => void>()
   const entitlements = getPlanEntitlements(previewParams.get('plan') === 'pro' ? 'pro' : undefined)
   const accountSlotCount = () => new Set(accounts.map((account) => account.username.trim().toLowerCase()).filter(Boolean)).size
@@ -209,7 +211,7 @@ function createPreviewApi(): VirgueApi {
       { id: 'preview-session-alt-one', accountId: 'preview-alt-one', accountLabel: 'Storage alt', experienceName: 'Dungeon Quest Reborn', windowTitle: 'Roblox', state: protectedAccountId === 'preview-alt-one' ? 'protected' as const : 'ready' as const },
       { id: 'preview-session-alt-two', accountId: 'preview-alt-two', accountLabel: 'Fighter alt', experienceName: 'Dungeon Quest Reborn', windowTitle: 'Roblox', state: protectedAccountId === 'preview-alt-two' ? 'protected' as const : 'ready' as const },
     ] : []
-    return { sessions, protectedAccountId, checkedAt: now() }
+    return { sessions, protectedAccountId, schedules: [], checkedAt: now() }
   }
   const updateAccount = (id: string, input: Partial<Account> | UpdateAccountInput) => {
     const current = findAccount(id)
@@ -257,6 +259,7 @@ function createPreviewApi(): VirgueApi {
       gameId: input.gameId || assignment.gameId,
       categoryId: input.categoryId || assignment.categoryId,
       status: 'ready',
+      favorite: false,
       lastUsed: null,
       placeId: games.find((game) => game.id === (input.gameId || assignment.gameId))?.placeId ?? '',
       jobId: '',
@@ -294,6 +297,7 @@ function createPreviewApi(): VirgueApi {
           gameId: input.gameId || assignment.gameId,
           categoryId: input.categoryId || assignment.categoryId,
           status: 'ready',
+          favorite: false,
           lastUsed: null,
           placeId: games.find((game) => game.id === (input.gameId || assignment.gameId))?.placeId ?? '',
           jobId: '',
@@ -556,6 +560,10 @@ function createPreviewApi(): VirgueApi {
           results: targets.map((session) => ({ sessionId: session.id, accountId: session.accountId, accountLabel: session.accountLabel, status: 'posted' as const, message: 'Preview accepted the background key message without changing focus.' })),
         }
       },
+      startSchedule: async () => { throw new Error('Schedules are unavailable in browser preview.') },
+      pauseSchedule: async () => { throw new Error('Schedules are unavailable in browser preview.') },
+      resumeSchedule: async () => { throw new Error('Schedules are unavailable in browser preview.') },
+      stopSchedule: async () => { throw new Error('Schedules are unavailable in browser preview.') },
     },
     protectedSession: {
       getStatus: async () => ({ supported: true, configured: true, firewallEnabled: true, phase: protectedSessionRunning ? 'ready' as const : 'stopped' as const, childSessionId: protectedSessionRunning ? 2 : null, message: protectedSessionRunning ? 'Protected Session is ready. Alt launches and inputs stay off your main desktop.' : 'Protected Session is ready to start.' }),
@@ -575,6 +583,30 @@ function createPreviewApi(): VirgueApi {
         settings.protectedSessionEnabled = false
         return { supported: true, configured: true, firewallEnabled: true, phase: 'stopped' as const, childSessionId: null, message: 'Protected Session is stopped. Your main desktop is unchanged.' }
       },
+      showViewer: async () => undefined,
+    },
+    autoHotkey: {
+      getSnapshot: async () => ({ installed: true, version: '2', sessionReady: protectedSessionRunning, scripts: clone(previewAhkScripts) }),
+      save: async (input) => {
+        const timestamp = now()
+        const existing = input.id ? previewAhkScripts.find((script) => script.id === input.id) : undefined
+        const script = { id: existing?.id ?? `preview-ahk-${Date.now()}`, name: input.name, content: input.content, createdAt: existing?.createdAt ?? timestamp, updatedAt: timestamp, running: existing?.running ?? false }
+        previewAhkScripts = existing ? previewAhkScripts.map((item) => item.id === script.id ? script : item) : [...previewAhkScripts, script]
+        return { installed: true, version: '2', sessionReady: protectedSessionRunning, scripts: clone(previewAhkScripts) }
+      },
+      remove: async (id) => { previewAhkScripts = previewAhkScripts.filter((script) => script.id !== id); return { installed: true, version: '2', sessionReady: protectedSessionRunning, scripts: clone(previewAhkScripts) } },
+      run: async (id) => { previewAhkScripts = previewAhkScripts.map((script) => script.id === id ? { ...script, running: true } : script); return { installed: true, version: '2', sessionReady: protectedSessionRunning, scripts: clone(previewAhkScripts) } },
+      stop: async (id) => { previewAhkScripts = previewAhkScripts.map((script) => script.id === id ? { ...script, running: false } : script); return { installed: true, version: '2', sessionReady: protectedSessionRunning, scripts: clone(previewAhkScripts) } },
+      openDownload: async () => undefined,
+      getAiStatus: async () => ({ modelTier: 'standard', modelName: 'Qwen2.5-Coder 1.5B · Standard', totalRamGb: 16, modelSizeBytes: 1_117_320_768, downloadedBytes: 1_117_320_768, installed: true, downloading: false, generating: previewAiGenerating, runtimeActive: previewAiGenerating, progressPercent: 100 }),
+      downloadAiModel: async () => ({ modelTier: 'standard', modelName: 'Qwen2.5-Coder 1.5B · Standard', totalRamGb: 16, modelSizeBytes: 1_117_320_768, downloadedBytes: 1_117_320_768, installed: true, downloading: false, generating: false, runtimeActive: false, progressPercent: 100 }),
+      generateAiScript: async () => {
+        previewAiGenerating = true
+        previewAiGenerating = false
+        return { script: '#Requires AutoHotkey v2.0\n#SingleInstance Force\n', explanation: 'Browser preview only; the desktop build runs the local model for real.', warnings: [], modelTier: 'standard', modelName: 'Qwen2.5-Coder 1.5B · Standard', validationMessage: 'Preview validation passed.', generationTrace: ['Browser preview only · no local model was run.'] }
+      },
+      cancelAi: async () => { previewAiGenerating = false; return { modelTier: 'standard', modelName: 'Qwen2.5-Coder 1.5B · Standard', totalRamGb: 16, modelSizeBytes: 1_117_320_768, downloadedBytes: 1_117_320_768, installed: true, downloading: false, generating: false, runtimeActive: false, progressPercent: 100 } },
+      removeAiModel: async () => ({ modelTier: 'standard', modelName: 'Qwen2.5-Coder 1.5B · Standard', totalRamGb: 16, modelSizeBytes: 1_117_320_768, downloadedBytes: 0, installed: false, downloading: false, generating: false, runtimeActive: false, progressPercent: 0 }),
     },
     watcher: {
       update: async (input) => { watcher = { ...watcher, ...input }; return clone(watcher) },
