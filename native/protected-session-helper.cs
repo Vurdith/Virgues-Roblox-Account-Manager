@@ -14,7 +14,7 @@ using System.Windows.Forms;
 using Microsoft.Win32;
 using System.ServiceProcess;
 
-namespace Virgue.ProtectedSession
+namespace Valdor.ProtectedSession
 {
     [ComImport]
     [Guid("302D8188-0052-4807-806A-362B628F9AC5")]
@@ -86,7 +86,7 @@ namespace Virgue.ProtectedSession
         internal struct Input
         {
             [FieldOffset(0)] internal uint type;
-            // INPUT's union is pointer-aligned. Virgue ships this helper as
+            // INPUT's union is pointer-aligned. Valdor ships this helper as
             // x64, so the native offset is 8 and the total size is 32 bytes.
             [FieldOffset(8)] internal InputUnion union;
         }
@@ -464,7 +464,7 @@ namespace Virgue.ProtectedSession
         internal void Start()
         {
             ConnectToAgentService();
-            var thread = new Thread(Run) { IsBackground = true, Name = "Virgue protected-session pipe" };
+            var thread = new Thread(Run) { IsBackground = true, Name = "Valdor protected-session pipe" };
             thread.Start();
         }
 
@@ -590,7 +590,7 @@ namespace Virgue.ProtectedSession
 
         internal static readonly string AgentConfigPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Virgue", "ProtectedSession", "agent.txt");
+            "Valdor", "ProtectedSession", "agent.txt");
 
         internal static void SetServiceConfigPath()
         {
@@ -730,13 +730,13 @@ namespace Virgue.ProtectedSession
             controlWorker = new Thread(ControlLoop)
             {
                 IsBackground = true,
-                Name = "Virgue protected-session control pipe",
+                Name = "Valdor protected-session control pipe",
             };
             controlWorker.Start();
             worker = new Thread(Run)
             {
                 IsBackground = true,
-                Name = "Virgue protected-session service",
+                Name = "Valdor protected-session service",
             };
             worker.Start();
         }
@@ -967,12 +967,12 @@ namespace Virgue.ProtectedSession
 
     internal static class Program
     {
-        internal const string AgentServiceName = "VirgueProtectedSession";
-        internal const string AgentControlPipeName = "VirgueProtectedSessionControl";
-        internal const string BackupKeyPath = @"SOFTWARE\Virgue\ProtectedSession";
+        internal const string AgentServiceName = "ValdorProtectedSession";
+        internal const string AgentControlPipeName = "ValdorProtectedSessionControl";
+        internal const string BackupKeyPath = @"SOFTWARE\Valdor\ProtectedSession";
         private static readonly string ServiceLogPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            "Virgue", "ProtectedSession", "service.log");
+            "Valdor", "ProtectedSession", "service.log");
         private const string CredentialPolicyPath = @"SOFTWARE\Policies\Microsoft\Windows\CredentialsDelegation";
         private const string TerminalPolicyPath = @"SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services";
         private const string TerminalServerPath = @"SYSTEM\CurrentControlSet\Control\Terminal Server";
@@ -1185,7 +1185,7 @@ namespace Virgue.ProtectedSession
                     service = NativeMethods.CreateServiceW(
                         manager,
                         AgentServiceName,
-                        "Virgue Protected Session",
+                        "Valdor Protected Session",
                         NativeMethods.ServiceAllAccess,
                         NativeMethods.ServiceWin32OwnProcess,
                         NativeMethods.ServiceAutoStart,
@@ -1210,7 +1210,7 @@ namespace Virgue.ProtectedSession
                     null,
                     null,
                     null,
-                    "Virgue Protected Session"))
+                    "Valdor Protected Session"))
                 {
                     var error = Marshal.GetLastWin32Error();
                     NativeMethods.CloseServiceHandle(service);
@@ -1336,7 +1336,7 @@ namespace Virgue.ProtectedSession
                 {
                     bridge.Start();
 
-                form.Text = "Virgue — Alt desktop";
+                form.Text = "Valdor — Alt desktop";
                 form.Width = 1280;
                 form.Height = 720;
                 form.MinimumSize = new Size(800, 450);
@@ -1478,7 +1478,7 @@ namespace Virgue.ProtectedSession
                         bridge.Send(line);
                     }
                     try { form.BeginInvoke(new Action(form.Close)); } catch { }
-                }) { IsBackground = true, Name = "Virgue protected-session command input" };
+                }) { IsBackground = true, Name = "Valdor protected-session command input" };
                 commandThread.Start();
 
                 Application.Run(form);
@@ -1685,7 +1685,7 @@ namespace Virgue.ProtectedSession
             var executable = ResolveAutoHotkeyExecutable();
             if (string.IsNullOrEmpty(executable)) throw new InvalidOperationException("AutoHotkey v2 is not installed. Install it from autohotkey.com, then refresh.");
             StopAutoHotkeyScriptInternal(scriptId);
-            var scriptsDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Virgue", "ProtectedSession", "AutoHotkey");
+            var scriptsDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Valdor", "ProtectedSession", "AutoHotkey");
             Directory.CreateDirectory(scriptsDirectory);
             var scriptPath = Path.Combine(scriptsDirectory, scriptId + ".ahk");
             var source = content.TrimStart().StartsWith("#Requires AutoHotkey v2", StringComparison.OrdinalIgnoreCase)
@@ -1797,7 +1797,7 @@ namespace Virgue.ProtectedSession
         private static string SendRobloxInput(uint processId, IntPtr window, string keyCode, int durationMs)
         {
             ushort virtualKey;
-            if (!AllowedKeys.TryGetValue(keyCode, out virtualKey)) throw new InvalidOperationException("That key is not in Virgue's protected-session allowlist.");
+            if (!AllowedKeys.TryGetValue(keyCode, out virtualKey)) throw new InvalidOperationException("That key is not in Valdor's protected-session allowlist.");
             if (durationMs < 40 || durationMs > 1500) throw new InvalidOperationException("Input duration must be between 40 and 1500 milliseconds.");
             if (!NativeMethods.IsWindow(window) || NativeMethods.GetAncestor(window, NativeMethods.GaRoot) != window)
                 throw new InvalidOperationException("The selected Roblox window no longer exists.");
@@ -1807,7 +1807,7 @@ namespace Virgue.ProtectedSession
             if (windowProcessId != processId) throw new InvalidOperationException("The selected window no longer belongs to the recorded Roblox process.");
             uint processSessionId;
             if (!NativeMethods.ProcessIdToSessionId(processId, out processSessionId) || processSessionId != (uint)Process.GetCurrentProcess().SessionId)
-                throw new InvalidOperationException("Virgue refused input outside the protected Windows session.");
+                throw new InvalidOperationException("Valdor refused input outside the protected Windows session.");
             string processPath;
             if (!TryGetProcessPath(processId, out processPath) || !string.Equals(Path.GetFileName(processPath), "RobloxPlayerBeta.exe", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("The selected process is not RobloxPlayerBeta.exe.");
@@ -1832,7 +1832,7 @@ namespace Virgue.ProtectedSession
             if (!fullPath.StartsWith(robloxRoot, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(Path.GetFileName(fullPath), "RobloxPlayerBeta.exe", StringComparison.OrdinalIgnoreCase) ||
                 !File.Exists(fullPath))
-                throw new InvalidOperationException("Virgue refused to launch an executable outside the installed Roblox Versions folder.");
+                throw new InvalidOperationException("Valdor refused to launch an executable outside the installed Roblox Versions folder.");
             if (arguments.Length > 32700 || accountId.Length > 256 || launchRequestId.Length > 256)
                 throw new InvalidOperationException("The protected launch request was too large.");
 
@@ -1898,7 +1898,7 @@ namespace Virgue.ProtectedSession
                 string.IsNullOrWhiteSpace(gameUri) ||
                 !gameUri.StartsWith("roblox://placeId=", StringComparison.OrdinalIgnoreCase) ||
                 appUri.Length > 32700 || gameUri.Length > 2048 || accountId.Length > 256 || launchRequestId.Length > 256)
-                throw new InvalidOperationException("Virgue refused an invalid protected Roblox launch URL.");
+                throw new InvalidOperationException("Valdor refused an invalid protected Roblox launch URL.");
 
             var currentSessionId = Process.GetCurrentProcess().SessionId;
             var before = new HashSet<int>(Process.GetProcessesByName("RobloxPlayerBeta")

@@ -217,7 +217,7 @@ int wmain(int argc, wchar_t** argv) {
   const HWND previousWindow = GetForegroundWindow();
   if (command == L"background-send") {
     if (previousWindow && (previousWindow == window || GetAncestor(previousWindow, GA_ROOT) == window)) {
-      std::wcerr << L"Virgue blocked background input to the foreground Roblox window.\n";
+      std::wcerr << L"Valdor blocked background input to the foreground Roblox window.\n";
       return 4;
     }
     if (IsIconic(window)) {

@@ -187,7 +187,7 @@ export class ProtectedSessionService {
     this.assertPlanAccess()
     if (process.platform !== 'win32') throw new Error('Protected Session is available only on Windows.')
     const helperPath = this.getHelperPath()
-    const resultPath = join(app.getPath('temp'), `virgue-protected-session-setup-${randomUUID()}.json`)
+    const resultPath = join(app.getPath('temp'), `valdor-protected-session-setup-${randomUUID()}.json`)
     const script = [
       `$process = Start-Process -FilePath ${powershellLiteral(helperPath)} -ArgumentList @('--setup', ${powershellLiteral(resultPath)}) -Verb RunAs -WindowStyle Hidden -Wait -PassThru`,
       'exit $process.ExitCode',
@@ -237,7 +237,7 @@ export class ProtectedSessionService {
     this.phase = 'starting'
     this.message = 'Opening a separate Windows session for your alt clients…'
     this.intentionalStop = false
-    const pipeName = `virgue-protected-${randomUUID().replaceAll('-', '')}`
+    const pipeName = `valdor-protected-${randomUUID().replaceAll('-', '')}`
     const token = randomBytes(32).toString('hex')
     const parentSessionId = native.currentSessionId
     const child = spawn(this.getHelperPath(), [
@@ -381,7 +381,7 @@ export class ProtectedSessionService {
     if (parts[0] === 'EVENT') {
       if (parts[1] === 'CONNECTED') {
         this.childSessionId = Number(parts[2]) || null
-        this.message = 'Windows session connected. Starting the Virgue alt agent…'
+        this.message = 'Windows session connected. Starting the Valdor alt agent…'
       } else if (parts[1] === 'AGENT_READY') {
         this.childSessionId = Number(parts[2]) || this.childSessionId
         this.phase = 'ready'
@@ -492,6 +492,6 @@ export class ProtectedSessionService {
   }
 
   private assertPlanAccess(): void {
-    if (!this.store.getSnapshot().entitlements.isolatedWorkerInput) throw new Error('Protected Session controls are available with Virgue Pro.')
+    if (!this.store.getSnapshot().entitlements.isolatedWorkerInput) throw new Error('Protected Session controls are available with Valdor Pro.')
   }
 }

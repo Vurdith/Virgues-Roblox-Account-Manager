@@ -5,19 +5,48 @@ import { resolve } from 'node:path'
 import Stripe from 'stripe'
 import { neon } from '@neondatabase/serverless'
 
+const BRAND_NAME = 'Valdor'
+const PRO_PLAN_NAME = `${BRAND_NAME} Pro`
+const FREE_PLAN_NAME = 'Free plan'
+
+function readEnvironmentVariable(name) {
+  const keys = [`VALDOR_${name}`, `VIRGUE_${name}`, name]
+  for (const key of keys) {
+    const value = process.env[key]
+    if (typeof value === 'string' && value.trim()) return value
+  }
+  return ''
+}
+
+// VALDOR_* is canonical. VIRGUE_* and the original unprefixed names remain
+// readable during the migration so existing deployments can be rotated safely.
+const billingEnv = {
+  WEBSITE_ORIGINS: readEnvironmentVariable('WEBSITE_ORIGINS'),
+  DATABASE_URL: readEnvironmentVariable('DATABASE_URL'),
+  STRIPE_SECRET_KEY: readEnvironmentVariable('STRIPE_SECRET_KEY'),
+  STRIPE_WEBHOOK_SECRET: readEnvironmentVariable('STRIPE_WEBHOOK_SECRET'),
+  NEON_AUTH_URL: readEnvironmentVariable('NEON_AUTH_URL'),
+  NEON_AUTH_JWKS_URL: readEnvironmentVariable('NEON_AUTH_JWKS_URL'),
+  NEON_AUTH_JWT_ISSUER: readEnvironmentVariable('NEON_AUTH_JWT_ISSUER'),
+  NEON_AUTH_JWT_AUDIENCE: readEnvironmentVariable('NEON_AUTH_JWT_AUDIENCE'),
+  STRIPE_PRO_PRICE_ID: readEnvironmentVariable('STRIPE_PRO_PRICE_ID'),
+  PUBLIC_SITE_URL: readEnvironmentVariable('PUBLIC_SITE_URL'),
+  PORT: readEnvironmentVariable('PORT'),
+}
+
 const required = ['DATABASE_URL', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'NEON_AUTH_URL', 'STRIPE_PRO_PRICE_ID', 'PUBLIC_SITE_URL']
-const missing = required.filter((key) => !process.env[key])
+const missing = required.filter((key) => !billingEnv[key]).map((key) => `VALDOR_${key}`)
 if (missing.length) throw new Error(`Missing billing configuration: ${missing.join(', ')}`)
 
-const database = neon(process.env.DATABASE_URL)
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
-const authUrl = process.env.NEON_AUTH_URL.replace(/\/$/, '')
-const authJwksUrl = (process.env.NEON_AUTH_JWKS_URL || `${authUrl}/.well-known/jwks.json`).replace(/\/$/, '')
-const expectedJwtIssuer = (process.env.NEON_AUTH_JWT_ISSUER || '').trim()
-const expectedJwtAudience = (process.env.NEON_AUTH_JWT_AUDIENCE || '').trim()
-const publicSiteUrl = process.env.PUBLIC_SITE_URL.replace(/\/$/, '')
-const allowedOrigins = new Set((process.env.WEBSITE_ORIGINS || publicSiteUrl).split(',').map((value) => value.trim()).filter(Boolean))
-const port = Number(process.env.PORT || 8787)
+const database = neon(billingEnv.DATABASE_URL)
+const stripe = new Stripe(billingEnv.STRIPE_SECRET_KEY)
+const authUrl = billingEnv.NEON_AUTH_URL.replace(/\/$/, '')
+const authJwksUrl = (billingEnv.NEON_AUTH_JWKS_URL || `${authUrl}/.well-known/jwks.json`).replace(/\/$/, '')
+const expectedJwtIssuer = billingEnv.NEON_AUTH_JWT_ISSUER.trim()
+const expectedJwtAudience = billingEnv.NEON_AUTH_JWT_AUDIENCE.trim()
+const publicSiteUrl = billingEnv.PUBLIC_SITE_URL.replace(/\/$/, '')
+const allowedOrigins = new Set((billingEnv.WEBSITE_ORIGINS || publicSiteUrl).split(',').map((value) => value.trim()).filter(Boolean))
+const port = Number(billingEnv.PORT || 8787)
 const jwtClockSkewSeconds = 30
 const jwksCacheTtlMs = 5 * 60 * 1000
 
@@ -128,6 +157,19 @@ function claimString(...values) {
   return values.find((value) => typeof value === 'string' && value.trim())?.trim() || null
 }
 
+function metadataValue(metadata, key) {
+  const values = asRecord(metadata)
+  return claimString(values[`valdor_${key}`], values[`virgue_${key}`])
+}
+
+function metadataUserId(metadata) {
+  return metadataValue(metadata, 'user_id')
+}
+
+function planDisplayName(planKey, fallback = FREE_PLAN_NAME) {
+  return planKey === 'pro' ? PRO_PLAN_NAME : fallback || FREE_PLAN_NAME
+}
+
 function audienceMatches(value, expected) {
   return value === expected || (Array.isArray(value) && value.includes(expected))
 }
@@ -175,7 +217,7 @@ async function requireUser(request) {
 async function requireAdmin(request) {
   const user = await requireUser(request)
   const rows = await database.query(
-    'SELECT 1 FROM public.virgue_admins WHERE user_id = $1 LIMIT 1',
+    'SELECT 1 FROM public.valdor_admins WHERE user_id = $1 LIMIT 1',
     [user.id],
   )
   if (!rows[0]) throw new BillingRequestError(403, 'Admin access is required.')
@@ -247,12 +289,13 @@ function trialHistoryValue(value) {
 }
 
 function adminCustomer(row) {
+  const planKey = row.plan_key || 'free'
   return {
     id: row.id,
     email: row.email,
     name: row.name || '',
-    planKey: row.plan_key || 'free',
-    planName: row.plan_name || 'Free plan',
+    planKey,
+    planName: planDisplayName(planKey, row.plan_name),
     entitlementStatus: row.entitlement_status || 'free',
     subscriptionStatus: row.subscription_status || null,
     currentPeriodEnd: row.current_period_end || null,
@@ -276,14 +319,14 @@ async function adminCustomers(search) {
             trial_history.trial_history,
             EXISTS (
               SELECT 1
-              FROM public.virgue_trial_grants grant_row
+              FROM public.valdor_trial_grants grant_row
               WHERE grant_row.user_id = u.id
             ) AS has_trial_grant
      FROM neon_auth."user" u
-     LEFT JOIN public.virgue_current_entitlements ent ON ent.user_id = u.id
+     LEFT JOIN public.valdor_current_entitlements ent ON ent.user_id = u.id
      LEFT JOIN LATERAL (
        SELECT count(*)::integer AS trial_count
-       FROM public.virgue_trial_grants grant_row
+       FROM public.valdor_trial_grants grant_row
        WHERE grant_row.user_id = u.id
      ) trial_count ON true
      LEFT JOIN LATERAL (
@@ -302,7 +345,7 @@ async function adminCustomers(search) {
        ) AS trial_history
        FROM (
          SELECT id, started_at, ends_at, duration_days, duration_value, duration_unit, source, note
-         FROM public.virgue_trial_grants
+         FROM public.valdor_trial_grants
          WHERE user_id = u.id
          ORDER BY started_at DESC
          LIMIT 20
@@ -339,11 +382,11 @@ async function grantTrial(admin, payload) {
     [email],
   )
   const user = users[0]
-  if (!user) throw new BillingRequestError(404, 'No Virgue account was found for that email.')
+  if (!user) throw new BillingRequestError(404, `No ${BRAND_NAME} account was found for that email.`)
 
   const current = await entitlementFor(user.id)
   if (current.planKey === 'pro' && current.entitlementStatus !== 'trial') {
-    throw new BillingRequestError(409, 'That account already has paid Pro access.')
+    throw new BillingRequestError(409, `That account already has paid ${PRO_PLAN_NAME} access.`)
   }
 
   const inserted = await database.query(
@@ -354,11 +397,11 @@ async function grantTrial(admin, payload) {
          now(),
          COALESCE(MAX(grant_row.ends_at) FILTER (WHERE grant_row.ends_at > now()), now())
        ) AS starts_at
-       FROM public.virgue_trial_grants grant_row
+       FROM public.valdor_trial_grants grant_row
        CROSS JOIN locked
        WHERE grant_row.user_id = $1::uuid
      )
-     INSERT INTO public.virgue_trial_grants
+     INSERT INTO public.valdor_trial_grants
        (id, user_id, started_at, ends_at, duration_days, duration_value, duration_unit, source, granted_by, note)
      SELECT gen_random_uuid(), $1::uuid, schedule.starts_at,
             schedule.starts_at + ($3 * interval '1 second'),
@@ -367,7 +410,7 @@ async function grantTrial(admin, payload) {
      RETURNING id, started_at, ends_at, duration_days, duration_value, duration_unit, source, note`,
     [user.id, duration.value, duration.seconds, duration.unit, admin.id, note],
   )
-  if (!inserted[0]) throw new BillingRequestError(500, 'The Pro trial could not be created.')
+  if (!inserted[0]) throw new BillingRequestError(500, `The ${PRO_PLAN_NAME} trial could not be created.`)
   return {
     id: inserted[0].id,
     userId: user.id,
@@ -384,7 +427,7 @@ async function grantTrial(admin, payload) {
 }
 
 async function customerFor(user) {
-  const existing = await database.query('SELECT stripe_customer_id FROM public.virgue_billing_customers WHERE user_id = $1', [user.id])
+  const existing = await database.query('SELECT stripe_customer_id FROM public.valdor_billing_customers WHERE user_id = $1', [user.id])
   const existingCustomerId = existing[0]?.stripe_customer_id
   if (existingCustomerId) {
     try {
@@ -401,10 +444,10 @@ async function customerFor(user) {
   const customer = await stripe.customers.create({
     email: user.email,
     name: user.name || undefined,
-    metadata: { virgue_user_id: user.id },
+    metadata: { valdor_user_id: user.id },
   })
   const inserted = await database.query(
-    `INSERT INTO public.virgue_billing_customers (user_id, stripe_customer_id)
+    `INSERT INTO public.valdor_billing_customers (user_id, stripe_customer_id)
      VALUES ($1, $2)
      ON CONFLICT (user_id) DO UPDATE SET stripe_customer_id = EXCLUDED.stripe_customer_id, updated_at = now()
      RETURNING stripe_customer_id`,
@@ -422,7 +465,7 @@ async function hasLiveSubscription(entitlement, providerCustomerId) {
     const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id
     const customerMatches = customerId === providerCustomerId
     const statusAllowed = ['active', 'trialing', 'past_due'].includes(subscription.status)
-    const priceMatches = subscription.items.data.some((item) => item.price?.id === process.env.STRIPE_PRO_PRICE_ID)
+    const priceMatches = subscription.items.data.some((item) => item.price?.id === billingEnv.STRIPE_PRO_PRICE_ID)
     return customerMatches && statusAllowed && priceMatches
   } catch (caught) {
     const isMissingCustomer = caught?.code === 'resource_missing' || caught?.statusCode === 404
@@ -437,27 +480,27 @@ async function entitlementFor(userId) {
             ent.trial_started_at, ent.trial_ends_at,
             ent.subscription_id, ent.subscription_status, ent.current_period_end,
             subscription.provider_customer_id, subscription.provider_subscription_id
-     FROM public.virgue_current_entitlements ent
-     LEFT JOIN public.virgue_subscriptions subscription
+     FROM public.valdor_current_entitlements ent
+     LEFT JOIN public.valdor_subscriptions subscription
        ON subscription.id = ent.subscription_id
      WHERE ent.user_id = $1`,
     [userId],
   )
-  const customer = await database.query('SELECT stripe_customer_id FROM public.virgue_billing_customers WHERE user_id = $1', [userId])
+  const customer = await database.query('SELECT stripe_customer_id FROM public.valdor_billing_customers WHERE user_id = $1', [userId])
   const hasBillingCustomer = Boolean(customer[0]?.stripe_customer_id)
-  if (!rows[0]) return { planKey: 'free', planName: 'Free plan', entitlementStatus: 'free', subscriptionStatus: null, currentPeriodEnd: null, features: {}, hasBillingCustomer }
+  if (!rows[0]) return { planKey: 'free', planName: FREE_PLAN_NAME, entitlementStatus: 'free', subscriptionStatus: null, currentPeriodEnd: null, features: {}, hasBillingCustomer }
   const row = rows[0]
   const hasActiveManualTrial = row.trial_ends_at && new Date(row.trial_ends_at).getTime() > Date.now()
   const hasValidPaidSubscription = row.plan_key === 'pro'
     && row.entitlement_status !== 'trial'
     && await hasLiveSubscription(row, row.provider_customer_id)
   if (row.plan_key === 'pro' && row.entitlement_status !== 'trial' && !hasValidPaidSubscription && !hasActiveManualTrial) {
-    return { planKey: 'free', planName: 'Free plan', entitlementStatus: 'free', subscriptionStatus: null, currentPeriodEnd: null, features: {}, hasBillingCustomer }
+    return { planKey: 'free', planName: FREE_PLAN_NAME, entitlementStatus: 'free', subscriptionStatus: null, currentPeriodEnd: null, features: {}, hasBillingCustomer }
   }
   if (hasActiveManualTrial && !hasValidPaidSubscription) {
     return {
       planKey: 'pro',
-      planName: 'Virgue Pro',
+      planName: PRO_PLAN_NAME,
       entitlementStatus: 'trial',
       subscriptionStatus: null,
       currentPeriodEnd: null,
@@ -467,9 +510,10 @@ async function entitlementFor(userId) {
       hasBillingCustomer,
     }
   }
+  const planKey = row.plan_key || 'free'
   return {
-    planKey: row.plan_key,
-    planName: row.plan_name,
+    planKey,
+    planName: planDisplayName(planKey, row.plan_name),
     entitlementStatus: row.entitlement_status,
     subscriptionStatus: row.subscription_status,
     currentPeriodEnd: row.current_period_end,
@@ -481,13 +525,13 @@ async function entitlementFor(userId) {
 }
 
 async function planForPrice(priceId) {
-  if (priceId === process.env.STRIPE_PRO_PRICE_ID) return 'pro'
-  const rows = await database.query('SELECT plan_key FROM public.virgue_plans WHERE stripe_price_id = $1 AND active = true', [priceId])
+  if (priceId === billingEnv.STRIPE_PRO_PRICE_ID) return 'pro'
+  const rows = await database.query('SELECT plan_key FROM public.valdor_plans WHERE stripe_price_id = $1 AND active = true', [priceId])
   return rows[0]?.plan_key || null
 }
 
 async function userForCustomer(customerId) {
-  const rows = await database.query('SELECT user_id FROM public.virgue_billing_customers WHERE stripe_customer_id = $1', [customerId])
+  const rows = await database.query('SELECT user_id FROM public.valdor_billing_customers WHERE stripe_customer_id = $1', [customerId])
   if (rows[0]?.user_id) return rows[0].user_id
 
   // A subscription created in the Stripe Dashboard may not inherit the
@@ -511,7 +555,7 @@ async function userForCustomer(customerId) {
   if (!userId) return null
 
   await database.query(
-    `INSERT INTO public.virgue_billing_customers (user_id, stripe_customer_id)
+    `INSERT INTO public.valdor_billing_customers (user_id, stripe_customer_id)
      VALUES ($1, $2)
      ON CONFLICT (user_id) DO UPDATE SET stripe_customer_id = EXCLUDED.stripe_customer_id, updated_at = now()` ,
     [userId, customerId],
@@ -532,8 +576,8 @@ async function syncSubscription(subscription, userIdHint = null) {
   const priceId = subscriptionItem?.price?.id
   const planKey = priceId ? await planForPrice(priceId) : null
   const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id
-  const userId = userIdHint || subscription.metadata?.virgue_user_id || await userForCustomer(customerId)
-  if (!planKey || !userId) throw new Error('Subscription could not be mapped to a Virgue plan and account.')
+  const userId = userIdHint || metadataUserId(subscription.metadata) || await userForCustomer(customerId)
+  if (!planKey || !userId) throw new Error(`Subscription could not be mapped to a ${BRAND_NAME} plan and account.`)
   const currentPeriodStart = subscription.current_period_start ?? subscriptionItem?.current_period_start ?? null
   const currentPeriodEnd = subscription.current_period_end ?? subscriptionItem?.current_period_end ?? null
 
@@ -544,7 +588,7 @@ async function syncSubscription(subscription, userIdHint = null) {
     subscription.cancel_at_period_end, subscription.canceled_at || null,
     JSON.stringify(subscription.metadata || {}),
   ]
-  const upsert = `INSERT INTO public.virgue_subscriptions (
+  const upsert = `INSERT INTO public.valdor_subscriptions (
        user_id, plan_key, provider, provider_customer_id, provider_subscription_id, status,
        trial_started_at, trial_ends_at, current_period_start, current_period_end,
        cancel_at_period_end, canceled_at, metadata, updated_at
@@ -570,7 +614,7 @@ async function syncSubscription(subscription, userIdHint = null) {
 
     const existing = await database.query(
       `SELECT id, status
-       FROM public.virgue_subscriptions
+       FROM public.valdor_subscriptions
        WHERE provider_customer_id = $1
        ORDER BY updated_at DESC
        LIMIT 1`,
@@ -579,7 +623,7 @@ async function syncSubscription(subscription, userIdHint = null) {
     if (!existing[0] || !['canceled', 'incomplete_expired', 'unpaid', 'paused'].includes(existing[0].status)) throw caught
 
     await database.query(
-      `UPDATE public.virgue_subscriptions
+      `UPDATE public.valdor_subscriptions
        SET user_id = $2, plan_key = $3, provider_subscription_id = $4, status = $5,
            trial_started_at = to_timestamp($6), trial_ends_at = to_timestamp($7),
            current_period_start = to_timestamp($8), current_period_end = to_timestamp($9),
@@ -596,13 +640,13 @@ async function processWebhook(event) {
     const checkout = event.data.object
     if (checkout.mode !== 'subscription' || !checkout.subscription) return
     const subscription = await stripe.subscriptions.retrieve(String(checkout.subscription))
-    await syncSubscription(subscription, checkout.metadata?.virgue_user_id || checkout.client_reference_id || null)
+    await syncSubscription(subscription, metadataUserId(checkout.metadata) || checkout.client_reference_id || null)
     return
   }
   if (event.type.startsWith('customer.subscription.')) {
     const subscription = event.data.object
     const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id
-    const userId = subscription.metadata?.virgue_user_id || (customerId ? await userForCustomer(customerId) : null)
+    const userId = metadataUserId(subscription.metadata) || (customerId ? await userForCustomer(customerId) : null)
     if (!userId) return
     await syncSubscription(subscription, userId)
     return
@@ -613,7 +657,7 @@ async function processWebhook(event) {
     if (!subscriptionId) return
     const subscription = await stripe.subscriptions.retrieve(subscriptionId)
     const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id
-    const userId = subscription.metadata?.virgue_user_id || (customerId ? await userForCustomer(customerId) : null)
+    const userId = metadataUserId(subscription.metadata) || (customerId ? await userForCustomer(customerId) : null)
     if (!userId) return
     await syncSubscription(subscription, userId)
   }
@@ -624,17 +668,17 @@ async function handleWebhook(request, response) {
   if (typeof signature !== 'string') return error(response, 400, 'Missing Stripe signature.')
   let event
   try {
-    event = stripe.webhooks.constructEvent(await readBody(request), signature, process.env.STRIPE_WEBHOOK_SECRET)
+    event = stripe.webhooks.constructEvent(await readBody(request), signature, billingEnv.STRIPE_WEBHOOK_SECRET)
   } catch {
     return error(response, 400, 'Invalid Stripe signature.')
   }
 
   const eventRows = await database.query(
-    `INSERT INTO public.virgue_billing_events (event_id, event_type, status)
+    `INSERT INTO public.valdor_billing_events (event_id, event_type, status)
      VALUES ($1, $2, 'received')
      ON CONFLICT (event_id) DO UPDATE SET
-       status = CASE WHEN public.virgue_billing_events.status = 'processed' THEN 'processed' ELSE 'received' END,
-       error_message = CASE WHEN public.virgue_billing_events.status = 'processed' THEN public.virgue_billing_events.error_message ELSE NULL END
+       status = CASE WHEN public.valdor_billing_events.status = 'processed' THEN 'processed' ELSE 'received' END,
+       error_message = CASE WHEN public.valdor_billing_events.status = 'processed' THEN public.valdor_billing_events.error_message ELSE NULL END
      RETURNING status`,
     [event.id, event.type],
   )
@@ -642,11 +686,11 @@ async function handleWebhook(request, response) {
 
   try {
     await processWebhook(event)
-    await database.query("UPDATE public.virgue_billing_events SET status = 'processed', processed_at = now(), error_message = NULL WHERE event_id = $1", [event.id])
+    await database.query("UPDATE public.valdor_billing_events SET status = 'processed', processed_at = now(), error_message = NULL WHERE event_id = $1", [event.id])
     send(response, 200, { received: true })
   } catch (caught) {
     const message = caught instanceof Error ? caught.message.slice(0, 1000) : 'Webhook processing failed.'
-    await database.query("UPDATE public.virgue_billing_events SET status = 'failed', error_message = $2 WHERE event_id = $1", [event.id, message])
+    await database.query("UPDATE public.valdor_billing_events SET status = 'failed', error_message = $2 WHERE event_id = $1", [event.id, message])
     throw caught
   }
 }
@@ -675,22 +719,26 @@ async function handleApi(request, response, origin) {
 
   if (request.method === 'POST' && url.pathname === '/billing/checkout') {
     const body = parseJson(await readBody(request))
-    if (body.planKey !== 'pro') return error(response, 400, 'That plan is not available for checkout.', origin)
+    if (body.planKey !== 'pro') return error(response, 400, `That plan is not available for ${PRO_PLAN_NAME} checkout.`, origin)
     const customer = await customerFor(user)
     const checkout = await stripe.checkout.sessions.create({
       mode: 'subscription', customer,
-      line_items: [{ price: process.env.STRIPE_PRO_PRICE_ID, quantity: 1 }],
+      line_items: [{ price: billingEnv.STRIPE_PRO_PRICE_ID, quantity: 1 }],
       // The Price contains fixed USD, GBP, and EUR currency options. Stripe
       // selects the matching option from the customer's location at Checkout.
       // Managed Payments requires a product tax code. Keep standard Stripe
       // Checkout enabled until the product's tax treatment is configured.
       managed_payments: { enabled: false },
+      custom_text: {
+        submit: { message: `Subscribe to ${PRO_PLAN_NAME}` },
+        after_submit: { message: `${PRO_PLAN_NAME} is being activated. You will return to your account shortly.` },
+      },
       success_url: `${publicSiteUrl}/account.html?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${publicSiteUrl}/pricing.html?checkout=canceled`,
       allow_promotion_codes: true,
       client_reference_id: user.id,
-      metadata: { virgue_user_id: user.id, virgue_plan_key: 'pro' },
-      subscription_data: { metadata: { virgue_user_id: user.id, virgue_plan_key: 'pro' } },
+      metadata: { valdor_user_id: user.id, valdor_plan_key: 'pro' },
+      subscription_data: { metadata: { valdor_user_id: user.id, valdor_plan_key: 'pro' } },
     })
     if (!checkout.url) throw new Error('Stripe did not return a checkout URL.')
     return send(response, 200, { url: checkout.url }, origin)
@@ -721,4 +769,4 @@ export async function handleBillingRequest(request, response) {
 
 const server = createServer((request, response) => { void handleBillingRequest(request, response) })
 const isDirectRun = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-if (isDirectRun) server.listen(port, () => console.log(`Virgue billing API listening on :${port}`))
+if (isDirectRun) server.listen(port, () => console.log(`${BRAND_NAME} billing API listening on :${port}`))

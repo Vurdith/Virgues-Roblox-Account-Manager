@@ -1,4 +1,4 @@
-import type { AuthCredentialsInput, AuthSignUpInput, VirgueAuthSession, VirgueUser } from '../shared/types'
+import type { AuthCredentialsInput, AuthSignUpInput, ValdorAuthSession, ValdorUser } from '../shared/types'
 import { SecretStore } from './secret-store'
 
 // This is a public Neon Auth endpoint, not a database credential. The session
@@ -8,7 +8,9 @@ const NEON_AUTH_URL = 'https://ep-morning-frost-zagg2ox8.neonauth.c-2.eu-west-2.
 // page, so fetch does not provide an Origin header automatically. Neon Auth
 // uses this trusted origin to resolve the default relative callback safely.
 const NEON_AUTH_ORIGIN = new URL(NEON_AUTH_URL).origin
-const SESSION_SECRET_KEY = 'virgue-neon-auth-session'
+const SESSION_SECRET_KEY = 'valdor-neon-auth-session'
+const LEGACY_SESSION_SECRET_KEYS = ['virgue-neon-auth-session'] as const
+const SESSION_SECRET_KEYS = [SESSION_SECRET_KEY, ...LEGACY_SESSION_SECRET_KEYS] as const
 
 interface JsonRecord {
   [key: string]: unknown
@@ -41,14 +43,19 @@ export class AuthService {
 
   async initialize(): Promise<void> {
     try {
-      const stored = this.secrets.get(SESSION_SECRET_KEY)
-      if (stored) this.loadCookieHeader(stored)
+      for (const key of SESSION_SECRET_KEYS) {
+        const stored = this.secrets.get(key)
+        if (!stored) continue
+        this.loadCookieHeader(stored)
+        if (key !== SESSION_SECRET_KEY) await this.secrets.set(SESSION_SECRET_KEY, stored)
+        break
+      }
     } catch {
       this.cookies.clear()
     }
   }
 
-  async getSession(): Promise<VirgueAuthSession | null> {
+  async getSession(): Promise<ValdorAuthSession | null> {
     const payload = await this.request('/get-session', { method: 'GET' })
     const envelope = isRecord(payload) && isRecord(payload.data) ? payload.data : payload
     if (!isRecord(envelope) || !isRecord(envelope.user) || !isRecord(envelope.session)) {
@@ -70,7 +77,7 @@ export class AuthService {
     return stringValue(envelope.token)
   }
 
-  async signIn(input: AuthCredentialsInput): Promise<VirgueAuthSession> {
+  async signIn(input: AuthCredentialsInput): Promise<ValdorAuthSession> {
     this.validateCredentials(input)
     await this.request('/sign-in/email', {
       method: 'POST',
@@ -81,7 +88,7 @@ export class AuthService {
     return session
   }
 
-  async signUp(input: AuthSignUpInput): Promise<VirgueAuthSession> {
+  async signUp(input: AuthSignUpInput): Promise<ValdorAuthSession> {
     this.validateCredentials(input)
     const name = input.name.trim()
     if (name.length < 2) throw new Error('Enter a name with at least two characters.')
@@ -123,7 +130,7 @@ export class AuthService {
         body: init.body,
       })
     } catch {
-      throw new Error('Virgue could not reach the account service. Check your internet connection and try again.')
+      throw new Error('Valdor could not reach the account service. Check your internet connection and try again.')
     }
 
     await this.captureCookies(response)
@@ -136,14 +143,14 @@ export class AuthService {
     return payload
   }
 
-  private toSession(userPayload: JsonRecord, sessionPayload: JsonRecord): VirgueAuthSession {
+  private toSession(userPayload: JsonRecord, sessionPayload: JsonRecord): ValdorAuthSession {
     const id = stringValue(userPayload.id)
     const email = stringValue(userPayload.email)
     const name = stringValue(userPayload.name)
     const expiresAt = stringValue(sessionPayload.expiresAt)
     if (!id || !email || !name || !expiresAt) throw new Error('The account service returned an incomplete session.')
 
-    const user: VirgueUser = {
+    const user: ValdorUser = {
       id,
       name,
       email,
@@ -186,11 +193,11 @@ export class AuthService {
 
     const header = this.cookieHeader()
     if (header) await this.secrets.set(SESSION_SECRET_KEY, header)
-    else await this.secrets.remove(SESSION_SECRET_KEY)
+    else for (const key of SESSION_SECRET_KEYS) await this.secrets.remove(key)
   }
 
   private async clearSession(): Promise<void> {
     this.cookies.clear()
-    await this.secrets.remove(SESSION_SECRET_KEY)
+    for (const key of SESSION_SECRET_KEYS) await this.secrets.remove(key)
   }
 }

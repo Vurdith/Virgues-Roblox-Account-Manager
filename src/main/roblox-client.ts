@@ -37,9 +37,11 @@ import { SecretStore } from './secret-store'
 import type { SessionGuardian } from './session-guardian'
 import type { ProtectedSessionService } from './protected-session'
 
-const ROBLOX_USER_AGENT = "Virgue's Roblox Account Manager/1.0"
+const ROBLOX_USER_AGENT = "Valdor — Roblox Account Manager/1.0"
 const SERVER_CACHE_TTL_MS = 10 * 60 * 1000
 const execFileAsync = promisify(execFile)
+const ACCOUNT_PARTITION_PREFIX = 'persist:valdor-account-'
+const LEGACY_ACCOUNT_PARTITION_PREFIX = 'persist:virgue-account-'
 
 const defaultServerCriteria: ServerFilterCriteria = {
   minPlayers: null, maxPlayers: null, minPing: null, maxPing: null, regionAllowList: [], regionDenyList: [], serverTypes: ['public'], jobId: '', maxAgeMinutes: null, excludeVisited: false, includeFavoritesOnly: false, sort: 'default',
@@ -224,7 +226,7 @@ function createGlobalSettingsTemplate(framerateCap: number): string {
 <roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
   <External>null</External>
   <External>nil</External>
-  <Item class="UserGameSettings" referent="VIRGUEFPSSETTINGS">
+  <Item class="UserGameSettings" referent="VALDORFPSSETTINGS">
     <Properties>
       <int name="FramerateCap">${Math.round(framerateCap)}</int>
       <string name="Name">GameSettings</string>
@@ -332,7 +334,7 @@ export class RobloxClient {
   }
 
   private async startMultiInstanceMutex(): Promise<void> {
-    const signalPath = join(tmpdir(), `virgue-mutex-${randomUUID()}.ready`)
+    const signalPath = join(tmpdir(), `valdor-mutex-${randomUUID()}.ready`)
     const escapedSignalPath = signalPath.replace(/'/g, "''")
     const script = `$signalPath = '${escapedSignalPath}'; $created = $false; try { $mutex = New-Object System.Threading.Mutex($true, 'ROBLOX_singletonMutex', [ref]$created); if (-not $created) { try { if (-not $mutex.WaitOne(0)) { exit 2 } } catch { exit 2 } }; [System.IO.File]::WriteAllText($signalPath, 'ready'); while ($true) { Start-Sleep -Seconds 3600 } } catch { exit 1 }`
     // Keep the helper attached to the manager so Windows does not discard its startup signal.
@@ -409,7 +411,7 @@ export class RobloxClient {
       throw new Error('A Roblox sign-in window is already open.')
     }
 
-    const partition = `virgue-login-${randomUUID()}`
+    const partition = `valdor-login-${randomUUID()}`
     const loginSession = session.fromPartition(partition)
     const browser = new BrowserWindow({
       width: 520,
@@ -417,8 +419,8 @@ export class RobloxClient {
       minWidth: 420,
       minHeight: 620,
       show: false,
-      title: "Sign in to Roblox — Virgue's Roblox Account Manager",
-      icon: join(__dirname, '../renderer/virgue-icon.png'),
+      title: "Sign in to Roblox — Valdor — Roblox Account Manager",
+      icon: join(__dirname, '../renderer/valdor-icon.png'),
       backgroundColor: '#e9e7df',
       webPreferences: { partition, contextIsolation: true, nodeIntegration: false, sandbox: false, webSecurity: true },
     })
@@ -499,6 +501,23 @@ export class RobloxClient {
     })
   }
 
+  private async getAccountPartition(accountId: string): Promise<string> {
+    const canonical = ACCOUNT_PARTITION_PREFIX + accountId
+    const legacy = LEGACY_ACCOUNT_PARTITION_PREFIX + accountId
+    const partitionsDirectory = join(dirname(this.store.getSnapshot().info.dataPath), 'Partitions')
+    try {
+      await stat(join(partitionsDirectory, canonical.slice('persist:'.length)))
+      return canonical
+    } catch {
+      try {
+        await stat(join(partitionsDirectory, legacy.slice('persist:'.length)))
+        return legacy
+      } catch {
+        return canonical
+      }
+    }
+  }
+
   private async requestFromAccountBrowser(account: Account, url: string, payload: Record<string, string>): Promise<AccountBrowserRequestResult> {
     const cookie = this.requireCookie(account)
     const existing = this.accountBrowsers.get(account.id)
@@ -507,7 +526,7 @@ export class RobloxClient {
 
     try {
       if (!browser) {
-        const partition = `persist:virgue-account-${account.id}`
+        const partition = await this.getAccountPartition(account.id)
         browser = new BrowserWindow({
           show: false,
           width: 1180,
@@ -716,7 +735,7 @@ export class RobloxClient {
       const [playerInfo, libraryInfo] = await Promise.all([stat(target), stat(join(dirname(target), 'RobloxPlayerBeta.dll'))])
       if (!playerInfo.isFile() || playerInfo.size <= 0 || !libraryInfo.isFile() || libraryInfo.size <= 0) return false
       const escapedPath = target.replace(/'/g, "''")
-      const signatureScript = `$signature = Get-AuthenticodeSignature -LiteralPath '${escapedPath}'; if ($signature.Status -eq 'Valid' -and $signature.SignerCertificate.Subject -match 'Roblox Corporation') { 'VIRGUE_ROBLOX_SIGNATURE_VALID' }`
+      const signatureScript = `$signature = Get-AuthenticodeSignature -LiteralPath '${escapedPath}'; if ($signature.Status -eq 'Valid' -and $signature.SignerCertificate.Subject -match 'Roblox Corporation') { 'VALDOR_ROBLOX_SIGNATURE_VALID' }`
       // Development shells can prepend bundled PowerShell modules that clash
       // with Windows' security module. Keep this verification on the inbox
       // module path so a valid Roblox install is not reported as missing.
@@ -725,7 +744,7 @@ export class RobloxClient {
         PSModulePath: join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'Modules'),
       }
       const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', signatureScript], { windowsHide: true, timeout: 10000, env: powershellEnv })
-      return stdout.includes('VIRGUE_ROBLOX_SIGNATURE_VALID')
+      return stdout.includes('VALDOR_ROBLOX_SIGNATURE_VALID')
     } catch {
       return false
     }
@@ -786,7 +805,7 @@ export class RobloxClient {
         if (!processInfo || Number(processInfo.MainWindowHandle ?? 0) !== 0) continue
         // MainWindowHandle is scoped to the interactive desktop. A healthy
         // Roblox window running in Protected Session therefore appears
-        // windowless from Virgue's main Windows session. Never use that value
+        // windowless from Valdor's main Windows session. Never use that value
         // to reap a process in another session; process disappearance remains
         // the reliable cross-session lifecycle signal.
         const processSessionId = Number(processInfo.SessionId)
@@ -885,6 +904,10 @@ export class RobloxClient {
   }
 
   private getGlobalSettingsBackupPath(): string {
+    return join(dirname(this.store.getSnapshot().info.dataPath), 'valdor-global-settings-backup.xml')
+  }
+
+  private getLegacyGlobalSettingsBackupPath(): string {
     return join(dirname(this.store.getSnapshot().info.dataPath), 'virgue-global-settings-backup.xml')
   }
 
@@ -901,19 +924,21 @@ export class RobloxClient {
     const settingsPath = this.getGlobalSettingsPath()
     if (!settingsPath) return
     const backupPath = this.getGlobalSettingsBackupPath()
+    const legacyBackupPath = this.getLegacyGlobalSettingsBackupPath()
     const current = await this.readOptionalFile(settingsPath)
 
     if (!settings.unlockFps) {
-      const backup = await this.readOptionalFile(backupPath)
+      const backup = (await this.readOptionalFile(backupPath)) ?? (await this.readOptionalFile(legacyBackupPath))
       if (backup !== null) {
         await writeFile(settingsPath, backup, 'utf8')
         await unlink(backupPath).catch(() => undefined)
+        await unlink(legacyBackupPath).catch(() => undefined)
       }
       return
     }
 
     if (current !== null) {
-      const backup = await this.readOptionalFile(backupPath)
+      const backup = (await this.readOptionalFile(backupPath)) ?? (await this.readOptionalFile(legacyBackupPath))
       if (backup === null) await writeFile(backupPath, current, 'utf8')
       await writeFile(settingsPath, setXmlFramerateCap(current, settings.maxFps), 'utf8')
       return
@@ -1026,14 +1051,14 @@ export class RobloxClient {
   private async waitForRobloxPlayerWindow(processId: number | null, timeoutMs = 12000): Promise<boolean> {
     if (!processId) return false
     const deadline = Date.now() + timeoutMs
-    const windowScript = `$process = Get-Process -Id ${processId} -ErrorAction SilentlyContinue; if ($process -and $process.MainWindowHandle -ne 0) { 'VIRGUE_ROBLOX_WINDOW_READY' }`
+    const windowScript = `$process = Get-Process -Id ${processId} -ErrorAction SilentlyContinue; if ($process -and $process.MainWindowHandle -ne 0) { 'VALDOR_ROBLOX_WINDOW_READY' }`
     while (Date.now() < deadline) {
       try {
         const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', windowScript], {
           windowsHide: true,
           timeout: 3000,
         })
-        if (stdout.includes('VIRGUE_ROBLOX_WINDOW_READY')) {
+        if (stdout.includes('VALDOR_ROBLOX_WINDOW_READY')) {
           // Give the renderer a short settling period after its top-level
           // window exists so the driver has consumed the launch profile.
           await new Promise<void>((resolve) => setTimeout(resolve, 750))
@@ -1093,7 +1118,7 @@ export class RobloxClient {
       if (this.store.getSnapshot().settings.multiInstance) await this.updateMultiInstance(true)
       const routeToProtectedSession = this.protectedSession?.shouldRouteLaunch(launchInput.accountId) === true
       // The earlier protected launches were not exiting because of direct
-      // launch or isolated settings: Virgue's cross-session cleanup mistook
+      // launch or isolated settings: Valdor's cross-session cleanup mistook
       // their invisible window handles for closed windows and killed them.
       // With cleanup now session-aware, use the original fast direct launch so
       // the account-specific FPS and graphics profile stays isolated.
@@ -1415,7 +1440,7 @@ export class RobloxClient {
       }
       return { opened: true, message: 'The isolated Roblox browser for this profile is already open.' }
     }
-    const partition = `persist:virgue-account-${id}`
+    const partition = await this.getAccountPartition(id)
     const browser = new BrowserWindow({ width: 1180, height: 820, title: `${account.alias || account.username} — Roblox`, backgroundColor: '#e9e7df', webPreferences: { partition, contextIsolation: true, nodeIntegration: false, sandbox: false } })
     this.browserWindows.add(browser)
     this.accountBrowsers.set(id, browser)
@@ -1973,7 +1998,7 @@ export class RobloxClient {
       throw new Error(`Roblox is not issuing a launch ticket for @${account.username} right now. The saved session is still valid; wait a moment and try again.`)
     }
     if (storedSessionValid === null) {
-      throw new Error(`Virgue could not confirm the Roblox session for @${account.username}. Check your connection and try again.`)
+      throw new Error(`Valdor could not confirm the Roblox session for @${account.username}. Check your connection and try again.`)
     }
 
     const checkedAt = new Date().toISOString()
@@ -1983,7 +2008,7 @@ export class RobloxClient {
 
   private async getPersistedAccountBrowserCookie(accountId: string): Promise<string | null> {
     try {
-      const browserSession = session.fromPartition(`persist:virgue-account-${accountId}`)
+      const browserSession = session.fromPartition(await this.getAccountPartition(accountId))
       const cookies = await browserSession.cookies.get({ url: 'https://www.roblox.com/' })
       return cookies.find((cookie) => cookie.name === '.ROBLOSECURITY')?.value ?? null
     } catch {

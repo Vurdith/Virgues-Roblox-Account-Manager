@@ -1,6 +1,6 @@
-# Virgue's Roblox Account Manager
+# Valdor — Roblox Account Manager
 
-Virgue's Roblox Account Manager is a Windows x64 Electron desktop workspace for organizing Roblox profiles, game collections, nested categories, secure sessions, and live Roblox tools. The interface uses a clean Neo-Brutalist visual system with an abstract Virgue V app icon.
+Valdor — Roblox Account Manager is a Windows x64 Electron desktop workspace for organizing Roblox profiles, game collections, nested categories, secure sessions, and live Roblox tools. The interface uses a clean Neo-Brutalist visual system with an abstract Valdor V app icon.
 
 ## Stack
 
@@ -20,7 +20,7 @@ npm run build
 npm run package
 ```
 
-The installer is written to `release/Virgues-Roblox-Account-Manager-Setup-1.0.6.exe` for the current release.
+The installer is written to `release/Valdor-Roblox-Account-Manager-Setup-1.0.6.exe` for the current release.
 
 ## Releases and updates
 
@@ -48,14 +48,14 @@ disable Windows security controls to install a build.
 
 ```text
 React renderer
-  -> window.virgue typed API
+  -> window.valdor typed API
 Secure preload (allow-listed IPC)
   -> Electron main process
 AccountStore + RobloxClient + SessionGuardian + BackgroundInputService + InputWorkerService + WebApiService + WatcherService
   -> local app data and Windows secure credential storage
 ```
 
-The renderer has no Node.js or raw `ipcRenderer` access. Profile metadata is persisted locally in the Electron user-data directory. Cookies are encrypted with Electron `safeStorage` in a separate credential store; imported passwords are used for sign-in and are not retained as a manager setting.
+The renderer has no Node.js or raw `ipcRenderer` access. Profile metadata is persisted locally in the Electron user-data directory. On first launch after the rebrand, Valdor migrates existing Virgue user-data files and Roblox account partitions into the new directory without deleting the legacy copy. Cookies are encrypted with Electron `safeStorage` in a separate credential store; imported passwords are used for sign-in and are not retained as a manager setting.
 
 ## Feature surface
 
@@ -64,30 +64,30 @@ The renderer has no Node.js or raw `ipcRenderer` access. Profile metadata is per
 - Place ID, Job ID, recent games, paginated server browsing, Job ID/region/player/ping filters, region lookup, server joins, game search, favorites, player finder, Universe Viewer, Outfit Viewer, per-account presence refresh, and general or account-specific FPS/ClientAppSettings patching.
 - Themes, Windows startup, a held Roblox multi-instance mutex with a manual close-all recovery action, launch delay, async joining, stale-cookie refresh, Roblox watcher, network/low-memory/window-title protection, a permissioned local Web API, and a WebSocket Roblox Control Bridge with command delivery and auto-relaunch.
 - Session Guardian: launch-correlated Roblox process records, exact PID/path checks, process and presence state separation, stale Job ID expiry, safe managed-session stopping, persisted session history, and live Activity Centre events.
-- Virgue Pro background controls: zero-configuration, focus-safe key messages for selected local alt windows, with persistent main-account protection, foreground-window rejection, an allowlisted key set, and a hard 1.5-second action limit.
+- Valdor Pro background controls: zero-configuration, focus-safe key messages for selected local alt windows, with persistent main-account protection, foreground-window rejection, an allowlisted key set, and a hard 1.5-second action limit.
 - Optional isolated-worker controls: password-authenticated controller-to-worker input for managed Roblox windows on another Windows installation, with target re-verification and no recording or unattended loops.
 
 ## Local background controls
 
 Open **Control**, mark the Roblox account you are actively playing as the main,
-and select up to eight ready alt clients. Virgue posts one bounded key-down and
+and select up to eight ready alt clients. Valdor posts one bounded key-down and
 key-up message to each selected window without activating it. The native helper
 revalidates the PID, executable path, and window ownership for every command. It
 also refuses whichever Roblox window is currently in the foreground, while the
-persisted main-account selection prevents accidental targeting when Virgue has
+persisted main-account selection prevents accidental targeting when Valdor has
 focus.
 
 Background messages are deliberately reported as **posted**, not as successful
 gameplay. Windows accepting a message does not guarantee that a Roblox client or
-experience consumes it. Virgue never falls back to stealing focus, injecting
+experience consumes it. Valdor never falls back to stealing focus, injecting
 code, modifying the client, or emulating a system-wide input device.
 
 ## Isolated worker controls
 
 Windows directs keyboard input to the foreground window on each interactive
-desktop. Virgue therefore keeps alt-client focus changes off the main PC:
+desktop. Valdor therefore keeps alt-client focus changes off the main PC:
 
-1. Install Virgue on a Windows VM or secondary PC, sign in to Virgue Pro, and
+1. Install Valdor on a Windows VM or secondary PC, sign in to Valdor Pro, and
    launch the alt accounts from that worker installation.
 2. On the worker, open **Settings → Privacy & security**. Save a strong Web API
    password of at least 12 characters, enable **Require password**, **Allow external API clients**,
@@ -120,7 +120,7 @@ The supported build target is the Electron app at the repository root.
 ## Source inspection and license
 
 The source is publicly available for security and privacy inspection under the
-[Virgue Source-Available Inspection License](LICENSE). This is not an
+[Valdor Source-Available Inspection License](LICENSE). This is not an
 open-source license. Repository access does not grant permission to use the
 app as an end user, remove subscription or licensing controls, modify it for
 distribution, package it, sell it, or publish a competing version.

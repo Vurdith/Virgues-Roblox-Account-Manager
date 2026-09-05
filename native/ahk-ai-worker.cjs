@@ -53,7 +53,7 @@ function extractLabeledSections(value) {
 async function main() {
   const input = await readInput()
   const moduleUrl = pathToFileURL(input.modulePath).href
-  process.stderr.write('VIRGUE_STAGE:loading-model\n')
+  process.stderr.write('VALDOR_STAGE:loading-model\n')
   const { getLlama, LlamaChatSession, LlamaLogLevel } = await import(moduleUrl)
   let llama
   let model
@@ -73,10 +73,10 @@ async function main() {
     const trace = []
     let streamed = ''
     let writingStarted = false
-    process.stderr.write('VIRGUE_STAGE:reading-request\n')
+    process.stderr.write('VALDOR_STAGE:reading-request\n')
     // Prompt evaluation is the local planning phase. This transition is
     // immediate by design: never add a cosmetic wait just to animate a stage.
-    process.stderr.write('VIRGUE_STAGE:planning-script\n')
+    process.stderr.write('VALDOR_STAGE:planning-script\n')
 
     const response = await session.prompt(input.prompt, {
       maxTokens: input.maxTokens,
@@ -86,7 +86,7 @@ async function main() {
       onTextChunk: (chunk) => {
         streamed += chunk
         if (!writingStarted && /```(?:ahk|autohotkey)?\s*/i.test(streamed)) {
-          process.stderr.write('VIRGUE_STAGE:writing-script\n')
+          process.stderr.write('VALDOR_STAGE:writing-script\n')
           writingStarted = true
         }
       },
@@ -98,11 +98,11 @@ async function main() {
     const planNote = formatNote('Implementation plan ·', plan)
     if (briefNote && !trace.includes(briefNote)) trace.push(briefNote)
     if (planNote && !trace.includes(planNote)) trace.push(planNote)
-    if (!writingStarted) process.stderr.write('VIRGUE_STAGE:writing-script\n')
+    if (!writingStarted) process.stderr.write('VALDOR_STAGE:writing-script\n')
     if (trace.length === 0) trace.push('No separate planning note was returned; review the generated script and explanation.')
     process.stdout.write(JSON.stringify({ ok: true, response, generationTrace: trace }))
   } finally {
-    process.stderr.write('VIRGUE_STAGE:unloading\n')
+    process.stderr.write('VALDOR_STAGE:unloading\n')
     if (context) await context.dispose().catch(() => undefined)
     if (model) await model.dispose().catch(() => undefined)
     if (llama) await llama.dispose().catch(() => undefined)

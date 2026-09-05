@@ -360,7 +360,7 @@ export class BackgroundInputService {
 
   private assertPlanAccess(): void {
     if (!this.store.getSnapshot().entitlements.isolatedWorkerInput) {
-      throw new Error('Protected Session controls are available with Virgue Pro.')
+      throw new Error('Protected Session controls are available with Valdor Pro.')
     }
   }
 }

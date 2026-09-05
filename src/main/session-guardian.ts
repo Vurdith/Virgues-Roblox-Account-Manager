@@ -232,7 +232,7 @@ export class SessionGuardian {
           if (job.status === 'launching') {
             job.status = 'scheduled'
             job.scheduledAt = new Date().toISOString()
-            job.lastError = 'Virgue restarted before the recovery launch completed.'
+            job.lastError = 'Valdor restarted before the recovery launch completed.'
           }
           if (job.attempt >= job.maxAttempts && job.status === 'scheduled') job.status = 'exhausted'
           this.recoveryJobs.set(job.id, job)
@@ -373,7 +373,7 @@ export class SessionGuardian {
       await this.tick()
       return clone(this.sessions.get(sessionId) ?? session)
     }
-    if (!this.isProcessCompatible(session, processInfo)) throw new Error('The recorded process ID no longer belongs to this session, so Virgue left it untouched.')
+    if (!this.isProcessCompatible(session, processInfo)) throw new Error('The recorded process ID no longer belongs to this session, so Valdor left it untouched.')
     session.processState = 'closing'
     session.status = 'closing'
     session.lastProcessCheckAt = new Date().toISOString()
@@ -441,7 +441,7 @@ export class SessionGuardian {
       for (const session of active) {
         const direct = session.processId === null ? null : processById.get(session.processId)
         if (direct && !this.isProcessCompatible(session, direct)) {
-          await this.endSession(session, false, 'The recorded process ID was reused by another process; Virgue left it untouched.', false)
+          await this.endSession(session, false, 'The recorded process ID was reused by another process; Valdor left it untouched.', false)
           dirty = true
           continue
         }
@@ -463,7 +463,7 @@ export class SessionGuardian {
             ? 'Closed by the user.'
             : session.processState === 'unresponsive'
               ? 'Roblox Player closed before Guardian could confirm a crash.'
-              : 'Roblox Player exited or was no longer visible to Virgue.'
+              : 'Roblox Player exited or was no longer visible to Valdor.'
           await this.endSession(session, false, exitReason)
           this.unresponsiveChecks.delete(session.id)
           dirty = true
@@ -686,7 +686,7 @@ export class SessionGuardian {
         return
       }
       if (!this.isProcessCompatible(session, processInfo)) {
-        this.recordEventValues('recovery-failed', session.id, session.accountId, 'warning', 'Stale session left untouched', 'The recorded process ID no longer matches the managed Roblox client, so Virgue did not close it.')
+        this.recordEventValues('recovery-failed', session.id, session.accountId, 'warning', 'Stale session left untouched', 'The recorded process ID no longer matches the managed Roblox client, so Valdor did not close it.')
         await this.persist()
         return
       }
